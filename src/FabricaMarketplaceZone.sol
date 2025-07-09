@@ -22,9 +22,9 @@ contract FabricaMarketplaceZone is ZoneInterface {
   // EIP‑712 domain separator (chainId baked in at deployment)
   bytes32 private immutable _DOMAIN_SEPARATOR;
   bytes32 private constant _EIP712_TYPE_HASH =
-  keccak256(
-    "OrderAuthorization(bytes32 orderHash,address fulfiller,uint64 expiry)"
-  );
+    keccak256(
+      "OrderAuthorization(bytes32 orderHash,address fulfiller,uint64 expiry)"
+    );
 
   bytes4 private constant _MAGIC = ZoneInterface.validateOrder.selector;
 
