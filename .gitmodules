@@ -13,3 +13,6 @@
 [submodule "lib/metastreet-contracts-v2"]
 	path = lib/metastreet-contracts-v2
 	url = https://github.com/metastreet-labs/metastreet-contracts-v2
+[submodule "lib/morpho-blue"]
+	path = lib/morpho-blue
+	url = https://github.com/morpho-org/morpho-blue
