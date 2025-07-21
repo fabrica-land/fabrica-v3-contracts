@@ -23,7 +23,7 @@ contract FabricaMarketplaceZone is ZoneInterface {
   bytes32 private immutable _DOMAIN_SEPARATOR;
   bytes32 private constant _EIP712_TYPE_HASH =
     keccak256(
-      "OrderAuthorization(bytes32 orderHash,address fulfiller,uint64 expiry)"
+      "OrderAuthorization(bytes32 orderHash,address fulfiller,uint64 expiry,string disclosurePackageId)"
     );
 
   bytes4 private constant _MAGIC = ZoneInterface.validateOrder.selector;
@@ -51,7 +51,7 @@ contract FabricaMarketplaceZone is ZoneInterface {
 
   /* ----------  Internal logic  ---------- */
 
-  /// @dev extraData = abi.encode(uint64 expiry, bytes signature)
+  /// @dev extraData = abi.encode(uint64 expiry, bytes36 disclosurePackageId, bytes signature)
   function _verify(
       ZoneParameters calldata p
   ) internal view {
@@ -60,14 +60,18 @@ contract FabricaMarketplaceZone is ZoneInterface {
     // ------------------------------------------------------------------- //
     // 1.  Read the 8‑byte expiry (big‑endian) and copy the sig to memory
     // ------------------------------------------------------------------- //
-    if (extra.length <= 8) revert("extraData too short");
+    if (extra.length <= 44) revert("extraData too short");
     uint64 expiry;
     assembly {
     // first 8 bytes = uint64 BE; shift down to the low 64 bits
       expiry := shr(192, calldataload(extra.offset))
     }
+    // next 36 bytes  -> ASCII UUID
+    bytes memory dpId = extra[8:44];               // Solidity slice; calldata‑>memory
+
     // Solidity ≥0.8.22 supports slicing; this gives us a *memory* copy
-    bytes memory sig = extra[8:];
+    bytes memory sig  = extra[44:];                // remainder is the signature
+
     // ------------------------------------------------------------------- //
     // 2.  Fresh‑ness window
     // ------------------------------------------------------------------- //
@@ -84,7 +88,8 @@ contract FabricaMarketplaceZone is ZoneInterface {
           _EIP712_TYPE_HASH,
           p.orderHash,
           p.fulfiller,
-          expiry
+          expiry,
+          keccak256(dpId)
         ))
       )
     );
