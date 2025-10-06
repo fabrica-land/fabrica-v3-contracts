@@ -3,7 +3,6 @@
   <component name="VcsDirectoryMappings">
     <mapping directory="" vcs="Git" />
     <mapping directory="$PROJECT_DIR$/lib/forge-std" vcs="Git" />
-    <mapping directory="$PROJECT_DIR$/lib/metastreet-contracts-v2" vcs="Git" />
     <mapping directory="$PROJECT_DIR$/lib/morpho-blue" vcs="Git" />
     <mapping directory="$PROJECT_DIR$/lib/morpho-blue/lib/forge-std" vcs="Git" />
     <mapping directory="$PROJECT_DIR$/lib/morpho-blue/lib/forge-std/lib/ds-test" vcs="Git" />

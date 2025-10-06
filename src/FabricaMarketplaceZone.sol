@@ -17,7 +17,7 @@ contract FabricaMarketplaceZone is ZoneInterface {
 
   // Immutable oracle signer (EOA or ERC‑1271 contract)
   address public immutable oracleSigner;
-  uint256 public constant MAX_AGE = 24 seconds;
+  uint256 public constant MAX_AGE = 5 days;
 
   // EIP‑712 domain separator (chainId baked in at deployment)
   bytes32 private immutable _DOMAIN_SEPARATOR;
@@ -26,7 +26,8 @@ contract FabricaMarketplaceZone is ZoneInterface {
       "OrderAuthorization(bytes32 orderHash,address fulfiller,uint64 expiry,string disclosurePackageId)"
     );
 
-  bytes4 private constant _MAGIC = ZoneInterface.validateOrder.selector;
+  bytes4 private constant _AUTHORIZE_MAGIC = ZoneInterface.authorizeOrder.selector;
+  bytes4 private constant _VALIDATE_MAGIC = ZoneInterface.validateOrder.selector;
 
   constructor(address _oracleSigner) {
     oracleSigner = _oracleSigner;
@@ -39,14 +40,14 @@ contract FabricaMarketplaceZone is ZoneInterface {
       ZoneParameters calldata p
   ) external view returns (bytes4) {
     _verify(p);
-    return _MAGIC;
+    return _AUTHORIZE_MAGIC;
   }
 
   function validateOrder(
       ZoneParameters calldata p
   ) external view returns (bytes4) {
     _verify(p); // redundant but cheap – protects post‑transfer state change
-    return _MAGIC;
+    return _VALIDATE_MAGIC;
   }
 
   /* ----------  Internal logic  ---------- */
@@ -57,10 +58,10 @@ contract FabricaMarketplaceZone is ZoneInterface {
   ) internal view {
     // pull the bytes slice out to its own calldata variable
     bytes calldata extra = p.extraData;
+    if (extra.length <= 44) revert("extraData too short");
     // ------------------------------------------------------------------- //
     // 1.  Read the 8‑byte expiry (big‑endian) and copy the sig to memory
     // ------------------------------------------------------------------- //
-    if (extra.length <= 44) revert("extraData too short");
     uint64 expiry;
     assembly {
     // first 8 bytes = uint64 BE; shift down to the low 64 bits
