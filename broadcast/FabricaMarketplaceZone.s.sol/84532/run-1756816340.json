@@ -1,7 +1,7 @@
 {
   "transactions": [
     {
-      "hash": "0x912150d6114130038997731d40698a2bfb38b158ff70e3a2aeb960136e4f8ff5",
+      "hash": null,
       "transactionType": "CREATE",
       "contractName": "FabricaMarketplaceZone",
       "contractAddress": "0xc077131e5b99bdbeb9a2ac5882a323abc34e1b1a",
@@ -21,34 +21,11 @@
       "isFixedGasLimit": false
     }
   ],
-  "receipts": [
-    {
-      "status": "0x1",
-      "cumulativeGasUsed": "0xc3459d",
-      "logs": [],
-      "logsBloom": "0x00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
-      "type": "0x2",
-      "transactionHash": "0x912150d6114130038997731d40698a2bfb38b158ff70e3a2aeb960136e4f8ff5",
-      "transactionIndex": "0x25",
-      "blockHash": "0xb4abbcc7dd6b5f2ff094ba75c94d3630763a68056b8d85d5f1c7275855e7c269",
-      "blockNumber": "0x1d1c2bf",
-      "gasUsed": "0xa2ad6",
-      "effectiveGasPrice": "0xf4365",
-      "from": "0xbf03076547a99857b796717faf4034dea94569df",
-      "to": null,
-      "contractAddress": "0xc077131e5b99bdbeb9a2ac5882a323abc34e1b1a",
-      "l1BaseFeeScalar": "0x44d",
-      "l1BlobBaseFee": "0x59028e072",
-      "l1BlobBaseFeeScalar": "0xa118b",
-      "l1Fee": "0x1c12bf881fcb",
-      "l1GasPrice": "0x87fbdc2",
-      "l1GasUsed": "0x7a57"
-    }
-  ],
+  "receipts": [],
   "libraries": [],
   "pending": [],
   "returns": {},
-  "timestamp": 1756816477,
+  "timestamp": 1756816340,
   "chain": 84532,
   "commit": "cccdf23"
 }
