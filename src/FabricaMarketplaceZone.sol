@@ -1,8 +1,9 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
-import {ZoneInterface, ZoneParameters, Schema} from "seaport-types/interfaces/ZoneInterface.sol";
+import "../lib/seaport-types/src/lib/ConsiderationStructs.sol";
 import {ECDSA} from "../lib/openzeppelin-contracts-upgradeable/lib/openzeppelin-contracts/contracts/utils/cryptography/ECDSA.sol";
+import {ZoneInterface, ZoneParameters, Schema} from "seaport-types/interfaces/ZoneInterface.sol";
 
 /// @dev For contract‑based signers you can replace ECDSA with ERC‑1271 checks
 interface IERC1271 {
@@ -17,13 +18,13 @@ contract FabricaMarketplaceZone is ZoneInterface {
 
   // Immutable oracle signer (EOA or ERC‑1271 contract)
   address public immutable oracleSigner;
-  uint256 public constant MAX_AGE = 5 days;
+  uint256 public constant MAX_AGE = 7 days;
 
   // EIP‑712 domain separator (chainId baked in at deployment)
   bytes32 private immutable _DOMAIN_SEPARATOR;
   bytes32 private constant _EIP712_TYPE_HASH =
     keccak256(
-      "OrderAuthorization(bytes32 orderHash,address fulfiller,uint64 expiry,string disclosurePackageId)"
+      "OrderAuthorization(bytes32 orderHash,uint64 expiry,string disclosurePackageId)"
     );
 
   bytes4 private constant _AUTHORIZE_MAGIC = ZoneInterface.authorizeOrder.selector;
@@ -88,7 +89,6 @@ contract FabricaMarketplaceZone is ZoneInterface {
         keccak256(abi.encode(
           _EIP712_TYPE_HASH,
           p.orderHash,
-          p.fulfiller,
           expiry,
           keccak256(dpId)
         ))
@@ -116,6 +116,7 @@ contract FabricaMarketplaceZone is ZoneInterface {
   }
 
   function getSeaportMetadata() external pure override returns (string memory name, Schema[] memory schemas) {
+    schemas = new Schema[](1);
     schemas[0] = Schema({ id: 3003, metadata: new bytes(0) });
     name = "FabricaMarketplaceZone";
   }
