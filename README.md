@@ -64,3 +64,16 @@ $ forge --help
 $ anvil --help
 $ cast --help
 ```
+
+### Deploying
+```
+forge script \
+    --rpc-url [get from foundry.toml for the network] \
+    script/FabricaMarketplaceZone.s.sol # The script to deploy \
+    --private-key [actual deployment-wallet private key] \
+    --broadcast \
+    --verify \
+    # the following are only used if the run function has parameters \
+    --sig "run(address)" \
+    0x3fE51ba59dDA319d5Ac3Bf372993Ec0705dC62CB # The parameters to pass to the function
+```
