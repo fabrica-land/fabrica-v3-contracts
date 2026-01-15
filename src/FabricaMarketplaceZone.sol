@@ -4,6 +4,7 @@ pragma solidity ^0.8.24;
 import "../lib/seaport-types/src/lib/ConsiderationStructs.sol";
 import {ECDSA} from "../lib/openzeppelin-contracts-upgradeable/lib/openzeppelin-contracts/contracts/utils/cryptography/ECDSA.sol";
 import {ZoneInterface, ZoneParameters, Schema} from "seaport-types/interfaces/ZoneInterface.sol";
+import {IFabricaToken} from "./IFabricaToken.sol";
 
 /// @dev For contract‑based signers you can replace ECDSA with ERC‑1271 checks
 interface IERC1271 {
@@ -11,17 +12,6 @@ interface IERC1271 {
       bytes32 hash,
       bytes calldata sig
   ) external view returns (bytes4);
-}
-
-/// @dev Interface for FabricaToken to read the property definition
-interface IFabricaToken {
-  function _property(uint256 tokenId) external view returns (
-    uint256 supply,
-    string memory operatingAgreement,
-    string memory definition,
-    string memory configuration,
-    address validator
-  );
 }
 
 contract FabricaMarketplaceZone is ZoneInterface {
