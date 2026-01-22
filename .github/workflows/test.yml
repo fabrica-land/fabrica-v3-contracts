@@ -26,6 +26,19 @@ jobs:
         run: |
           forge --version
 
+      - name: Create foundry.toml
+        run: |
+          cat > foundry.toml << 'EOF'
+          [profile.default]
+          src = "src"
+          out = "out"
+          libs = ["lib"]
+          solc = "0.8.28"
+          optimizer = true
+          optimizer_runs = 1
+          via_ir = false
+          EOF
+
       - name: Run Forge fmt
         run: |
           forge fmt --check
