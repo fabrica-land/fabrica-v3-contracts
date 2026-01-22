@@ -1,0 +1,4 @@
+pre-push:
+  commands:
+    forge-fmt:
+      run: forge fmt --check

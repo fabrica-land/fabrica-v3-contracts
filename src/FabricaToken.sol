@@ -4,7 +4,9 @@ pragma solidity ^0.8.28;
 
 import {IERC1155} from "../lib/openzeppelin-contracts/contracts/token/ERC1155/ERC1155.sol";
 import {IERC1155Receiver} from "../lib/openzeppelin-contracts/contracts/token/ERC1155/IERC1155Receiver.sol";
-import {IERC1155MetadataURI} from "../lib/openzeppelin-contracts/contracts/token/ERC1155/extensions/IERC1155MetadataURI.sol";
+import {
+    IERC1155MetadataURI
+} from "../lib/openzeppelin-contracts/contracts/token/ERC1155/extensions/IERC1155MetadataURI.sol";
 import {Address} from "../lib/openzeppelin-contracts/contracts/utils/Address.sol";
 import {Strings} from "../lib/openzeppelin-contracts/contracts/utils/Strings.sol";
 import {IERC165} from "../lib/openzeppelin-contracts/contracts/utils/introspection/ERC165.sol";
@@ -13,7 +15,9 @@ import {Math} from "../lib/openzeppelin-contracts/contracts/utils/math/Math.sol"
 import {OwnableUpgradeable} from "../lib/openzeppelin-contracts-upgradeable/contracts/access/OwnableUpgradeable.sol";
 import {Initializable} from "../lib/openzeppelin-contracts-upgradeable/contracts/proxy/utils/Initializable.sol";
 import {PausableUpgradeable} from "../lib/openzeppelin-contracts-upgradeable/contracts/utils/PausableUpgradeable.sol";
-import {ERC165Upgradeable} from "../lib/openzeppelin-contracts-upgradeable/contracts/utils/introspection/ERC165Upgradeable.sol";
+import {
+    ERC165Upgradeable
+} from "../lib/openzeppelin-contracts-upgradeable/contracts/utils/introspection/ERC165Upgradeable.sol";
 import {FabricaUUPSUpgradeable} from "./FabricaUUPSUpgradeable.sol";
 import {IFabricaValidator} from "./IFabricaValidator.sol";
 import {IFabricaValidatorRegistry} from "./IFabricaValidatorRegistry.sol";
@@ -25,7 +29,15 @@ import {IFabricaValidatorRegistry} from "./IFabricaValidatorRegistry.sol";
  *
  * _Available since v3.1._
  */
-contract FabricaToken is Initializable, ERC165Upgradeable, IERC1155, IERC1155MetadataURI, OwnableUpgradeable, PausableUpgradeable, FabricaUUPSUpgradeable {
+contract FabricaToken is
+    Initializable,
+    ERC165Upgradeable,
+    IERC1155,
+    IERC1155MetadataURI,
+    OwnableUpgradeable,
+    PausableUpgradeable,
+    FabricaUUPSUpgradeable
+{
     using Address for address;
 
     constructor() {
@@ -82,13 +94,16 @@ contract FabricaToken is Initializable, ERC165Upgradeable, IERC1155, IERC1155Met
     /**
      * @dev See {IERC165-supportsInterface}.
      */
-    function supportsInterface(bytes4 interfaceId) public view virtual override(ERC165Upgradeable, IERC165) returns (bool) {
-        return
-            interfaceId == type(IERC1155).interfaceId ||
-            interfaceId == type(IERC1155MetadataURI).interfaceId ||
+    function supportsInterface(bytes4 interfaceId)
+        public
+        view
+        virtual
+        override(ERC165Upgradeable, IERC165)
+        returns (bool)
+    {
+        return interfaceId == type(IERC1155).interfaceId || interfaceId == type(IERC1155MetadataURI).interfaceId
             // 0xaf332f3e is ERC-7496
-            interfaceId == 0xaf332f3e ||
-            super.supportsInterface(interfaceId);
+            || interfaceId == 0xaf332f3e || super.supportsInterface(interfaceId);
     }
 
     function pause() public onlyOwner whenNotPaused {
@@ -129,17 +144,17 @@ contract FabricaToken is Initializable, ERC165Upgradeable, IERC1155, IERC1155Met
     // getTraitValues() defined as part of ERC-7496 Specification
     function getTraitValues(uint256 tokenId, bytes32[] calldata traitKeys) external view returns (bytes32[] memory) {
         bytes32[] memory values = new bytes32[](traitKeys.length);
-        for (uint256 i = 0 ; i < traitKeys.length ; i++) {
-          bytes32 traitKey = traitKeys[i];
-          if (traitKey == keccak256("validator")) {
-              values[i] = bytes32(bytes(_getValidatorName(tokenId)));
-              continue;
-          }
-          if (traitKey == keccak256("operatingAgreement")) {
-              values[i] = bytes32(bytes(_getOperatingAgreementName(tokenId)));
-              continue;
-          }
-          revert(string.concat("Unknown trait key at index ", Strings.toString(i)));
+        for (uint256 i = 0; i < traitKeys.length; i++) {
+            bytes32 traitKey = traitKeys[i];
+            if (traitKey == keccak256("validator")) {
+                values[i] = bytes32(bytes(_getValidatorName(tokenId)));
+                continue;
+            }
+            if (traitKey == keccak256("operatingAgreement")) {
+                values[i] = bytes32(bytes(_getOperatingAgreementName(tokenId)));
+                continue;
+            }
+            revert(string.concat("Unknown trait key at index ", Strings.toString(i)));
         }
         return values;
     }
@@ -155,6 +170,7 @@ contract FabricaToken is Initializable, ERC165Upgradeable, IERC1155, IERC1155Met
     function contractURI() public view returns (string memory) {
         return _contractURI;
     }
+
     function setContractURI(string memory newURI) external onlyOwner {
         _contractURI = newURI;
         emit ContractURIUpdated();
@@ -163,10 +179,8 @@ contract FabricaToken is Initializable, ERC165Upgradeable, IERC1155, IERC1155Met
     /**
      * @dev Delegate to the validator contract: default to the Fabrica validator
      */
-    function uri(uint256 id) override public view returns (string memory) {
-        address validator = _property[id].validator == address(0)
-            ? _defaultValidator
-            : _property[id].validator;
+    function uri(uint256 id) public view override returns (string memory) {
+        address validator = _property[id].validator == address(0) ? _defaultValidator : _property[id].validator;
         return IFabricaValidator(validator).uri(id);
     }
 
@@ -185,7 +199,7 @@ contract FabricaToken is Initializable, ERC165Upgradeable, IERC1155, IERC1155Met
         uint256 supply = 0;
         for (uint256 i = 0; i < amounts.length; i++) {
             uint256 amount = amounts[i];
-            require(amount > 0, 'Each amount must be greater than zero');
+            require(amount > 0, "Each amount must be greater than zero");
             supply += amount;
         }
         Property memory property;
@@ -213,7 +227,7 @@ contract FabricaToken is Initializable, ERC165Upgradeable, IERC1155, IERC1155Met
         uint256 supply = 0;
         for (uint256 i = 0; i < amounts.length; i++) {
             uint256 amount = amounts[i];
-            require(amount > 0, 'Each amount must be greater than zero');
+            require(amount > 0, "Each amount must be greater than zero");
             supply += amount;
         }
         uint256 size = sessionIds.length;
@@ -228,20 +242,16 @@ contract FabricaToken is Initializable, ERC165Upgradeable, IERC1155, IERC1155Met
         ids = _mintBatch(recipients, sessionIds, amounts, properties, "");
     }
 
-    function burn(
-        address from,
-        uint256 id,
-        uint256 amount
-    ) public whenNotPaused returns (bool success) {
+    function burn(address from, uint256 id, uint256 amount) public whenNotPaused returns (bool success) {
         _burn(from, id, amount);
         success = true;
     }
 
-    function burnBatch(
-        address from,
-        uint256[] memory ids,
-        uint256[] memory amounts
-    ) public whenNotPaused returns (bool success) {
+    function burnBatch(address from, uint256[] memory ids, uint256[] memory amounts)
+        public
+        whenNotPaused
+        returns (bool success)
+    {
         _burnBatch(from, ids, amounts);
         success = true;
     }
@@ -249,12 +259,17 @@ contract FabricaToken is Initializable, ERC165Upgradeable, IERC1155, IERC1155Met
     /**
      * @dev generate token id (to avoid frontrunning)
      */
-    function generateId(address operator, uint256 sessionId, string memory operatingAgreement) public view whenNotPaused returns(uint256) {
+    function generateId(address operator, uint256 sessionId, string memory operatingAgreement)
+        public
+        view
+        whenNotPaused
+        returns (uint256)
+    {
         /**
          * @dev hash operator address with sessionId and chainId to generate unique token Id
          *      format: string(sender_address) + string(sessionId) => hash to byte32 => cast to uint
          */
-        string memory operatorString = Strings.toHexString(uint(uint160(operator)), 20);
+        string memory operatorString = Strings.toHexString(uint256(uint160(operator)), 20);
         string memory idString = string.concat(
             Strings.toString(block.chainid),
             Strings.toHexString(address(this)),
@@ -311,20 +326,26 @@ contract FabricaToken is Initializable, ERC165Upgradeable, IERC1155, IERC1155Met
     /**
      * @dev See {IERC1155-isApprovedForAll}.
      */
-    function isApprovedForAll(address account, address operator) public view virtual override whenNotPaused returns (bool) {
+    function isApprovedForAll(address account, address operator)
+        public
+        view
+        virtual
+        override
+        whenNotPaused
+        returns (bool)
+    {
         return _operatorApprovals[account][operator];
     }
 
     /**
      * @dev See {IERC1155-safeTransferFrom}.
      */
-    function safeTransferFrom(
-        address from,
-        address to,
-        uint256 id,
-        uint256 amount,
-        bytes memory data
-    ) public virtual override whenNotPaused {
+    function safeTransferFrom(address from, address to, uint256 id, uint256 amount, bytes memory data)
+        public
+        virtual
+        override
+        whenNotPaused
+    {
         require(
             from == _msgSender() || isApprovedForAll(from, _msgSender()),
             "ERC1155: caller is not token owner or approved"
@@ -350,7 +371,11 @@ contract FabricaToken is Initializable, ERC165Upgradeable, IERC1155, IERC1155Met
     }
 
     // @dev only executable by > 70% owner
-    function updateOperatingAgreement(string memory operatingAgreement, uint256 id) public whenNotPaused returns (bool) {
+    function updateOperatingAgreement(string memory operatingAgreement, uint256 id)
+        public
+        whenNotPaused
+        returns (bool)
+    {
         require(_percentOwner(_msgSender(), id, 70), "Only > 70% can update");
         _property[id].operatingAgreement = operatingAgreement;
         emit UpdateOperatingAgreement(id, operatingAgreement);
@@ -377,7 +402,8 @@ contract FabricaToken is Initializable, ERC165Upgradeable, IERC1155, IERC1155Met
 
     function _getValidatorName(uint256 tokenId) internal view returns (string memory) {
         if (_validatorRegistry != address(0)) {
-            string memory validatorName = IFabricaValidatorRegistry(_validatorRegistry).name(_property[tokenId].validator);
+            string memory validatorName =
+                IFabricaValidatorRegistry(_validatorRegistry).name(_property[tokenId].validator);
             if (bytes(validatorName).length > 0) {
                 return validatorName;
             } else {
@@ -388,8 +414,9 @@ contract FabricaToken is Initializable, ERC165Upgradeable, IERC1155, IERC1155Met
     }
 
     function _getOperatingAgreementName(uint256 tokenId) internal view returns (string memory) {
-        return IFabricaValidator(_property[tokenId].validator)
-            .operatingAgreementName(_property[tokenId].operatingAgreement);
+        return
+            IFabricaValidator(_property[tokenId].validator)
+                .operatingAgreementName(_property[tokenId].operatingAgreement);
     }
 
     // @dev `threshold`: percentage threshold
@@ -418,13 +445,11 @@ contract FabricaToken is Initializable, ERC165Upgradeable, IERC1155, IERC1155Met
      * - If `to` refers to a smart contract, it must implement {IERC1155Receiver-onERC1155Received} and return the
      * acceptance magic value.
      */
-    function _safeTransferFrom(
-        address from,
-        address to,
-        uint256 id,
-        uint256 amount,
-        bytes memory data
-    ) internal virtual whenNotPaused {
+    function _safeTransferFrom(address from, address to, uint256 id, uint256 amount, bytes memory data)
+        internal
+        virtual
+        whenNotPaused
+    {
         require(to != address(0), "ERC1155: transfer to the zero address");
         address operator = _msgSender();
         uint256 fromBalance = _balances[id][from];
@@ -485,15 +510,15 @@ contract FabricaToken is Initializable, ERC165Upgradeable, IERC1155, IERC1155Met
      */
     function _mint(
         address[] memory recipients,
-        uint sessionId,
+        uint256 sessionId,
         uint256[] memory amounts,
         Property memory property,
         bytes memory data
-    ) internal virtual whenNotPaused returns(uint256) {
+    ) internal virtual whenNotPaused returns (uint256) {
         require(bytes(property.definition).length > 0, "Definition is required");
         require(sessionId > 0, "Valid sessionId is required");
         require(property.supply > 0, "Minimum supply is 1");
-        require(recipients.length == amounts.length, 'Number of recipients and amounts must match');
+        require(recipients.length == amounts.length, "Number of recipients and amounts must match");
         // If validator is not specified during mint, use default validator address
         if (property.validator == address(0)) {
             // set default validator address
@@ -534,8 +559,8 @@ contract FabricaToken is Initializable, ERC165Upgradeable, IERC1155, IERC1155Met
         uint256[] memory amounts,
         Property[] memory properties,
         bytes memory data
-    ) internal virtual whenNotPaused returns(uint256[] memory) {
-        require(recipients.length == amounts.length, 'Number of recipients and amounts must match');
+    ) internal virtual whenNotPaused returns (uint256[] memory) {
+        require(recipients.length == amounts.length, "Number of recipients and amounts must match");
         require(sessionIds.length == properties.length, "sessionIds and properties length mismatch");
         // hit stack too deep error when using more variables, so we use sessionsIds.length in multiple
         // places instead of creating new variables
@@ -632,11 +657,7 @@ contract FabricaToken is Initializable, ERC165Upgradeable, IERC1155, IERC1155Met
      *
      * Emits an {ApprovalForAll} event.
      */
-    function _setApprovalForAll(
-        address owner,
-        address operator,
-        bool approved
-    ) internal virtual whenNotPaused {
+    function _setApprovalForAll(address owner, address operator, bool approved) internal virtual whenNotPaused {
         require(owner != operator, "ERC1155: setting approval status for self");
         _operatorApprovals[owner][operator] = approved;
         emit ApprovalForAll(owner, operator, approved);

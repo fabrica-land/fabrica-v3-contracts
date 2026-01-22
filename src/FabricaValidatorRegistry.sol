@@ -7,12 +7,21 @@ import {ERC165Checker} from "../lib/openzeppelin-contracts/contracts/utils/intro
 import {IERC165} from "../lib/openzeppelin-contracts/contracts/utils/introspection/IERC165.sol";
 import {OwnableUpgradeable} from "../lib/openzeppelin-contracts-upgradeable/contracts/access/OwnableUpgradeable.sol";
 import {Initializable} from "../lib/openzeppelin-contracts-upgradeable/contracts/proxy/utils/Initializable.sol";
-import {ERC165Upgradeable} from "../lib/openzeppelin-contracts-upgradeable/contracts/utils/introspection/ERC165Upgradeable.sol";
+import {
+    ERC165Upgradeable
+} from "../lib/openzeppelin-contracts-upgradeable/contracts/utils/introspection/ERC165Upgradeable.sol";
 import {ContextUpgradeable} from "../lib/openzeppelin-contracts-upgradeable/contracts/utils/ContextUpgradeable.sol";
 import {FabricaUUPSUpgradeable} from "./FabricaUUPSUpgradeable.sol";
 import {IFabricaValidatorRegistry} from "./IFabricaValidatorRegistry.sol";
 
-contract FabricaValidatorRegistry is IFabricaValidatorRegistry, Initializable, IERC165, ERC165Upgradeable, OwnableUpgradeable, FabricaUUPSUpgradeable {
+contract FabricaValidatorRegistry is
+    IFabricaValidatorRegistry,
+    Initializable,
+    IERC165,
+    ERC165Upgradeable,
+    OwnableUpgradeable,
+    FabricaUUPSUpgradeable
+{
     using Address for address;
 
     constructor() {
@@ -32,7 +41,13 @@ contract FabricaValidatorRegistry is IFabricaValidatorRegistry, Initializable, I
     /**
      * @dev See {IERC165-supportsInterface}.
      */
-    function supportsInterface(bytes4 interfaceId) public view virtual override(ERC165Upgradeable, IERC165) returns (bool) {
+    function supportsInterface(bytes4 interfaceId)
+        public
+        view
+        virtual
+        override(ERC165Upgradeable, IERC165)
+        returns (bool)
+    {
         return super.supportsInterface(interfaceId);
     }
 
