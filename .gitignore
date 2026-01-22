@@ -10,8 +10,5 @@ out/
 # Docs
 docs/
 
-# Dotenv file
+# Dotenv file (contains RPC URLs with API keys, Etherscan API keys)
 .env
-
-# This contains secrets (RPC URL with API key, Etherscan API keys)
-foundry.toml
