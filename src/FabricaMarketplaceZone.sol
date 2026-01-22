@@ -2,8 +2,9 @@
 pragma solidity ^0.8.24;
 
 import "../lib/seaport-types/src/lib/ConsiderationStructs.sol";
-import {ECDSA} from
-    "../lib/openzeppelin-contracts-upgradeable/lib/openzeppelin-contracts/contracts/utils/cryptography/ECDSA.sol";
+import {
+    ECDSA
+} from "../lib/openzeppelin-contracts-upgradeable/lib/openzeppelin-contracts/contracts/utils/cryptography/ECDSA.sol";
 import {ZoneInterface, ZoneParameters, Schema} from "seaport-types/interfaces/ZoneInterface.sol";
 import {IFabricaToken} from "./IFabricaToken.sol";
 
@@ -21,8 +22,9 @@ contract FabricaMarketplaceZone is ZoneInterface {
 
     // EIP‑712 domain separator (chainId baked in at deployment)
     bytes32 private immutable _DOMAIN_SEPARATOR;
-    bytes32 private constant _EIP712_TYPE_HASH =
-        keccak256("OrderAuthorization(bytes32 orderHash,uint64 expiry,string definitionUrl,string disclosurePackageId)");
+    bytes32 private constant _EIP712_TYPE_HASH = keccak256(
+        "OrderAuthorization(bytes32 orderHash,uint64 expiry,string definitionUrl,string disclosurePackageId)"
+    );
 
     bytes4 private constant _AUTHORIZE_MAGIC = ZoneInterface.authorizeOrder.selector;
     bytes4 private constant _VALIDATE_MAGIC = ZoneInterface.validateOrder.selector;

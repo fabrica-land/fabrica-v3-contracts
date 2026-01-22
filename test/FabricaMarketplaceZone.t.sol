@@ -3,9 +3,7 @@ pragma solidity ^0.8.24;
 
 import "forge-std/Test.sol";
 import {FabricaMarketplaceZone} from "../src/FabricaMarketplaceZone.sol";
-import {
-    ZoneParameters, SpentItem, ReceivedItem, ItemType
-} from "../lib/seaport-types/src/lib/ConsiderationStructs.sol";
+import {ZoneParameters, SpentItem, ReceivedItem, ItemType} from "../lib/seaport-types/src/lib/ConsiderationStructs.sol";
 
 // Mock FabricaToken for testing
 contract MockFabricaToken {
@@ -31,8 +29,9 @@ contract FabricaMarketplaceZoneTest is Test {
     uint256 internal signerPrivateKey;
     address internal signer;
 
-    bytes32 private constant _EIP712_TYPE_HASH =
-        keccak256("OrderAuthorization(bytes32 orderHash,uint64 expiry,string definitionUrl,string disclosurePackageId)");
+    bytes32 private constant _EIP712_TYPE_HASH = keccak256(
+        "OrderAuthorization(bytes32 orderHash,uint64 expiry,string definitionUrl,string disclosurePackageId)"
+    );
 
     function setUp() public {
         signerPrivateKey = 0xA11CE;

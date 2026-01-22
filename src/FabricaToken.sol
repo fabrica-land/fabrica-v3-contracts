@@ -4,8 +4,9 @@ pragma solidity ^0.8.28;
 
 import {IERC1155} from "../lib/openzeppelin-contracts/contracts/token/ERC1155/ERC1155.sol";
 import {IERC1155Receiver} from "../lib/openzeppelin-contracts/contracts/token/ERC1155/IERC1155Receiver.sol";
-import {IERC1155MetadataURI} from
-    "../lib/openzeppelin-contracts/contracts/token/ERC1155/extensions/IERC1155MetadataURI.sol";
+import {
+    IERC1155MetadataURI
+} from "../lib/openzeppelin-contracts/contracts/token/ERC1155/extensions/IERC1155MetadataURI.sol";
 import {Address} from "../lib/openzeppelin-contracts/contracts/utils/Address.sol";
 import {Strings} from "../lib/openzeppelin-contracts/contracts/utils/Strings.sol";
 import {IERC165} from "../lib/openzeppelin-contracts/contracts/utils/introspection/ERC165.sol";
@@ -14,8 +15,9 @@ import {Math} from "../lib/openzeppelin-contracts/contracts/utils/math/Math.sol"
 import {OwnableUpgradeable} from "../lib/openzeppelin-contracts-upgradeable/contracts/access/OwnableUpgradeable.sol";
 import {Initializable} from "../lib/openzeppelin-contracts-upgradeable/contracts/proxy/utils/Initializable.sol";
 import {PausableUpgradeable} from "../lib/openzeppelin-contracts-upgradeable/contracts/utils/PausableUpgradeable.sol";
-import {ERC165Upgradeable} from
-    "../lib/openzeppelin-contracts-upgradeable/contracts/utils/introspection/ERC165Upgradeable.sol";
+import {
+    ERC165Upgradeable
+} from "../lib/openzeppelin-contracts-upgradeable/contracts/utils/introspection/ERC165Upgradeable.sol";
 import {FabricaUUPSUpgradeable} from "./FabricaUUPSUpgradeable.sol";
 import {IFabricaValidator} from "./IFabricaValidator.sol";
 import {IFabricaValidatorRegistry} from "./IFabricaValidatorRegistry.sol";
@@ -100,8 +102,8 @@ contract FabricaToken is
         returns (bool)
     {
         return interfaceId == type(IERC1155).interfaceId || interfaceId == type(IERC1155MetadataURI).interfaceId
-        // 0xaf332f3e is ERC-7496
-        || interfaceId == 0xaf332f3e || super.supportsInterface(interfaceId);
+            // 0xaf332f3e is ERC-7496
+            || interfaceId == 0xaf332f3e || super.supportsInterface(interfaceId);
     }
 
     function pause() public onlyOwner whenNotPaused {
@@ -159,8 +161,7 @@ contract FabricaToken is
 
     // getTraitMetadataURI() defined as part of the ERC-7496 Specification
     function getTraitMetadataURI() external pure returns (string memory) {
-        return
-        "data:application/json;charset=utf-8;base64,ewogICJ0cmFpdHMiOiB7CiAgICAidmFsaWRhdG9yIjogewogICAgICAiZGlzcGxheU5hbWUiOiAiVmFsaWRhdG9yIiwKICAgICAgImRhdGFUeXBlIjogewogICAgICAgICJ0eXBlIjogInN0cmluZyIsCiAgICAgICAgIm1pbkxlbmd0aCI6IDEKICAgICAgfSwKICAgICAgInZhbGlkYXRlT25TYWxlIjogInJlcXVpcmVFcSIKICAgIH0sCiAgICAib3BlcmF0aW5nQWdyZWVtZW50IjogewogICAgICAiZGlzcGxheU5hbWUiOiAiT3BlcmF0aW5nIEFncmVlbWVudCIsCiAgICAgICJkYXRhVHlwZSI6IHsKICAgICAgICAidHlwZSI6ICJzdHJpbmciLAogICAgICAgICJtaW5MZW5ndGgiOiAxCiAgICAgIH0sCiAgICAgICJ2YWxpZGF0ZU9uU2FsZSI6ICJyZXF1aXJlRXEiCiAgICB9CiAgfQp9";
+        return "data:application/json;charset=utf-8;base64,ewogICJ0cmFpdHMiOiB7CiAgICAidmFsaWRhdG9yIjogewogICAgICAiZGlzcGxheU5hbWUiOiAiVmFsaWRhdG9yIiwKICAgICAgImRhdGFUeXBlIjogewogICAgICAgICJ0eXBlIjogInN0cmluZyIsCiAgICAgICAgIm1pbkxlbmd0aCI6IDEKICAgICAgfSwKICAgICAgInZhbGlkYXRlT25TYWxlIjogInJlcXVpcmVFcSIKICAgIH0sCiAgICAib3BlcmF0aW5nQWdyZWVtZW50IjogewogICAgICAiZGlzcGxheU5hbWUiOiAiT3BlcmF0aW5nIEFncmVlbWVudCIsCiAgICAgICJkYXRhVHlwZSI6IHsKICAgICAgICAidHlwZSI6ICJzdHJpbmciLAogICAgICAgICJtaW5MZW5ndGgiOiAxCiAgICAgIH0sCiAgICAgICJ2YWxpZGF0ZU9uU2FsZSI6ICJyZXF1aXJlRXEiCiAgICB9CiAgfQp9";
     }
 
     /**
@@ -413,9 +414,9 @@ contract FabricaToken is
     }
 
     function _getOperatingAgreementName(uint256 tokenId) internal view returns (string memory) {
-        return IFabricaValidator(_property[tokenId].validator).operatingAgreementName(
-            _property[tokenId].operatingAgreement
-        );
+        return
+            IFabricaValidator(_property[tokenId].validator)
+                .operatingAgreementName(_property[tokenId].operatingAgreement);
     }
 
     // @dev `threshold`: percentage threshold
