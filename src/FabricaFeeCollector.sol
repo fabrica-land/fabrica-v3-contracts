@@ -17,12 +17,8 @@ contract FabricaFeeCollector is Initializable, OwnableUpgradeable, PausableUpgra
     uint8 private _protocolSharePercent;
     address private _protocolFeeRecipient;
 
-    event ProtocolSharePercentChanged(
-        uint256 indexed newProtocolSharePercent
-    );
-    event ProtocolFeeRecipientChanged(
-        address indexed newFeeRecipient
-    );
+    event ProtocolSharePercentChanged(uint256 indexed newProtocolSharePercent);
+    event ProtocolFeeRecipientChanged(address indexed newFeeRecipient);
     event FeeCollected(
         uint256 indexed tokenId,
         string indexed feeType,
@@ -33,24 +29,17 @@ contract FabricaFeeCollector is Initializable, OwnableUpgradeable, PausableUpgra
         uint256 validatorReceived
     );
 
-    error InsufficientAllowance(
-        uint256 approval,
-        uint256 feeAmount
-    );
-    error InsufficientBalance(
-        uint256 balance,
-        uint256 feeAmount
-    );
+    error InsufficientAllowance(uint256 approval, uint256 feeAmount);
+    error InsufficientBalance(uint256 balance, uint256 feeAmount);
 
     constructor() {
         _disableInitializers();
     }
 
-    function initialize(
-        address protocolContractAddress_,
-        uint8 protocolSharePercent_,
-        address protocolFeeRecipient_
-    ) external initializer {
+    function initialize(address protocolContractAddress_, uint8 protocolSharePercent_, address protocolFeeRecipient_)
+        external
+        initializer
+    {
         __FabricaUUPSUpgradeable_init();
         __Ownable_init(_msgSender());
         __Pausable_init();
@@ -75,9 +64,7 @@ contract FabricaFeeCollector is Initializable, OwnableUpgradeable, PausableUpgra
         return _protocolFeeRecipient;
     }
 
-    function setProtocolFeeRecipient(
-        address newProtocolFeeRecipient
-    ) external onlyOwner {
+    function setProtocolFeeRecipient(address newProtocolFeeRecipient) external onlyOwner {
         _protocolFeeRecipient = newProtocolFeeRecipient;
         emit ProtocolFeeRecipientChanged(newProtocolFeeRecipient);
     }
@@ -86,9 +73,7 @@ contract FabricaFeeCollector is Initializable, OwnableUpgradeable, PausableUpgra
         return _protocolSharePercent;
     }
 
-    function setProtocolSharePercent(
-        uint8 newProtocolSharePercent
-    ) external onlyOwner {
+    function setProtocolSharePercent(uint8 newProtocolSharePercent) external onlyOwner {
         _protocolSharePercent = newProtocolSharePercent;
         emit ProtocolSharePercentChanged(newProtocolSharePercent);
     }
@@ -111,32 +96,20 @@ contract FabricaFeeCollector is Initializable, OwnableUpgradeable, PausableUpgra
         }
         currency.transferFrom(obligor, address(this), amount);
         IFabricaToken protocolContract = IFabricaToken(_protocolContractAddress);
-        (,,,,address validatorAddress) = protocolContract._property(tokenId);
+        (,,,, address validatorAddress) = protocolContract._property(tokenId);
         if (validatorAddress == address(0)) {
             validatorAddress = protocolContract.defaultValidator();
         }
         uint256 protocolShare = amount * _protocolSharePercent / 100;
         uint256 validatorShare = amount - protocolShare;
         if (protocolShare > 0) {
-            currency.transfer(
-                _protocolFeeRecipient,
-                protocolShare
-            );
+            currency.transfer(_protocolFeeRecipient, protocolShare);
         }
         if (validatorShare > 0) {
-            currency.transfer(
-                validatorAddress,
-                validatorShare
-            );
+            currency.transfer(validatorAddress, validatorShare);
         }
         emit FeeCollected(
-            tokenId,
-            feeType,
-            obligor,
-            erc20CurrencyAddress,
-            protocolShare,
-            validatorAddress,
-            validatorShare
+            tokenId, feeType, obligor, erc20CurrencyAddress, protocolShare, validatorAddress, validatorShare
         );
     }
 }

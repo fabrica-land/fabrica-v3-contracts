@@ -10,9 +10,9 @@ contract FabricaMarketplaceZoneScript is Script {
     function setUp() public {}
 
     function run(address oracleSigner) public {
-      vm.startBroadcast();
-      fabricaMarketplaceZone = new FabricaMarketplaceZone(oracleSigner);
-      console.log("FabricaMarketplaceZone deployed at:", address(fabricaMarketplaceZone));
-      vm.stopBroadcast();
+        vm.startBroadcast();
+        fabricaMarketplaceZone = new FabricaMarketplaceZone(oracleSigner);
+        console.log("FabricaMarketplaceZone deployed at:", address(fabricaMarketplaceZone));
+        vm.stopBroadcast();
     }
 }

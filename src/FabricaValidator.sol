@@ -42,20 +42,26 @@ contract FabricaValidator is IFabricaValidator, Initializable, FabricaUUPSUpgrad
     }
 
     function addOperatingAgreementName(string memory uri_, string memory name) public onlyOwner {
-        require(bytes(_operatingAgreementNames[uri_]).length < 1, "Operating Agreement name record for uri_ already exists");
+        require(
+            bytes(_operatingAgreementNames[uri_]).length < 1, "Operating Agreement name record for uri_ already exists"
+        );
         require(bytes(name).length > 0, "name is required");
         _operatingAgreementNames[uri_] = name;
         emit OperatingAgreementNameUpdated(uri_, name);
     }
 
     function removeOperatingAgreementName(string memory uri_) public onlyOwner {
-        require(bytes(_operatingAgreementNames[uri_]).length > 0, "Operating Agreement name record for uri_ does not exist");
+        require(
+            bytes(_operatingAgreementNames[uri_]).length > 0, "Operating Agreement name record for uri_ does not exist"
+        );
         delete _operatingAgreementNames[uri_];
         emit OperatingAgreementNameUpdated(uri_, "");
     }
 
     function updateOperatingAgreementName(string memory uri_, string memory name) public onlyOwner {
-        require(bytes(_operatingAgreementNames[uri_]).length > 0, "Operating Agreement name record for uri_ does not exist");
+        require(
+            bytes(_operatingAgreementNames[uri_]).length > 0, "Operating Agreement name record for uri_ does not exist"
+        );
         require(bytes(name).length > 0, "Use removeOperatingAgreementName");
         _operatingAgreementNames[uri_] = name;
         emit OperatingAgreementNameUpdated(uri_, name);

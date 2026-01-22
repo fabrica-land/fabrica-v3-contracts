@@ -21,10 +21,9 @@ contract Revoke7702 is Script {
 
         // Send create tx with empty initcode. Some nodes treat this as 7702 revoke.
         // Gas generously set to avoid underestimation.
-        (bool success, ) = address(0).call{gas: 60000}("");
+        (bool success,) = address(0).call{gas: 60000}("");
         require(success, "send failed");
 
         vm.stopBroadcast();
     }
 }
-
