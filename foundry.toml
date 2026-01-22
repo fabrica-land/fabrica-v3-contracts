@@ -15,6 +15,6 @@ base-sepolia = "${BASE_SEPOLIA_RPC_URL}"
 [etherscan]
 mainnet = { key = "${ETHERSCAN_API_KEY}" }
 sepolia = { key = "${ETHERSCAN_API_KEY}" }
-base-sepolia = { key = "${BASESCAN_API_KEY}" }
+base-sepolia = { key = "${ETHERSCAN_API_KEY}" }
 
 # See more config options https://github.com/foundry-rs/foundry/blob/master/crates/config/README.md#all-options
