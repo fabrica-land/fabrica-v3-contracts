@@ -13,10 +13,7 @@ contract FabricaValidatorUpgradeScript is Script {
         console.log("Current implementation:", proxy.implementation());
         console.log("Upgrading to:", newImplementation);
         vm.startBroadcast();
-        proxy.upgradeToAndCall(
-            newImplementation,
-            abi.encodeCall(FabricaValidator.initialize, ())
-        );
+        proxy.upgradeToAndCall(newImplementation, abi.encodeCall(FabricaValidator.initialize, ()));
         vm.stopBroadcast();
         console.log("Proxy upgraded");
         console.log("Verified implementation:", proxy.implementation());

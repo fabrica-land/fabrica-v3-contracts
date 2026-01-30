@@ -1,3 +1,5 @@
+# Development Notes
+
 - When deploying contracts with `forge script`, always include `--verify` to
   verify the contract on Etherscan/Basescan automatically. If verification
   fails during deployment, follow up with `forge verify-contract` afterward.
