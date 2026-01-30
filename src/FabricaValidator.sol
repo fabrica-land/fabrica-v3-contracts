@@ -32,9 +32,11 @@ contract FabricaValidator is IFabricaValidator, Initializable, FabricaUUPSUpgrad
     string private _defaultOperatingAgreement;
 
     event OperatingAgreementNameUpdated(string uri, string name);
+    event DefaultOperatingAgreementUpdated(string uri);
 
     function setDefaultOperatingAgreement(string memory uri_) public onlyOwner {
         _defaultOperatingAgreement = uri_;
+        emit DefaultOperatingAgreementUpdated(uri_);
     }
 
     function defaultOperatingAgreement() public view returns (string memory) {
