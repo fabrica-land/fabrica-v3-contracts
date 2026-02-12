@@ -59,6 +59,17 @@ contract FabricaToken is
         emit TraitMetadataURIUpdated();
     }
 
+    // Migrates owner from OZ v4 linear storage (slot 101) to OZ v5 ERC-7201 namespaced storage.
+    // Must be called once during the v4→v5 upgrade on each network.
+    function initializeV4() public onlyProxyAdmin reinitializer(4) {
+        address oldOwner;
+        assembly {
+            oldOwner := sload(101)
+        }
+        require(oldOwner != address(0), "No owner found in legacy storage slot");
+        _transferOwnership(oldOwner);
+    }
+
     // Struct needed to avoid stack too deep error
     struct Property {
         uint256 supply;

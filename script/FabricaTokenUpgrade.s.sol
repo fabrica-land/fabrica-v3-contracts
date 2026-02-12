@@ -13,10 +13,10 @@ contract FabricaTokenUpgradeScript is Script {
         console.log("Current implementation:", proxy.implementation());
         console.log("Upgrading to:", newImplementation);
         vm.startBroadcast();
-        // initializeV3 is the latest reinitializer — it can be called whether
-        // the proxy is at version 1 or 2, since reinitializer(3) only requires
-        // the current version to be < 3.
-        proxy.upgradeToAndCall(newImplementation, abi.encodeCall(FabricaToken.initializeV3, ()));
+        // initializeV4 migrates the owner from OZ v4 linear storage (slot 101)
+        // to OZ v5 ERC-7201 namespaced storage. Must be called once per network
+        // during the v4→v5 upgrade.
+        proxy.upgradeToAndCall(newImplementation, abi.encodeCall(FabricaToken.initializeV4, ()));
         vm.stopBroadcast();
         console.log("Proxy upgraded");
         console.log("Verified implementation:", proxy.implementation());
