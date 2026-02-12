@@ -11,9 +11,11 @@ contract MockValidator is IFabricaValidator {
     function defaultOperatingAgreement() external pure returns (string memory) {
         return "https://example.com/oa";
     }
+
     function operatingAgreementName(string memory) external pure returns (string memory) {
         return "Default OA";
     }
+
     function uri(uint256) external pure returns (string memory) {
         return "https://example.com/uri";
     }
@@ -29,11 +31,7 @@ contract FabricaTokenGovernanceTest is Test {
         // Deploy implementation
         FabricaToken impl = new FabricaToken();
         // Deploy proxy with initialize() call
-        FabricaProxy proxy = new FabricaProxy(
-            address(impl),
-            address(this),
-            abi.encodeCall(FabricaToken.initialize, ())
-        );
+        FabricaProxy proxy = new FabricaProxy(address(impl), address(this), abi.encodeCall(FabricaToken.initialize, ()));
         token = FabricaToken(address(proxy));
         validator = new MockValidator();
         token.setDefaultValidator(address(validator));
@@ -48,15 +46,7 @@ contract FabricaTokenGovernanceTest is Test {
         amounts[0] = aliceAmount;
         amounts[1] = bobAmount;
         uint256 sessionId = uint256(keccak256(abi.encodePacked(aliceAmount, bobAmount)));
-        return token.mint(
-            recipients,
-            sessionId,
-            amounts,
-            "https://example.com/definition",
-            "",
-            "config",
-            address(0)
-        );
+        return token.mint(recipients, sessionId, amounts, "https://example.com/definition", "", "config", address(0));
     }
 
     // Helper: mint a token 100% owned by alice
@@ -65,15 +55,7 @@ contract FabricaTokenGovernanceTest is Test {
         recipients[0] = alice;
         uint256[] memory amounts = new uint256[](1);
         amounts[0] = 100;
-        return token.mint(
-            recipients,
-            42,
-            amounts,
-            "https://example.com/definition",
-            "",
-            "config",
-            address(0)
-        );
+        return token.mint(recipients, 42, amounts, "https://example.com/definition", "", "config", address(0));
     }
 
     // --- updateOperatingAgreement (70% threshold) ---
