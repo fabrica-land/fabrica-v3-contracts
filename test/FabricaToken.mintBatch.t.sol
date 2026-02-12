@@ -50,7 +50,14 @@ contract ReentrantReceiver is IERC1155Receiver {
         validator = _validator;
     }
 
-    function onERC1155Received(address, address, uint256, uint256, bytes calldata) external returns (bytes4) {
+    function onERC1155Received(address, address, uint256, uint256, bytes calldata) external pure returns (bytes4) {
+        return IERC1155Receiver.onERC1155Received.selector;
+    }
+
+    function onERC1155BatchReceived(address, address, uint256[] calldata, uint256[] calldata, bytes calldata)
+        external
+        returns (bytes4)
+    {
         if (!attacked) {
             attacked = true;
             // Attempt reentrancy: try to mint with same sessionId
@@ -70,14 +77,6 @@ contract ReentrantReceiver is IERC1155Receiver {
             validators[0] = address(validator);
             token.mintBatch(recipients, sessionIds, amounts, defs, oas, configs, validators);
         }
-        return IERC1155Receiver.onERC1155Received.selector;
-    }
-
-    function onERC1155BatchReceived(address, address, uint256[] calldata, uint256[] calldata, bytes calldata)
-        external
-        pure
-        returns (bytes4)
-    {
         return IERC1155Receiver.onERC1155BatchReceived.selector;
     }
 
@@ -175,7 +174,7 @@ contract FabricaTokenMintBatchTest is Test {
         assertEq(token.balanceOf(bob, ids[1]), 700);
     }
 
-    function test_mintBatch_emitsCorrectTransferSingleEvents() public {
+    function test_mintBatch_emitsCorrectTransferBatchEvents() public {
         address[] memory recipients = new address[](2);
         recipients[0] = alice;
         recipients[1] = bob;
@@ -185,18 +184,21 @@ contract FabricaTokenMintBatchTest is Test {
         // Pre-compute the expected token IDs
         uint256 expectedId0 = token.generateId(address(this), 10, "ipfs://oa-1");
         uint256 expectedId1 = token.generateId(address(this), 20, "ipfs://oa-2");
-        // Expect TransferSingle for token 0, alice
+        uint256[] memory expectedIds = new uint256[](2);
+        expectedIds[0] = expectedId0;
+        expectedIds[1] = expectedId1;
+        // Expect TransferBatch for alice (amount 100 for each token)
+        uint256[] memory aliceAmounts = new uint256[](2);
+        aliceAmounts[0] = 100;
+        aliceAmounts[1] = 100;
         vm.expectEmit(true, true, true, true);
-        emit IERC1155.TransferSingle(address(this), address(0), alice, expectedId0, 100);
-        // Expect TransferSingle for token 0, bob
+        emit IERC1155.TransferBatch(address(this), address(0), alice, expectedIds, aliceAmounts);
+        // Expect TransferBatch for bob (amount 200 for each token)
+        uint256[] memory bobAmounts = new uint256[](2);
+        bobAmounts[0] = 200;
+        bobAmounts[1] = 200;
         vm.expectEmit(true, true, true, true);
-        emit IERC1155.TransferSingle(address(this), address(0), bob, expectedId0, 200);
-        // Expect TransferSingle for token 1, alice
-        vm.expectEmit(true, true, true, true);
-        emit IERC1155.TransferSingle(address(this), address(0), alice, expectedId1, 100);
-        // Expect TransferSingle for token 1, bob
-        vm.expectEmit(true, true, true, true);
-        emit IERC1155.TransferSingle(address(this), address(0), bob, expectedId1, 200);
+        emit IERC1155.TransferBatch(address(this), address(0), bob, expectedIds, bobAmounts);
         _mintBatchTwo(recipients, amounts, 10, 20);
     }
 
