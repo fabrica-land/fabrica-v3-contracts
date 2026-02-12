@@ -562,37 +562,39 @@ contract FabricaToken is
     ) internal virtual whenNotPaused returns (uint256[] memory) {
         require(recipients.length == amounts.length, "Number of recipients and amounts must match");
         require(sessionIds.length == properties.length, "sessionIds and properties length mismatch");
-        // hit stack too deep error when using more variables, so we use sessionsIds.length in multiple
-        // places instead of creating new variables
         uint256[] memory ids = new uint256[](sessionIds.length);
+        // First pass: validate properties, generate ids, store state
         for (uint256 i = 0; i < sessionIds.length; i++) {
             require(bytes(properties[i].definition).length > 0, "Definition is required");
             require(sessionIds[i] > 0, "Valid sessionId is required");
             require(properties[i].supply > 0, "Minimum supply is 1");
-            uint256 id = generateId(_msgSender(), sessionIds[i], properties[i].operatingAgreement);
-            for (uint256 j = 0; j < recipients.length; j++) {
-                address to = recipients[j];
-                require(to != address(0), "ERC1155: mint to the zero address");
-                uint256 amount = amounts[j];
-                _balances[id][to] += amount;
-                uint256[] memory amountsForRecipient = new uint256[](ids.length);
-                for (uint256 k = 0; k < ids.length; k++) {
-                    amountsForRecipient[k] = amount;
-                }
-                _doSafeBatchTransferAcceptanceCheck(_msgSender(), address(0), to, ids, amountsForRecipient, data);
-                emit TransferBatch(_msgSender(), address(0), to, ids, amountsForRecipient);
-            }
-            require(_property[id].supply == 0, "Session ID already exist, please use a different one");
             // If validator is not specified during mint, use default validator address
             if (properties[i].validator == address(0)) {
-                // set default validator address
                 properties[i].validator = _defaultValidator;
             }
+            if (bytes(properties[i].operatingAgreement).length < 1) {
+                properties[i].operatingAgreement =
+                    IFabricaValidator(properties[i].validator).defaultOperatingAgreement();
+            }
+            uint256 id = generateId(_msgSender(), sessionIds[i], properties[i].operatingAgreement);
+            require(_property[id].supply == 0, "Session ID already exist, please use a different one");
             ids[i] = id;
-            // Update property data
             _property[id] = properties[i];
         }
-
+        // Second pass: for each recipient, update balances and emit TransferBatch
+        address operator = _msgSender();
+        for (uint256 j = 0; j < recipients.length; j++) {
+            address to = recipients[j];
+            require(to != address(0), "ERC1155: mint to the zero address");
+            uint256 amount = amounts[j];
+            uint256[] memory batchAmounts = new uint256[](ids.length);
+            for (uint256 i = 0; i < ids.length; i++) {
+                _balances[ids[i]][to] += amount;
+                batchAmounts[i] = amount;
+            }
+            emit TransferBatch(operator, address(0), to, ids, batchAmounts);
+            _doSafeBatchTransferAcceptanceCheck(operator, address(0), to, ids, batchAmounts, data);
+        }
         return ids;
     }
 
