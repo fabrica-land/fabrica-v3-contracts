@@ -370,30 +370,30 @@ contract FabricaToken is
         _safeBatchTransferFrom(from, to, ids, amounts, data);
     }
 
-    // @dev only executable by > 70% owner
+    // @dev only executable by >= 70% owner
     function updateOperatingAgreement(string memory operatingAgreement, uint256 id)
         public
         whenNotPaused
         returns (bool)
     {
-        require(_percentOwner(_msgSender(), id, 70), "Only > 70% can update");
+        require(_percentOwner(_msgSender(), id, 70), "Only >= 70% can update");
         _property[id].operatingAgreement = operatingAgreement;
         emit UpdateOperatingAgreement(id, operatingAgreement);
         emit TraitUpdated(keccak256("operatingAgreement"), id, bytes32(bytes(_getOperatingAgreementName(id))));
         return true;
     }
 
-    // @dev only executable by > 50% owner
+    // @dev only executable by >= 50% owner
     function updateConfiguration(string memory configuration, uint256 id) public whenNotPaused returns (bool) {
-        require(_percentOwner(_msgSender(), id, 50), "Only > 50% can update");
+        require(_percentOwner(_msgSender(), id, 50), "Only >= 50% can update");
         _property[id].configuration = configuration;
         emit UpdateConfiguration(id, configuration);
         return true;
     }
 
-    // @dev only executable by > 70% owner
+    // @dev only executable by >= 70% owner
     function updateValidator(address validator, uint256 id) public whenNotPaused returns (bool) {
-        require(_percentOwner(_msgSender(), id, 70), "Only > 70% can update");
+        require(_percentOwner(_msgSender(), id, 70), "Only >= 70% can update");
         _property[id].validator = validator;
         emit UpdateValidator(id, "validator", validator);
         emit TraitUpdated(keccak256("validator"), id, bytes32(bytes(_getValidatorName(id))));
@@ -430,7 +430,7 @@ contract FabricaToken is
             return false;
         }
         uint256 percent = Math.mulDiv(shares, 100, supply);
-        return percent > threshold;
+        return percent >= threshold;
     }
 
     /**
