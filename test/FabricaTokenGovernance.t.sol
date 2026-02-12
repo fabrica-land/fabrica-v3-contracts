@@ -134,6 +134,14 @@ contract FabricaTokenGovernanceTest is Test {
         assertTrue(result, "Exactly 70% owner should be able to update validator");
     }
 
+    function test_updateValidator_above70Percent() public {
+        // Alice owns 71 out of 100 (71%)
+        uint256 id = _mintSplit(71, 29);
+        vm.prank(alice);
+        bool result = token.updateValidator(address(0xDEAD), id);
+        assertTrue(result, "71% owner should be able to update validator");
+    }
+
     function test_updateValidator_below70Percent_reverts() public {
         // Alice owns 69 out of 100 (69%)
         uint256 id = _mintSplit(69, 31);
