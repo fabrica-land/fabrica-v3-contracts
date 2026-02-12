@@ -51,11 +51,11 @@ contract FabricaToken is
         __Pausable_init();
     }
 
-    function initializeV2() public reinitializer(2) {
+    function initializeV2() public onlyProxyAdmin reinitializer(2) {
         // Token-specific migration code has been removed
     }
 
-    function initializeV3() public reinitializer(3) {
+    function initializeV3() public onlyProxyAdmin reinitializer(3) {
         emit TraitMetadataURIUpdated();
     }
 
