@@ -12,22 +12,21 @@ contract MockValidator is IFabricaValidator {
     function defaultOperatingAgreement() external pure returns (string memory) {
         return "ipfs://default-oa";
     }
+
     function operatingAgreementName(string memory) external pure returns (string memory) {
         return "Test OA";
     }
+
     function uri(uint256) external pure returns (string memory) {
         return "ipfs://test-uri";
     }
 }
 
 contract ERC1155ReceiverMock is IERC1155Receiver {
-    function onERC1155Received(address, address, uint256, uint256, bytes calldata)
-        external
-        pure
-        returns (bytes4)
-    {
+    function onERC1155Received(address, address, uint256, uint256, bytes calldata) external pure returns (bytes4) {
         return IERC1155Receiver.onERC1155Received.selector;
     }
+
     function onERC1155BatchReceived(address, address, uint256[] calldata, uint256[] calldata, bytes calldata)
         external
         pure
@@ -35,6 +34,7 @@ contract ERC1155ReceiverMock is IERC1155Receiver {
     {
         return IERC1155Receiver.onERC1155BatchReceived.selector;
     }
+
     function supportsInterface(bytes4 interfaceId) external pure returns (bool) {
         return interfaceId == type(IERC1155Receiver).interfaceId;
     }
@@ -44,14 +44,13 @@ contract ReentrantReceiver is IERC1155Receiver {
     FabricaToken public token;
     MockValidator public validator;
     bool public attacked;
+
     function setTarget(FabricaToken _token, MockValidator _validator) external {
         token = _token;
         validator = _validator;
     }
-    function onERC1155Received(address, address, uint256, uint256, bytes calldata)
-        external
-        returns (bytes4)
-    {
+
+    function onERC1155Received(address, address, uint256, uint256, bytes calldata) external returns (bytes4) {
         if (!attacked) {
             attacked = true;
             // Attempt reentrancy: try to mint with same sessionId
@@ -73,6 +72,7 @@ contract ReentrantReceiver is IERC1155Receiver {
         }
         return IERC1155Receiver.onERC1155Received.selector;
     }
+
     function onERC1155BatchReceived(address, address, uint256[] calldata, uint256[] calldata, bytes calldata)
         external
         pure
@@ -80,6 +80,7 @@ contract ReentrantReceiver is IERC1155Receiver {
     {
         return IERC1155Receiver.onERC1155BatchReceived.selector;
     }
+
     function supportsInterface(bytes4 interfaceId) external pure returns (bool) {
         return interfaceId == type(IERC1155Receiver).interfaceId;
     }
@@ -284,9 +285,7 @@ contract FabricaTokenMintBatchTest is Test {
         // Pass zero address as validator to trigger default
         address[] memory validators = new address[](1);
         validators[0] = address(0);
-        uint256[] memory ids = token.mintBatch(
-            recipients, sessionIds, amounts, definitions, oas, configs, validators
-        );
+        uint256[] memory ids = token.mintBatch(recipients, sessionIds, amounts, definitions, oas, configs, validators);
         (,,,, address storedValidator) = token._property(ids[0]);
         assertEq(storedValidator, address(validator));
     }
@@ -311,9 +310,7 @@ contract FabricaTokenMintBatchTest is Test {
         configs[0] = "{}";
         address[] memory validators = new address[](1);
         validators[0] = address(validator);
-        uint256[] memory ids = token.mintBatch(
-            recipients, sessionIds, amounts, definitions, oas, configs, validators
-        );
+        uint256[] memory ids = token.mintBatch(recipients, sessionIds, amounts, definitions, oas, configs, validators);
         // Outer mint succeeded with correct supply
         assertEq(ids.length, 1);
         (uint256 supply,,,,) = token._property(ids[0]);
