@@ -571,6 +571,10 @@ contract FabricaToken is
             if (properties[i].validator == address(0)) {
                 properties[i].validator = _defaultValidator;
             }
+            if (bytes(properties[i].operatingAgreement).length < 1) {
+                properties[i].operatingAgreement =
+                    IFabricaValidator(properties[i].validator).defaultOperatingAgreement();
+            }
             uint256 id = generateId(_msgSender(), sessionIds[i], properties[i].operatingAgreement);
             require(_property[id].supply == 0, "Session ID already exist, please use a different one");
             ids[i] = id;

@@ -290,6 +290,30 @@ contract FabricaTokenMintBatchTest is Test {
         assertEq(storedValidator, address(validator));
     }
 
+    function test_mintBatch_defaultOperatingAgreement() public {
+        address[] memory recipients = new address[](1);
+        recipients[0] = alice;
+        uint256[] memory sessionIds = new uint256[](1);
+        sessionIds[0] = 1;
+        uint256[] memory amounts = new uint256[](1);
+        amounts[0] = 100;
+        string[] memory definitions = new string[](1);
+        definitions[0] = "ipfs://def";
+        // Pass empty string as OA to trigger default
+        string[] memory oas = new string[](1);
+        oas[0] = "";
+        string[] memory configs = new string[](1);
+        configs[0] = "{}";
+        address[] memory validators = new address[](1);
+        validators[0] = address(validator);
+        uint256[] memory ids = token.mintBatch(recipients, sessionIds, amounts, definitions, oas, configs, validators);
+        (, string memory storedOA,,,) = token._property(ids[0]);
+        assertEq(storedOA, "ipfs://default-oa");
+        // Verify token ID was generated with the default OA
+        uint256 expectedId = token.generateId(address(this), 1, "ipfs://default-oa");
+        assertEq(ids[0], expectedId);
+    }
+
     function test_mintBatch_reentrancyCannotDuplicateId() public {
         // Reentrancy creates a DIFFERENT token because generateId uses
         // _msgSender() — the re-entrant caller has a different address.
