@@ -344,5 +344,9 @@ contract FabricaTokenMintBatchTest is Test {
         uint256 attackerTokenId = token.generateId(address(attacker), 1, "ipfs://oa-1");
         assertTrue(ids[0] != attackerTokenId);
         assertTrue(attacker.attacked());
+        // Verify the re-entrant mint succeeded with correct supply
+        (uint256 attackerSupply,,,,) = token._property(attackerTokenId);
+        assertEq(attackerSupply, 100);
+        assertEq(token.balanceOf(address(attacker), attackerTokenId), 100);
     }
 }
