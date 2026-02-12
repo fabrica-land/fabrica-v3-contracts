@@ -8,15 +8,15 @@ import {IFabricaValidator} from "../src/IFabricaValidator.sol";
 
 // Minimal mock validator that satisfies IFabricaValidator
 contract MockValidator is IFabricaValidator {
-    function defaultOperatingAgreement() external pure returns (string memory) {
+    function defaultOperatingAgreement() external pure override returns (string memory) {
         return "https://example.com/oa";
     }
 
-    function operatingAgreementName(string memory) external pure returns (string memory) {
+    function operatingAgreementName(string memory) external pure override returns (string memory) {
         return "Default OA";
     }
 
-    function uri(uint256) external pure returns (string memory) {
+    function uri(uint256) external pure override returns (string memory) {
         return "https://example.com/uri";
     }
 }
@@ -130,7 +130,7 @@ contract FabricaTokenGovernanceTest is Test {
         // Alice owns exactly 70 out of 100 (70%)
         uint256 id = _mintSplit(70, 30);
         vm.prank(alice);
-        bool result = token.updateValidator(address(0xDEAD), id);
+        bool result = token.updateValidator(address(validator), id);
         assertTrue(result, "Exactly 70% owner should be able to update validator");
     }
 
@@ -138,7 +138,7 @@ contract FabricaTokenGovernanceTest is Test {
         // Alice owns 71 out of 100 (71%)
         uint256 id = _mintSplit(71, 29);
         vm.prank(alice);
-        bool result = token.updateValidator(address(0xDEAD), id);
+        bool result = token.updateValidator(address(validator), id);
         assertTrue(result, "71% owner should be able to update validator");
     }
 
@@ -147,7 +147,7 @@ contract FabricaTokenGovernanceTest is Test {
         uint256 id = _mintSplit(69, 31);
         vm.prank(alice);
         vm.expectRevert("Only >= 70% can update");
-        token.updateValidator(address(0xDEAD), id);
+        token.updateValidator(address(validator), id);
     }
 
     // --- Edge case: Math.mulDiv rounding ---
