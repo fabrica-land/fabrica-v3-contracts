@@ -70,6 +70,18 @@ contract FabricaToken is
         _transferOwnership(oldOwner);
     }
 
+    // Migrates owner from OZ v4 linear storage (slot 101) to OZ v5 ERC-7201 namespaced storage
+    // AND validates the storage gap fix. Combines V4 + V5 into a single reinitializer since V4
+    // was never deployed on any network. Must be called once during upgrade on each network.
+    function initializeV5() public onlyProxyAdmin reinitializer(5) {
+        address oldOwner;
+        assembly {
+            oldOwner := sload(101)
+        }
+        require(oldOwner != address(0), "No owner found in legacy storage slot");
+        _transferOwnership(oldOwner);
+    }
+
     // Struct needed to avoid stack too deep error
     struct Property {
         uint256 supply;
@@ -78,6 +90,20 @@ contract FabricaToken is
         string configuration;
         address validator;
     }
+
+    // PERMANENT — load-bearing gap that restores the original OZ v4 storage layout.
+    // When FabricaToken migrated from OZ v4 to OZ v5, the base contracts switched from
+    // linear storage with __gap arrays (301 total slots) to ERC-7201 namespaced storage
+    // (zero linear slots). This gap compensates for that shift so all FabricaToken state
+    // variables remain at their original proxy storage positions:
+    //   _balances          → slot 301
+    //   _operatorApprovals → slot 302
+    //   _property          → slot 303
+    //   _defaultValidator  → slot 304
+    //   _validatorRegistry → slot 305
+    //   _contractURI       → slot 306
+    // DO NOT remove, resize, or reorder this gap in any future version.
+    uint256[301] private __legacy_gap;
 
     // Mapping from token ID to account balances
     mapping(uint256 => mapping(address => uint256)) private _balances;
