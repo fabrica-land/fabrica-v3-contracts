@@ -23,6 +23,8 @@ contract FabricaTokenStorageLayoutTest is Test {
     uint256 constant SLOT_DEFAULT_VALIDATOR = 304;
     uint256 constant SLOT_VALIDATOR_REGISTRY = 305;
     uint256 constant SLOT_CONTRACT_URI = 306;
+    // OZ v5 ERC-7201 namespaced slot for OwnableUpgradeable._owner
+    bytes32 constant OZ_V5_OWNER_SLOT = 0x9016d09d72d40fdae2fd8ceac6b6234c7706214fd39c1cd1e609a0528c199300;
 
     function setUp() public {
         proxyAdmin = makeAddr("proxyAdmin");
@@ -135,9 +137,8 @@ contract FabricaTokenStorageLayoutTest is Test {
         FabricaToken freshToken = FabricaToken(freshProxyAddr);
         address expectedOwner = makeAddr("expectedOwner");
         // Simulate OZ v4→v5 state: owner in slot 101, zeroed in ERC-7201 slot
-        bytes32 ozV5OwnerSlot = 0x9016d09d72d40fdae2fd8ceac6b6234c7706214fd39c1cd1e609a0528c199300;
         vm.store(freshProxyAddr, bytes32(uint256(101)), bytes32(uint256(uint160(expectedOwner))));
-        vm.store(freshProxyAddr, ozV5OwnerSlot, bytes32(0));
+        vm.store(freshProxyAddr, OZ_V5_OWNER_SLOT, bytes32(0));
         assertEq(freshToken.owner(), address(0), "Owner should be zero before V5 migration");
         // Run initializeV5
         vm.prank(proxyAdmin);
@@ -160,8 +161,7 @@ contract FabricaTokenStorageLayoutTest is Test {
         FabricaToken freshToken = FabricaToken(address(freshProxy));
         // Store an owner in slot 101
         vm.store(address(freshProxy), bytes32(uint256(101)), bytes32(uint256(uint160(makeAddr("owner2")))));
-        bytes32 ozV5OwnerSlot = 0x9016d09d72d40fdae2fd8ceac6b6234c7706214fd39c1cd1e609a0528c199300;
-        vm.store(address(freshProxy), ozV5OwnerSlot, bytes32(0));
+        vm.store(address(freshProxy), OZ_V5_OWNER_SLOT, bytes32(0));
         // First call should succeed
         vm.prank(proxyAdmin);
         freshToken.initializeV5();
@@ -180,8 +180,7 @@ contract FabricaTokenStorageLayoutTest is Test {
         address expectedOwner = makeAddr("expectedOwner");
         // Simulate OZ v4→v5 state
         vm.store(address(freshProxy), bytes32(uint256(101)), bytes32(uint256(uint160(expectedOwner))));
-        bytes32 ozV5OwnerSlot = 0x9016d09d72d40fdae2fd8ceac6b6234c7706214fd39c1cd1e609a0528c199300;
-        vm.store(address(freshProxy), ozV5OwnerSlot, bytes32(0));
+        vm.store(address(freshProxy), OZ_V5_OWNER_SLOT, bytes32(0));
         // Deploy new implementation and upgrade
         FabricaToken newImpl = new FabricaToken();
         vm.prank(proxyAdmin);
