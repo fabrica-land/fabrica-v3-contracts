@@ -59,8 +59,8 @@ contract FabricaToken is
         emit TraitMetadataURIUpdated();
     }
 
-    // Migrates owner from OZ v4 linear storage (slot 101) to OZ v5 ERC-7201 namespaced storage.
-    // Must be called once during the v4→v5 upgrade on each network.
+    // SUPERSEDED by initializeV5 — never deployed on any network.
+    // Kept for ABI compatibility; permanently unreachable after V5 runs.
     function initializeV4() public onlyProxyAdmin reinitializer(4) {
         address oldOwner;
         assembly {
@@ -70,9 +70,10 @@ contract FabricaToken is
         _transferOwnership(oldOwner);
     }
 
-    // Migrates owner from OZ v4 linear storage (slot 101) to OZ v5 ERC-7201 namespaced storage
-    // AND validates the storage gap fix. Combines V4 + V5 into a single reinitializer since V4
-    // was never deployed on any network. Must be called once during upgrade on each network.
+    // Migrates owner from OZ v4 linear storage (slot 101) to OZ v5 ERC-7201 namespaced storage.
+    // Supersedes initializeV4 (which was never deployed on any network). The __legacy_gap fix
+    // is structural (compiled into the bytecode), so no runtime validation is needed here.
+    // Must be called once during upgrade on each network.
     function initializeV5() public onlyProxyAdmin reinitializer(5) {
         address oldOwner;
         assembly {

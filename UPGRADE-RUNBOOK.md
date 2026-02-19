@@ -29,7 +29,7 @@ FabricaToken has versioned initializers:
 | 2 | `initializeV2()` | `onlyProxyAdmin reinitializer(2)` | (Migration code removed — no-op) |
 | 3 | `initializeV3()` | `onlyProxyAdmin reinitializer(3)` | Emits `TraitMetadataURIUpdated` |
 | 4 | `initializeV4()` | `onlyProxyAdmin reinitializer(4)` | **Superseded by V5** — owner migration only (never deployed) |
-| 5 | `initializeV5()` | `onlyProxyAdmin reinitializer(5)` | **OZ v4→v5 owner migration** + storage gap fix validation |
+| 5 | `initializeV5()` | `onlyProxyAdmin reinitializer(5)` | **OZ v4→v5 owner migration** (supersedes V4, pairs with `__legacy_gap` fix) |
 
 Reinitializers can be skipped — calling `initializeV5()` works whether the proxy
 is currently at version 1, 2, or 3, since `reinitializer(5)` only requires the
@@ -154,8 +154,9 @@ Note the new implementation address from the output.
 
 ### Step 2: Upgrade Proxy
 
-Run with the **proxy admin** wallet. Use `initializeV5()` which handles both
-the owner migration and validates the storage gap fix:
+Run with the **proxy admin** wallet. The script calls `initializeV5()` which
+handles the owner migration (the `__legacy_gap` storage fix is structural and
+takes effect as soon as the new implementation is deployed):
 
 ```bash
 source .env && forge script script/FabricaTokenUpgrade.s.sol \
@@ -164,9 +165,6 @@ source .env && forge script script/FabricaTokenUpgrade.s.sol \
   --broadcast \
   --private-key "$TESTNET_PROXY_ADMIN_PRIVATE_KEY"
 ```
-
-**Important:** Update `FabricaTokenUpgrade.s.sol` to call `initializeV5()`
-instead of `initializeV4()` before running this step.
 
 ### Step 3: Verify
 

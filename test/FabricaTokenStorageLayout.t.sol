@@ -74,12 +74,15 @@ contract FabricaTokenStorageLayoutTest is Test {
     }
 
     function test_contractURI_atSlot306() public view {
+        // Verify via public function that the stored value matches
+        assertEq(token.contractURI(), "https://example.com/contract-uri", "contractURI should match");
+        // Verify the raw storage slot is non-zero at the expected position
         bytes32 stored = vm.load(proxy, bytes32(SLOT_CONTRACT_URI));
-        // Short string: lower byte = length * 2, upper bytes = string data
-        // "https://example.com/contract-uri" is 32 chars → Solidity stores as long string
-        // For long strings, slot stores (length * 2 + 1)
         uint256 raw = uint256(stored);
-        assertTrue(raw != 0, "_contractURI slot 306 should be non-zero");
+        // For strings > 31 bytes, Solidity stores (length * 2 + 1) at the base slot.
+        // "https://example.com/contract-uri" is 32 bytes → long string encoding.
+        // Length = 32, so stored value = 32 * 2 + 1 = 65 = 0x41.
+        assertEq(raw, 65, "_contractURI slot 306 should store long-string length encoding");
     }
 
     function test_balances_atSlot301() public {
