@@ -29,22 +29,18 @@ contract FabricaTokenStorageLayoutTest is Test {
         owner = makeAddr("owner");
         // Deploy validator and registry for mint operations
         FabricaValidator validatorImpl = new FabricaValidator();
-        FabricaProxy validatorProxy = new FabricaProxy(
-            address(validatorImpl),
-            proxyAdmin,
-            abi.encodeCall(FabricaValidator.initialize, ())
-        );
+        FabricaProxy validatorProxy =
+            new FabricaProxy(address(validatorImpl), proxyAdmin, abi.encodeCall(FabricaValidator.initialize, ()));
         validator = FabricaValidator(address(validatorProxy));
         FabricaValidatorRegistry registryImpl = new FabricaValidatorRegistry();
         FabricaProxy registryProxy = new FabricaProxy(
-            address(registryImpl),
-            proxyAdmin,
-            abi.encodeCall(FabricaValidatorRegistry.initialize, ())
+            address(registryImpl), proxyAdmin, abi.encodeCall(FabricaValidatorRegistry.initialize, ())
         );
         registry = FabricaValidatorRegistry(address(registryProxy));
         // Deploy FabricaToken
         FabricaToken impl = new FabricaToken();
-        FabricaProxy proxyContract = new FabricaProxy(address(impl), proxyAdmin, abi.encodeCall(FabricaToken.initialize, ()));
+        FabricaProxy proxyContract =
+            new FabricaProxy(address(impl), proxyAdmin, abi.encodeCall(FabricaToken.initialize, ()));
         proxy = address(proxyContract);
         token = FabricaToken(proxy);
         // Set owner and configure
@@ -57,20 +53,12 @@ contract FabricaTokenStorageLayoutTest is Test {
 
     function test_defaultValidator_atSlot304() public view {
         bytes32 stored = vm.load(proxy, bytes32(SLOT_DEFAULT_VALIDATOR));
-        assertEq(
-            address(uint160(uint256(stored))),
-            address(validator),
-            "_defaultValidator not at expected slot 304"
-        );
+        assertEq(address(uint160(uint256(stored))), address(validator), "_defaultValidator not at expected slot 304");
     }
 
     function test_validatorRegistry_atSlot305() public view {
         bytes32 stored = vm.load(proxy, bytes32(SLOT_VALIDATOR_REGISTRY));
-        assertEq(
-            address(uint160(uint256(stored))),
-            address(registry),
-            "_validatorRegistry not at expected slot 305"
-        );
+        assertEq(address(uint160(uint256(stored))), address(registry), "_validatorRegistry not at expected slot 305");
     }
 
     function test_contractURI_atSlot306() public view {
@@ -93,9 +81,7 @@ contract FabricaTokenStorageLayoutTest is Test {
         uint256[] memory amounts = new uint256[](1);
         amounts[0] = 1000;
         vm.prank(recipient);
-        uint256 tokenId = token.mint(
-            recipients, 1, amounts, "test-definition", "", "", address(0)
-        );
+        uint256 tokenId = token.mint(recipients, 1, amounts, "test-definition", "", "", address(0));
         // Verify via public function
         assertEq(token.balanceOf(recipient, tokenId), 1000, "balanceOf should return 1000");
         // Verify storage slot: _balances is at slot 301
@@ -131,9 +117,7 @@ contract FabricaTokenStorageLayoutTest is Test {
         uint256[] memory amounts = new uint256[](1);
         amounts[0] = 100;
         vm.prank(recipient);
-        uint256 tokenId = token.mint(
-            recipients, 2, amounts, "test-definition", "", "", address(0)
-        );
+        uint256 tokenId = token.mint(recipients, 2, amounts, "test-definition", "", "", address(0));
         // Property struct: first field is `supply` (uint256)
         // For mapping(uint256 => Property), the struct base slot is:
         // keccak256(tokenId . 303)
@@ -145,7 +129,8 @@ contract FabricaTokenStorageLayoutTest is Test {
     function test_initializeV5_migratesOwner() public {
         // Set up a fresh proxy simulating the upgrade scenario
         FabricaToken impl = new FabricaToken();
-        FabricaProxy freshProxy = new FabricaProxy(address(impl), proxyAdmin, abi.encodeCall(FabricaToken.initialize, ()));
+        FabricaProxy freshProxy =
+            new FabricaProxy(address(impl), proxyAdmin, abi.encodeCall(FabricaToken.initialize, ()));
         address freshProxyAddr = address(freshProxy);
         FabricaToken freshToken = FabricaToken(freshProxyAddr);
         address expectedOwner = makeAddr("expectedOwner");
@@ -170,7 +155,8 @@ contract FabricaTokenStorageLayoutTest is Test {
     function test_initializeV5_cannotBeCalledTwice() public {
         // Set up a fresh proxy
         FabricaToken impl = new FabricaToken();
-        FabricaProxy freshProxy = new FabricaProxy(address(impl), proxyAdmin, abi.encodeCall(FabricaToken.initialize, ()));
+        FabricaProxy freshProxy =
+            new FabricaProxy(address(impl), proxyAdmin, abi.encodeCall(FabricaToken.initialize, ()));
         FabricaToken freshToken = FabricaToken(address(freshProxy));
         // Store an owner in slot 101
         vm.store(address(freshProxy), bytes32(uint256(101)), bytes32(uint256(uint160(makeAddr("owner2")))));
@@ -188,7 +174,8 @@ contract FabricaTokenStorageLayoutTest is Test {
     function test_initializeV5_viaUpgradeToAndCall() public {
         // Set up a fresh proxy
         FabricaToken impl = new FabricaToken();
-        FabricaProxy freshProxy = new FabricaProxy(address(impl), proxyAdmin, abi.encodeCall(FabricaToken.initialize, ()));
+        FabricaProxy freshProxy =
+            new FabricaProxy(address(impl), proxyAdmin, abi.encodeCall(FabricaToken.initialize, ()));
         FabricaToken freshToken = FabricaToken(address(freshProxy));
         address expectedOwner = makeAddr("expectedOwner");
         // Simulate OZ v4→v5 state
@@ -217,9 +204,7 @@ contract FabricaTokenStorageLayoutTest is Test {
         amounts[0] = 700;
         amounts[1] = 300;
         vm.prank(user1);
-        uint256 tokenId = token.mint(
-            recipients, 3, amounts, "test-definition", "", "", address(0)
-        );
+        uint256 tokenId = token.mint(recipients, 3, amounts, "test-definition", "", "", address(0));
         assertEq(token.balanceOf(user1, tokenId), 700, "user1 balance should be 700");
         assertEq(token.balanceOf(user2, tokenId), 300, "user2 balance should be 300");
         // 2. Set approval (tests _operatorApprovals at 302)
