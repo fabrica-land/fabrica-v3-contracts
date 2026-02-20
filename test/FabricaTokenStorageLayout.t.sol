@@ -128,22 +128,42 @@ contract FabricaTokenStorageLayoutTest is Test {
         assertEq(rawSupply, 100, "_property.supply not at expected slot 303");
     }
 
-    function test_initializeV5_migratesOwner() public {
-        // Set up a fresh proxy simulating the upgrade scenario
+    function test_initializeV4_migratesOwner() public {
+        // Set up a fresh proxy simulating the OZ v4→v5 state
         FabricaToken impl = new FabricaToken();
         FabricaProxy freshProxy =
             new FabricaProxy(address(impl), proxyAdmin, abi.encodeCall(FabricaToken.initialize, ()));
         address freshProxyAddr = address(freshProxy);
         FabricaToken freshToken = FabricaToken(freshProxyAddr);
         address expectedOwner = makeAddr("expectedOwner");
-        // Simulate OZ v4→v5 state: owner in slot 101, zeroed in ERC-7201 slot
+        // Owner in legacy slot 101, zeroed in ERC-7201 slot
         vm.store(freshProxyAddr, bytes32(uint256(101)), bytes32(uint256(uint160(expectedOwner))));
         vm.store(freshProxyAddr, OZ_V5_OWNER_SLOT, bytes32(0));
-        assertEq(freshToken.owner(), address(0), "Owner should be zero before V5 migration");
-        // Run initializeV5
+        assertEq(freshToken.owner(), address(0), "Owner should be zero before V4 migration");
+        // Run initializeV4 (owner migration)
+        vm.prank(proxyAdmin);
+        freshToken.initializeV4();
+        assertEq(freshToken.owner(), expectedOwner, "Owner should be migrated by initializeV4");
+    }
+
+    function test_initializeV5_isNoOp() public {
+        // V5 is a no-op that just bumps the reinitializer version.
+        // After V4 migrates the owner, V5 should not change it.
+        FabricaToken impl = new FabricaToken();
+        FabricaProxy freshProxy =
+            new FabricaProxy(address(impl), proxyAdmin, abi.encodeCall(FabricaToken.initialize, ()));
+        FabricaToken freshToken = FabricaToken(address(freshProxy));
+        address expectedOwner = makeAddr("expectedOwner");
+        vm.store(address(freshProxy), bytes32(uint256(101)), bytes32(uint256(uint160(expectedOwner))));
+        vm.store(address(freshProxy), OZ_V5_OWNER_SLOT, bytes32(0));
+        // Run V4 first (owner migration)
+        vm.prank(proxyAdmin);
+        freshToken.initializeV4();
+        assertEq(freshToken.owner(), expectedOwner, "Owner should be set after V4");
+        // Run V5 (no-op)
         vm.prank(proxyAdmin);
         freshToken.initializeV5();
-        assertEq(freshToken.owner(), expectedOwner, "Owner should be migrated by initializeV5");
+        assertEq(freshToken.owner(), expectedOwner, "Owner should be unchanged after V5");
     }
 
     function test_initializeV5_revertsForNonAdmin() public {
@@ -154,14 +174,10 @@ contract FabricaTokenStorageLayoutTest is Test {
     }
 
     function test_initializeV5_cannotBeCalledTwice() public {
-        // Set up a fresh proxy
         FabricaToken impl = new FabricaToken();
         FabricaProxy freshProxy =
             new FabricaProxy(address(impl), proxyAdmin, abi.encodeCall(FabricaToken.initialize, ()));
         FabricaToken freshToken = FabricaToken(address(freshProxy));
-        // Store an owner in slot 101
-        vm.store(address(freshProxy), bytes32(uint256(101)), bytes32(uint256(uint160(makeAddr("owner2")))));
-        vm.store(address(freshProxy), OZ_V5_OWNER_SLOT, bytes32(0));
         // First call should succeed
         vm.prank(proxyAdmin);
         freshToken.initializeV5();
@@ -171,21 +187,45 @@ contract FabricaTokenStorageLayoutTest is Test {
         freshToken.initializeV5();
     }
 
-    function test_initializeV5_viaUpgradeToAndCall() public {
-        // Set up a fresh proxy
+    function test_mainnetUpgradePath_V4thenV5() public {
+        // Mainnet/Base Sepolia path: V4 (owner migration) + V5 (version bump)
         FabricaToken impl = new FabricaToken();
         FabricaProxy freshProxy =
             new FabricaProxy(address(impl), proxyAdmin, abi.encodeCall(FabricaToken.initialize, ()));
         FabricaToken freshToken = FabricaToken(address(freshProxy));
         address expectedOwner = makeAddr("expectedOwner");
-        // Simulate OZ v4→v5 state
         vm.store(address(freshProxy), bytes32(uint256(101)), bytes32(uint256(uint160(expectedOwner))));
         vm.store(address(freshProxy), OZ_V5_OWNER_SLOT, bytes32(0));
-        // Deploy new implementation and upgrade
+        // Deploy new implementation and upgrade with V4
+        FabricaToken newImpl = new FabricaToken();
+        vm.prank(proxyAdmin);
+        freshToken.upgradeToAndCall(address(newImpl), abi.encodeCall(FabricaToken.initializeV4, ()));
+        assertEq(freshToken.owner(), expectedOwner, "Owner should be migrated after V4 upgrade");
+        assertEq(freshToken.implementation(), address(newImpl), "Implementation should be updated");
+        // Then run V5 (no-op, just bumps version)
+        vm.prank(proxyAdmin);
+        freshToken.initializeV5();
+        assertEq(freshToken.owner(), expectedOwner, "Owner unchanged after V5");
+    }
+
+    function test_sepoliaUpgradePath_V5only() public {
+        // Sepolia path: V4 already consumed, only V5 needed
+        FabricaToken impl = new FabricaToken();
+        FabricaProxy freshProxy =
+            new FabricaProxy(address(impl), proxyAdmin, abi.encodeCall(FabricaToken.initialize, ()));
+        FabricaToken freshToken = FabricaToken(address(freshProxy));
+        // Simulate Sepolia state: V4 already ran, owner already in ERC-7201 slot
+        address expectedOwner = makeAddr("expectedOwner");
+        vm.store(address(freshProxy), OZ_V5_OWNER_SLOT, bytes32(uint256(uint160(expectedOwner))));
+        // Advance _initialized to 4 (simulate V4 already consumed)
+        // OZ v5 stores _initialized in ERC-7201 slot for Initializable
+        bytes32 initSlot = 0xf0c57e16840df040f15088dc2f81fe391c3923bec73e23a9662efc9c229c6a00;
+        vm.store(address(freshProxy), initSlot, bytes32(uint256(4)));
+        // Deploy new implementation and upgrade with V5 only
         FabricaToken newImpl = new FabricaToken();
         vm.prank(proxyAdmin);
         freshToken.upgradeToAndCall(address(newImpl), abi.encodeCall(FabricaToken.initializeV5, ()));
-        assertEq(freshToken.owner(), expectedOwner, "Owner should be migrated after upgradeToAndCall");
+        assertEq(freshToken.owner(), expectedOwner, "Owner should remain set after V5-only upgrade");
         assertEq(freshToken.implementation(), address(newImpl), "Implementation should be updated");
     }
 

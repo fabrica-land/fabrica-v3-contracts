@@ -40,11 +40,11 @@ contract FabricaTokenSepoliaForkTest is Test {
     function test_upgradeRestoresAllState() public onlyFork {
         // Deploy the fixed implementation
         FabricaToken newImpl = new FabricaToken();
-        // Upgrade and run initializeV5 (owner migration)
+        // Sepolia path: V4 already consumed (2025-02-12), only V5 (no-op) needed
         vm.prank(PROXY_ADMIN);
         token.upgradeToAndCall(address(newImpl), abi.encodeCall(FabricaToken.initializeV5, ()));
-        // Verify owner migration worked
-        assertEq(token.owner(), PROXY_ADMIN, "owner should be restored after upgrade");
+        // Owner was already migrated by V4 on Feb 12
+        assertEq(token.owner(), PROXY_ADMIN, "owner should still be set after upgrade");
         // Verify storage gap fix restored all state
         assertEq(token.defaultValidator(), EXPECTED_DEFAULT_VALIDATOR, "defaultValidator should be restored");
         assertTrue(token.validatorRegistry() != address(0), "validatorRegistry should be non-zero");

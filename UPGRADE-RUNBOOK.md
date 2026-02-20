@@ -28,13 +28,13 @@ FabricaToken has versioned initializers:
 | 1 | `initialize()` | `initializer` | Initial setup (ERC165, UUPS, Ownable, Pausable) |
 | 2 | `initializeV2()` | `onlyProxyAdmin reinitializer(2)` | (Migration code removed — no-op) |
 | 3 | `initializeV3()` | `onlyProxyAdmin reinitializer(3)` | Emits `TraitMetadataURIUpdated` |
-| 4 | `initializeV4()` | `onlyProxyAdmin reinitializer(4)` | **Superseded by V5** — owner migration only (never deployed) |
-| 5 | `initializeV5()` | `onlyProxyAdmin reinitializer(5)` | **OZ v4→v5 owner migration** (supersedes V4, pairs with `__legacy_gap` fix) |
+| 4 | `initializeV4()` | `onlyProxyAdmin reinitializer(4)` | **OZ v4→v5 owner migration** — reads slot 101, writes ERC-7201 slot. Deployed on Sepolia 2025-02-12. |
+| 5 | `initializeV5()` | `onlyProxyAdmin reinitializer(5)` | **No-op** — consumed during `__legacy_gap` storage fix upgrade. Bumps version only. |
 
-Reinitializers can be skipped — calling `initializeV5()` works whether the proxy
-is currently at version 1, 2, or 3, since `reinitializer(5)` only requires the
-stored version to be < 5. V4 was never deployed on any network and is superseded
-by V5 which performs the same owner migration.
+Reinitializers can be skipped — `reinitializer(N)` only requires the stored
+version to be < N. On Sepolia, V4 was already consumed (2025-02-12), so only V5
+is needed. On mainnet and Base Sepolia, V4 must run first (owner migration),
+then V5 bumps the version.
 
 ## OZ v4→v5 Storage Migration
 
@@ -48,7 +48,7 @@ stored in the proxy's storage.
 
 | Contract | OZ v4 Slot | OZ v5 ERC-7201 Slot | Migration |
 |----------|-----------|---------------------|-----------|
-| `OwnableUpgradeable._owner` | 101 | `0x9016d09d...9300` | **initializeV5** — reads old, writes new |
+| `OwnableUpgradeable._owner` | 101 | `0x9016d09d...9300` | **initializeV4** — reads old, writes new |
 | `PausableUpgradeable._paused` | 151 | `0xcd5ed15c...3300` | Not needed — default `false` is correct |
 | `Initializable._initialized` | 0 | `0xf0c57e16...6a00` | Not needed — fresh slot, reinitializer writes correctly |
 | ERC-1967 (impl, admin) | Standard slots | Standard slots | Not affected — same in both versions |
@@ -154,9 +154,11 @@ Note the new implementation address from the output.
 
 ### Step 2: Upgrade Proxy
 
-Run with the **proxy admin** wallet. The script calls `initializeV5()` which
-handles the owner migration (the `__legacy_gap` storage fix is structural and
-takes effect as soon as the new implementation is deployed):
+Run with the **proxy admin** wallet. The `__legacy_gap` storage fix is structural
+and takes effect as soon as the new implementation is active. The initializer
+called during upgrade depends on the network:
+
+**Sepolia** (V4 already consumed on 2025-02-12 — call V5 only):
 
 ```bash
 source .env && forge script script/FabricaTokenUpgrade.s.sol \
@@ -164,6 +166,25 @@ source .env && forge script script/FabricaTokenUpgrade.s.sol \
   --rpc-url sepolia \
   --broadcast \
   --private-key "$TESTNET_PROXY_ADMIN_PRIVATE_KEY"
+```
+
+**Mainnet / Base Sepolia** (V4 not yet consumed — call V4 for owner migration,
+then V5 to bump version):
+
+```bash
+# First upgrade: deploy new impl + run V4 (owner migration)
+source .env && forge script script/FabricaTokenUpgrade.s.sol \
+  --sig "runWithV4(address,address)" <PROXY_ADDRESS> <NEW_IMPL_ADDRESS> \
+  --rpc-url <RPC_URL> \
+  --broadcast \
+  --private-key "$PROXY_ADMIN_PRIVATE_KEY"
+
+# Then run V5 (no-op, bumps version to match Sepolia state)
+source .env && forge script script/FabricaTokenUpgrade.s.sol \
+  --sig "runV5Only(address)" <PROXY_ADDRESS> \
+  --rpc-url <RPC_URL> \
+  --broadcast \
+  --private-key "$PROXY_ADMIN_PRIVATE_KEY"
 ```
 
 ### Step 3: Verify
@@ -213,11 +234,12 @@ When adding a new reinitializer (e.g., `initializeV6`):
 
 1. Deployed new impl at `0xd4aeCe23bf3D0987A6a5AAaeCD90f0f02b074C55`
    (tx `0x87d15b179c7764a4225a86e8e2ceca76d763d88b48171543b74228d5e60459b4`)
-2. Upgraded proxy with `initializeV3()` — owner migration was missing
+2. Upgraded proxy with `initializeV3()` + `initializeV4()`. V4 migrated _owner
+   from slot 101 to OZ v5 ERC-7201 slot (`_initialized` = 4 after this).
    (tx `0xf9c8ffbf9b033b11b164da8baced39a3c966f512f1c9efc79874b077e1e6f4f8`)
-3. **Owner lost** — OZ v4→v5 storage slot mismatch. Old owner at slot 101, new
-   slot empty. Also: all FabricaToken state variables shifted from slot 301+ to
-   slot 0+, breaking `balanceOf`, `isApprovedForAll`, `defaultValidator`, and
-   all other state reads.
-4. Fix: `initializeV5()` added with `__legacy_gap[301]` to restore original
-   storage layout. Pending redeployment with owner migration + storage gap fix.
+3. **Storage slot shift discovered** — all FabricaToken custom state variables
+   shifted from slot 301+ to slot 0+, breaking `balanceOf`, `isApprovedForAll`,
+   `defaultValidator`, and all other state reads. Owner migration (V4) succeeded
+   but the slot shift broke everything else.
+4. Fix: `__legacy_gap[301]` added to restore original storage layout.
+   `initializeV5()` (no-op) pairs with the structural fix. Pending redeployment.
