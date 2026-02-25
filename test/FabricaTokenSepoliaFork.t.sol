@@ -33,6 +33,9 @@ contract FabricaTokenSepoliaForkTest is Test {
     }
 
     function test_brokenState_beforeUpgrade() public onlyFork {
+        // Once the storage-slot fix is deployed on Sepolia, this broken state
+        // no longer exists — defaultValidator() returns the real value, not zero.
+        if (token.defaultValidator() != address(0)) return;
         // Confirm the bug: defaultValidator() reads from wrong slot (returns zero)
         assertEq(token.defaultValidator(), address(0), "defaultValidator should be broken before upgrade");
     }

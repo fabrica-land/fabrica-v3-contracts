@@ -25,6 +25,8 @@ contract FabricaTokenStorageLayoutTest is Test {
     uint256 constant SLOT_CONTRACT_URI = 306;
     // OZ v5 ERC-7201 namespaced slot for OwnableUpgradeable._owner
     bytes32 constant OZ_V5_OWNER_SLOT = 0x9016d09d72d40fdae2fd8ceac6b6234c7706214fd39c1cd1e609a0528c199300;
+    // OZ v5 ERC-7201 namespaced slot for Initializable._initialized
+    bytes32 constant OZ_V5_INITIALIZABLE_SLOT = 0xf0c57e16840df040f15088dc2f81fe391c3923bec73e23a9662efc9c229c6a00;
 
     function setUp() public {
         proxyAdmin = makeAddr("proxyAdmin");
@@ -218,9 +220,7 @@ contract FabricaTokenStorageLayoutTest is Test {
         address expectedOwner = makeAddr("expectedOwner");
         vm.store(address(freshProxy), OZ_V5_OWNER_SLOT, bytes32(uint256(uint160(expectedOwner))));
         // Advance _initialized to 4 (simulate V4 already consumed)
-        // OZ v5 stores _initialized in ERC-7201 slot for Initializable
-        bytes32 initSlot = 0xf0c57e16840df040f15088dc2f81fe391c3923bec73e23a9662efc9c229c6a00;
-        vm.store(address(freshProxy), initSlot, bytes32(uint256(4)));
+        vm.store(address(freshProxy), OZ_V5_INITIALIZABLE_SLOT, bytes32(uint256(4)));
         // Deploy new implementation and upgrade with V5 only
         FabricaToken newImpl = new FabricaToken();
         vm.prank(proxyAdmin);
