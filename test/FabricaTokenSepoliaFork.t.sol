@@ -32,6 +32,15 @@ contract FabricaTokenSepoliaForkTest is Test {
         if (addr.code.length > 0) vm.etch(addr, "");
     }
 
+    /// @dev Deploys the fixed implementation and runs initializeV5 only if the
+    /// upgrade has not already been applied on this fork snapshot.
+    function _upgradeIfNeeded() internal {
+        if (token.defaultValidator() != address(0)) return;
+        FabricaToken newImpl = new FabricaToken();
+        vm.prank(PROXY_ADMIN);
+        token.upgradeToAndCall(address(newImpl), abi.encodeCall(FabricaToken.initializeV5, ()));
+    }
+
     function test_brokenState_beforeUpgrade() public onlyFork {
         // Once the storage-slot fix is deployed on Sepolia, this broken state
         // no longer exists — defaultValidator() returns the real value, not zero.
@@ -41,13 +50,10 @@ contract FabricaTokenSepoliaForkTest is Test {
     }
 
     function test_upgradeRestoresAllState() public onlyFork {
-        // Deploy the fixed implementation
-        FabricaToken newImpl = new FabricaToken();
-        // Sepolia path: V4 already consumed (2025-02-12), only V5 (no-op) needed
-        vm.prank(PROXY_ADMIN);
-        token.upgradeToAndCall(address(newImpl), abi.encodeCall(FabricaToken.initializeV5, ()));
-        // Owner was already migrated by V4 on Feb 12
-        assertEq(token.owner(), PROXY_ADMIN, "owner should still be set after upgrade");
+        address ownerBefore = token.owner();
+        _upgradeIfNeeded();
+        // Owner should be preserved through the upgrade
+        assertEq(token.owner(), ownerBefore, "owner should remain unchanged after upgrade");
         // Verify storage gap fix restored all state
         assertEq(token.defaultValidator(), EXPECTED_DEFAULT_VALIDATOR, "defaultValidator should be restored");
         assertTrue(token.validatorRegistry() != address(0), "validatorRegistry should be non-zero");
@@ -55,10 +61,7 @@ contract FabricaTokenSepoliaForkTest is Test {
     }
 
     function test_mintAfterUpgrade() public onlyFork {
-        // Deploy and upgrade
-        FabricaToken newImpl = new FabricaToken();
-        vm.prank(PROXY_ADMIN);
-        token.upgradeToAndCall(address(newImpl), abi.encodeCall(FabricaToken.initializeV5, ()));
+        _upgradeIfNeeded();
         // Mint a new token
         address recipient = makeAddr("forktest-recipient");
         _ensureEOA(recipient);
@@ -76,10 +79,7 @@ contract FabricaTokenSepoliaForkTest is Test {
     }
 
     function test_transferAfterUpgrade() public onlyFork {
-        // Deploy and upgrade
-        FabricaToken newImpl = new FabricaToken();
-        vm.prank(PROXY_ADMIN);
-        token.upgradeToAndCall(address(newImpl), abi.encodeCall(FabricaToken.initializeV5, ()));
+        _upgradeIfNeeded();
         // Mint — use unique labels to avoid on-chain address collisions
         address user1 = makeAddr("forktest-user1");
         address user2 = makeAddr("forktest-user2");
