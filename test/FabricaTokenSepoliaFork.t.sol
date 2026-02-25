@@ -9,8 +9,8 @@ import {FabricaToken} from "../src/FabricaToken.sol";
 contract FabricaTokenSepoliaForkTest is Test {
     address constant PROXY = 0xb52ED2Dc8EBD49877De57De3f454Fd71b75bc1fD;
     address constant PROXY_ADMIN = 0xBF03076547a99857b796717faF4034dea94569dF;
-    // Actual on-chain values at slot 304/305 (verified via cast storage)
-    address constant EXPECTED_DEFAULT_VALIDATOR = 0xAAA7FDc1A573965a2eD47Ab154332b6b55098008;
+    // Legacy slot for _defaultValidator in FabricaToken
+    uint256 constant SLOT_DEFAULT_VALIDATOR = 304;
 
     FabricaToken token;
 
@@ -45,17 +45,23 @@ contract FabricaTokenSepoliaForkTest is Test {
         // Once the storage-slot fix is deployed on Sepolia, this broken state
         // no longer exists — defaultValidator() returns the real value, not zero.
         if (token.defaultValidator() != address(0)) return;
+        // Prove the value exists at the correct slot but the getter reads the wrong one
+        address slot304 = address(uint160(uint256(vm.load(PROXY, bytes32(SLOT_DEFAULT_VALIDATOR)))));
+        assertTrue(slot304 != address(0), "slot 304 should contain validator before fix");
         // Confirm the bug: defaultValidator() reads from wrong slot (returns zero)
         assertEq(token.defaultValidator(), address(0), "defaultValidator should be broken before upgrade");
     }
 
     function test_upgradeRestoresAllState() public onlyFork {
         address ownerBefore = token.owner();
+        // Derive expected validator from raw storage before upgrade
+        address expectedValidator = address(uint160(uint256(vm.load(PROXY, bytes32(SLOT_DEFAULT_VALIDATOR)))));
         _upgradeIfNeeded();
         // Owner should be preserved through the upgrade
         assertEq(token.owner(), ownerBefore, "owner should remain unchanged after upgrade");
-        // Verify storage gap fix restored all state
-        assertEq(token.defaultValidator(), EXPECTED_DEFAULT_VALIDATOR, "defaultValidator should be restored");
+        // Verify storage gap fix restored all state — getter should match raw slot 304
+        assertEq(token.defaultValidator(), expectedValidator, "defaultValidator should match slot 304");
+        assertTrue(expectedValidator != address(0), "slot 304 validator should be non-zero");
         assertTrue(token.validatorRegistry() != address(0), "validatorRegistry should be non-zero");
         assertTrue(bytes(token.contractURI()).length > 0, "contractURI should be non-empty");
     }
