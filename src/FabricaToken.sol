@@ -60,7 +60,7 @@ contract FabricaToken is
     }
 
     // Migrates owner from OZ v4 linear storage (slot 101) to OZ v5 ERC-7201 namespaced storage.
-    // Must be called once during the v4→v5 upgrade on each network.
+    // Deployed on Sepolia 2025-02-12. Must still run on mainnet and Base Sepolia.
     function initializeV4() public onlyProxyAdmin reinitializer(4) {
         address oldOwner;
         assembly {
@@ -70,6 +70,12 @@ contract FabricaToken is
         _transferOwnership(oldOwner);
     }
 
+    // Consumed during the __legacy_gap storage fix upgrade. No runtime migration needed —
+    // the gap fix is structural (compiled into the bytecode). On Sepolia, V4 already ran
+    // (Feb 2025), so only V5 is called during upgrade. On mainnet/Base Sepolia, V4 runs
+    // first (owner migration), then V5 bumps the version.
+    function initializeV5() public onlyProxyAdmin reinitializer(5) {}
+
     // Struct needed to avoid stack too deep error
     struct Property {
         uint256 supply;
@@ -78,6 +84,20 @@ contract FabricaToken is
         string configuration;
         address validator;
     }
+
+    // PERMANENT — load-bearing gap that restores the original OZ v4 storage layout.
+    // When FabricaToken migrated from OZ v4 to OZ v5, the base contracts switched from
+    // linear storage with __gap arrays (301 total slots) to ERC-7201 namespaced storage
+    // (zero linear slots). This gap compensates for that shift so all FabricaToken state
+    // variables remain at their original proxy storage positions:
+    //   _balances          → slot 301
+    //   _operatorApprovals → slot 302
+    //   _property          → slot 303
+    //   _defaultValidator  → slot 304
+    //   _validatorRegistry → slot 305
+    //   _contractURI       → slot 306
+    // DO NOT remove, resize, or reorder this gap in any future version.
+    uint256[301] private __legacy_gap;
 
     // Mapping from token ID to account balances
     mapping(uint256 => mapping(address => uint256)) private _balances;

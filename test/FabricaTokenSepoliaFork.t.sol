@@ -1,0 +1,106 @@
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.28;
+
+import {Test} from "forge-std/Test.sol";
+import {FabricaToken} from "../src/FabricaToken.sol";
+
+/// @notice Fork test against Sepolia — verifies the upgrade restores functionality on real on-chain state.
+/// Run with: forge test --match-contract FabricaTokenSepoliaForkTest --fork-url $SEPOLIA_RPC_URL -vvv
+contract FabricaTokenSepoliaForkTest is Test {
+    address constant PROXY = 0xb52ED2Dc8EBD49877De57De3f454Fd71b75bc1fD;
+    address constant PROXY_ADMIN = 0xBF03076547a99857b796717faF4034dea94569dF;
+    // Legacy slot for _defaultValidator in FabricaToken
+    uint256 constant SLOT_DEFAULT_VALIDATOR = 304;
+
+    FabricaToken token;
+
+    modifier onlyFork() {
+        // Skip when not running with --fork-url (proxy has no code without a fork)
+        if (PROXY.code.length == 0) {
+            return;
+        }
+        _;
+    }
+
+    function setUp() public {
+        token = FabricaToken(PROXY);
+    }
+
+    /// @dev Ensures addr is a clean EOA in the fork context (some makeAddr results collide
+    /// with contracts deployed on Sepolia, which breaks ERC1155 safeTransfer callbacks).
+    function _ensureEOA(address addr) internal {
+        if (addr.code.length > 0) vm.etch(addr, "");
+    }
+
+    /// @dev Deploys the fixed implementation and runs initializeV5 only if the
+    /// upgrade has not already been applied on this fork snapshot.
+    function _upgradeIfNeeded() internal {
+        if (token.defaultValidator() != address(0)) return;
+        FabricaToken newImpl = new FabricaToken();
+        vm.prank(PROXY_ADMIN);
+        token.upgradeToAndCall(address(newImpl), abi.encodeCall(FabricaToken.initializeV5, ()));
+    }
+
+    function test_brokenState_beforeUpgrade() public onlyFork {
+        // Once the storage-slot fix is deployed on Sepolia, this broken state
+        // no longer exists — defaultValidator() returns the real value, not zero.
+        if (token.defaultValidator() != address(0)) return;
+        // Prove the value exists at the correct slot but the getter reads the wrong one
+        address slot304 = address(uint160(uint256(vm.load(PROXY, bytes32(SLOT_DEFAULT_VALIDATOR)))));
+        assertTrue(slot304 != address(0), "slot 304 should contain validator before fix");
+        // Confirm the bug: defaultValidator() reads from wrong slot (returns zero)
+        assertEq(token.defaultValidator(), address(0), "defaultValidator should be broken before upgrade");
+    }
+
+    function test_upgradeRestoresAllState() public onlyFork {
+        address ownerBefore = token.owner();
+        // Derive expected validator from raw storage before upgrade
+        address expectedValidator = address(uint160(uint256(vm.load(PROXY, bytes32(SLOT_DEFAULT_VALIDATOR)))));
+        _upgradeIfNeeded();
+        // Owner should be preserved through the upgrade
+        assertEq(token.owner(), ownerBefore, "owner should remain unchanged after upgrade");
+        // Verify storage gap fix restored all state — getter should match raw slot 304
+        assertTrue(expectedValidator != address(0), "slot 304 validator should be non-zero");
+        assertEq(token.defaultValidator(), expectedValidator, "defaultValidator should match slot 304");
+        assertTrue(token.validatorRegistry() != address(0), "validatorRegistry should be non-zero");
+        assertTrue(bytes(token.contractURI()).length > 0, "contractURI should be non-empty");
+    }
+
+    function test_mintAfterUpgrade() public onlyFork {
+        _upgradeIfNeeded();
+        // Mint a new token
+        address recipient = makeAddr("forktest-recipient");
+        _ensureEOA(recipient);
+        address[] memory recipients = new address[](1);
+        recipients[0] = recipient;
+        uint256[] memory amounts = new uint256[](1);
+        amounts[0] = 500;
+        vm.prank(recipient);
+        uint256 tokenId = token.mint(recipients, 1, amounts, "test-definition", "", "", address(0));
+        // Verify balanceOf
+        assertEq(token.balanceOf(recipient, tokenId), 500, "balanceOf should return 500");
+        // Verify _property
+        (uint256 supply,,,,) = token._property(tokenId);
+        assertEq(supply, 500, "property supply should be 500");
+    }
+
+    function test_transferAfterUpgrade() public onlyFork {
+        _upgradeIfNeeded();
+        // Mint — use unique labels to avoid on-chain address collisions
+        address user1 = makeAddr("forktest-user1");
+        address user2 = makeAddr("forktest-user2");
+        _ensureEOA(user1);
+        _ensureEOA(user2);
+        address[] memory recipients = new address[](1);
+        recipients[0] = user1;
+        uint256[] memory amounts = new uint256[](1);
+        amounts[0] = 1000;
+        vm.prank(user1);
+        uint256 tokenId = token.mint(recipients, 1, amounts, "test-definition", "", "", address(0));
+        // Transfer via safeTransferFrom
+        vm.prank(user1);
+        token.safeTransferFrom(user1, user2, tokenId, 300, "");
+        assertEq(token.balanceOf(user1, tokenId), 700, "user1 balance after transfer");
+        assertEq(token.balanceOf(user2, tokenId), 300, "user2 balance after transfer");
+    }
+}
