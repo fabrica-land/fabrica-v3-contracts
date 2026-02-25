@@ -13,7 +13,6 @@ contract FabricaTokenStorageLayoutTest is Test {
     FabricaToken public token;
     address public proxy;
     address public proxyAdmin;
-    address public owner;
     FabricaValidator public validator;
     FabricaValidatorRegistry public registry;
     // Expected slot positions (from OZ v4 era, verified on-chain)
@@ -30,7 +29,6 @@ contract FabricaTokenStorageLayoutTest is Test {
 
     function setUp() public {
         proxyAdmin = makeAddr("proxyAdmin");
-        owner = makeAddr("owner");
         // Deploy validator and registry for mint operations
         FabricaValidator validatorImpl = new FabricaValidator();
         FabricaProxy validatorProxy =
