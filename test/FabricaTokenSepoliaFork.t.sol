@@ -60,8 +60,8 @@ contract FabricaTokenSepoliaForkTest is Test {
         // Owner should be preserved through the upgrade
         assertEq(token.owner(), ownerBefore, "owner should remain unchanged after upgrade");
         // Verify storage gap fix restored all state — getter should match raw slot 304
-        assertEq(token.defaultValidator(), expectedValidator, "defaultValidator should match slot 304");
         assertTrue(expectedValidator != address(0), "slot 304 validator should be non-zero");
+        assertEq(token.defaultValidator(), expectedValidator, "defaultValidator should match slot 304");
         assertTrue(token.validatorRegistry() != address(0), "validatorRegistry should be non-zero");
         assertTrue(bytes(token.contractURI()).length > 0, "contractURI should be non-empty");
     }
