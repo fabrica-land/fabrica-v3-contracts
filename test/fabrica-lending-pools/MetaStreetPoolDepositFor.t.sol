@@ -65,16 +65,26 @@ contract MetaStreetPoolDepositForTest is Test {
     }
 
     function test_depositFor_emitsDepositedWithRecipient() public {
-        vm.expectEmit(true, true, false, false, address(pool));
-        emit Deposited(recipient, TICK, 0, 0);
+        /* Predict the share count by snapshot/revert so we can assert on the full event payload */
+        uint256 snapshotId = vm.snapshotState();
+        vm.prank(payer);
+        uint256 expectedShares = pool.depositFor(recipient, TICK, DEPOSIT_AMOUNT, MIN_SHARES);
+        vm.revertToState(snapshotId);
+        vm.expectEmit(true, true, true, true, address(pool));
+        emit Deposited(recipient, TICK, DEPOSIT_AMOUNT, expectedShares);
         vm.prank(payer);
         pool.depositFor(recipient, TICK, DEPOSIT_AMOUNT, MIN_SHARES);
     }
 
     function test_depositFor_emitsERC20TransferToRecipient() public {
         address wrapper = pool.tokenize(TICK);
-        vm.expectEmit(true, true, false, false, wrapper);
-        emit Transfer(address(0), recipient, 0);
+        /* Predict the share count by snapshot/revert so we can assert on the full event payload */
+        uint256 snapshotId = vm.snapshotState();
+        vm.prank(payer);
+        uint256 expectedShares = pool.depositFor(recipient, TICK, DEPOSIT_AMOUNT, MIN_SHARES);
+        vm.revertToState(snapshotId);
+        vm.expectEmit(true, true, true, true, wrapper);
+        emit Transfer(address(0), recipient, expectedShares);
         vm.prank(payer);
         pool.depositFor(recipient, TICK, DEPOSIT_AMOUNT, MIN_SHARES);
     }
