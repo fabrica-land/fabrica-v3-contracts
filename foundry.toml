@@ -7,10 +7,11 @@ optimizer = true
 optimizer_runs = 1
 via_ir = false
 
-# Vendored MetaStreet contracts (src/metastreet/**) need viaIR + higher optimizer
-# runs to compile cleanly without "Stack too deep". Mirrors upstream MetaStreet's
-# hardhat config (viaIR: true, runs: 800, evmVersion: shanghai). Scoped to the
-# metastreet/ tree so Fabrica's own contracts keep the original bytecode.
+# Vendored MetaStreet contracts (src/metastreet/**) and test scaffolding that
+# extends Pool (test/metastreet/**) need viaIR + higher optimizer runs to compile
+# cleanly without "Stack too deep". Mirrors upstream MetaStreet's hardhat config
+# (viaIR: true, runs: 800, evmVersion: shanghai). Scoped so Fabrica's own
+# contracts keep their original bytecode.
 [[profile.default.additional_compiler_profiles]]
 name = "metastreet"
 via_ir = true
@@ -19,6 +20,12 @@ evm_version = "shanghai"
 
 [[profile.default.compilation_restrictions]]
 paths = "src/metastreet/**"
+via_ir = true
+min_optimizer_runs = 800
+min_evm_version = "shanghai"
+
+[[profile.default.compilation_restrictions]]
+paths = "test/metastreet/**"
 via_ir = true
 min_optimizer_runs = 800
 min_evm_version = "shanghai"
