@@ -22,13 +22,15 @@ library DepositLogic {
      * @param tick Tick
      * @param amount Amount
      * @param minShares Minimum shares
+     * @param beneficiary Address to credit deposit shares to
      * @return Deposit shares
      */
     function _deposit(
         Pool.PoolStorage storage self,
         uint128 tick,
         uint128 amount,
-        uint128 minShares
+        uint128 minShares,
+        address beneficiary
     ) external returns (uint128) {
         /* Validate tick */
         Tick.validate(tick, 0, 0, self.durations.length - 1, 0, self.rates.length - 1);
@@ -40,7 +42,7 @@ library DepositLogic {
         if (shares == 0 || shares < minShares) revert IPool.InsufficientShares();
 
         /* Add to deposit */
-        self.deposits[msg.sender][tick].shares += shares;
+        self.deposits[beneficiary][tick].shares += shares;
 
         return shares;
     }
