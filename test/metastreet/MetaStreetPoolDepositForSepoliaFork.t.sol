@@ -46,9 +46,7 @@ contract MetaStreetPoolDepositForSepoliaForkTest is Test {
         pool.initialize(USDC, durations, rates);
         deal(USDC, payer, 10_000e6);
         vm.prank(payer);
-        (bool ok, ) = USDC.call(
-            abi.encodeWithSignature("approve(address,uint256)", address(pool), type(uint256).max)
-        );
+        (bool ok,) = USDC.call(abi.encodeWithSignature("approve(address,uint256)", address(pool), type(uint256).max));
         require(ok, "approve failed");
     }
 
@@ -59,7 +57,7 @@ contract MetaStreetPoolDepositForSepoliaForkTest is Test {
     }
 
     function _shares(address account, uint128 tick) internal view returns (uint128 shares) {
-        (shares, ) = pool.deposits(account, tick);
+        (shares,) = pool.deposits(account, tick);
     }
 
     function test_fork_depositFor_creditsRecipient() public onlyFork {

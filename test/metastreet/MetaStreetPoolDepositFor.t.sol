@@ -42,7 +42,7 @@ contract MetaStreetPoolDepositForTest is Test {
     }
 
     function _shares(address account, uint128 tick) internal view returns (uint128 shares) {
-        (shares, ) = pool.deposits(account, tick);
+        (shares,) = pool.deposits(account, tick);
     }
 
     function test_depositFor_creditsRecipientNotPayer() public {

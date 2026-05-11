@@ -19,11 +19,7 @@ contract TestPool is Pool, ERC20DepositToken {
         ERC20DepositToken(erc20DepositTokenImpl)
     {}
 
-    function initialize(
-        address currencyToken_,
-        uint64[] memory durations_,
-        uint64[] memory rates_
-    ) external {
+    function initialize(address currencyToken_, uint64[] memory durations_, uint64[] memory rates_) external {
         Pool._initialize(currencyToken_, durations_, rates_);
     }
 
@@ -47,12 +43,7 @@ contract TestPool is Pool, ERC20DepositToken {
         return new address[](0);
     }
 
-    function _collateralSupported(
-        address,
-        uint256,
-        uint256,
-        bytes calldata
-    ) internal pure override returns (bool) {
+    function _collateralSupported(address, uint256, uint256, bytes calldata) internal pure override returns (bool) {
         return false;
     }
 
@@ -64,24 +55,21 @@ contract TestPool is Pool, ERC20DepositToken {
         return "0.0.0";
     }
 
-    function _price(
-        uint256 principal,
-        uint64,
-        LiquidityLogic.NodeSource[] memory,
-        uint16,
-        uint64[] memory,
-        uint32
-    ) internal pure override returns (uint256 repayment, uint256 adminFee) {
+    function _price(uint256 principal, uint64, LiquidityLogic.NodeSource[] memory, uint16, uint64[] memory, uint32)
+        internal
+        pure
+        override
+        returns (uint256 repayment, uint256 adminFee)
+    {
         return (principal, 0);
     }
 
-    function price(
-        address,
-        address,
-        uint256[] memory,
-        uint256[] memory,
-        bytes calldata
-    ) public pure override returns (uint256) {
+    function price(address, address, uint256[] memory, uint256[] memory, bytes calldata)
+        public
+        pure
+        override
+        returns (uint256)
+    {
         return 0;
     }
 }

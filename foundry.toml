@@ -30,6 +30,13 @@ via_ir = true
 min_optimizer_runs = 800
 min_evm_version = "shanghai"
 
+# Vendored MetaStreet sources are kept bit-for-bit with upstream
+# (only pragma bump + 2-line banner are intentional modifications).
+# Skip forge fmt on this tree so `forge fmt --check` in CI does not
+# try to reformat upstream-style code into Fabrica style.
+[fmt]
+ignore = ["src/metastreet/**/*.sol"]
+
 [rpc_endpoints]
 mainnet = "${MAINNET_RPC_URL}"
 sepolia = "${SEPOLIA_RPC_URL}"
