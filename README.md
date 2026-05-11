@@ -66,14 +66,26 @@ $ cast --help
 ```
 
 ### Deploying
+
+See **[`DEPLOYMENT.md`](./DEPLOYMENT.md)** for the full deploy flow —
+environment setup, script conventions, pre-deploy checklist, Safe
+multisig pattern for mainnet, and post-deploy address-recording
+discipline.
+
+For UUPS-proxy upgrades to existing deployments (FabricaToken,
+FabricaValidator), see **[`UPGRADE-RUNBOOK.md`](./UPGRADE-RUNBOOK.md)**.
+
+Quick reference (sepolia / dev only — mainnet uses Safe multisig per
+DEPLOYMENT.md):
+
 ```
 forge script \
-    --rpc-url [get from foundry.toml for the network] \
-    script/FabricaMarketplaceZone.s.sol # The script to deploy \
-    --private-key [actual deployment-wallet private key] \
+    --rpc-url sepolia \
+    script/FabricaMarketplaceZone.s.sol \
+    --private-key $DEPLOYER_PRIVATE_KEY \
     --broadcast \
     --verify \
-    # the following are only used if the run function has parameters \
+    # Only if the run function has parameters:
     --sig "run(address)" \
-    0x3fE51ba59dDA319d5Ac3Bf372993Ec0705dC62CB # The parameters to pass to the function
+    0x3fE51ba59dDA319d5Ac3Bf372993Ec0705dC62CB
 ```
