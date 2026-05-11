@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: BUSL-1.1
 pragma solidity 0.8.28;
 
-import "../../../src/metastreet/Pool.sol";
-import "../../../src/metastreet/tokenization/ERC20DepositToken.sol";
+import "../../../src/fabrica-lending-pools/Pool.sol";
+import "../../../src/fabrica-lending-pools/tokenization/ERC20DepositToken.sol";
 
 /**
  * @title Minimal concrete Pool for unit testing the deposit / depositFor

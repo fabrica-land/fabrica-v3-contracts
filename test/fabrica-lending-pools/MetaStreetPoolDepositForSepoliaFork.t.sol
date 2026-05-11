@@ -3,7 +3,7 @@ pragma solidity 0.8.28;
 
 import "forge-std/Test.sol";
 
-import "../../src/metastreet/tokenization/ERC20DepositTokenImplementation.sol";
+import "../../src/fabrica-lending-pools/tokenization/ERC20DepositTokenImplementation.sol";
 
 import "./concretes/TestPool.sol";
 

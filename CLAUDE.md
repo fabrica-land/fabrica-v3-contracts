@@ -22,7 +22,7 @@
     because it delegatecalls the new implementation's nonexistent fallback.
 - When committing on an issue branch, start the commit message with the issue
   number and a space, e.g. "ENG-2428 Add validator upgrade scripts".
-- **Vendored MetaStreet contracts** (`src/metastreet/**`) are vendored bit-for-bit
+- **Vendored MetaStreet contracts** (`src/fabrica-lending-pools/**`) are vendored bit-for-bit
   from `metastreet-labs/metastreet-contracts-v2` at a pinned upstream SHA (see
   the banner at the top of each vendored file). The audit-diff story for any
   Fabrica-side change to this tree is: vendor-only commit shows the full
@@ -33,14 +33,14 @@
 - **Two OpenZeppelin trees coexist**: `lib/openzeppelin-contracts` (v5.3.0) for
   Fabrica's own contracts, and `lib/openzeppelin-contracts-v4` (pinned to
   v4.8.0) for the vendored MetaStreet tree. The split is enforced by the
-  `src/metastreet/`-scoped remap in `remappings.txt`. This isolates upstream
+  `src/fabrica-lending-pools/`-scoped remap in `remappings.txt`. This isolates upstream
   MetaStreet's OZ v4 API expectations (e.g. `security/ReentrancyGuard.sol`
   path, SafeERC20 return-value semantics) from Fabrica's contracts which
   target OZ v5. Do NOT run `git submodule update --remote
   lib/openzeppelin-contracts-v4` — the `branch = release-v4.8` entry in
   `.gitmodules` would silently advance the pin off `v4.8.0`. Use the explicit
   pinned SHA for any update.
-- **MetaStreet compilation profile**: `src/metastreet/**` and `test/metastreet/**`
+- **MetaStreet compilation profile**: `src/fabrica-lending-pools/**` and `test/fabrica-lending-pools/**`
   compile under an `additional_compiler_profiles` entry in `foundry.toml`
   (via_ir + optimizer_runs=800 + evm_version=shanghai), mirroring upstream
   MetaStreet's hardhat config. Fabrica's own contracts continue to compile
