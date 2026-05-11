@@ -1019,6 +1019,34 @@ abstract contract Pool is
     /**
      * @inheritdoc IPool
      */
+    function depositFor(
+        address recipient,
+        uint128 tick,
+        uint256 amount,
+        uint256 minShares
+    ) external nonReentrant returns (uint256) {
+        /* Validate recipient */
+        if (recipient == address(0)) revert InvalidRecipient();
+        /* Handle deposit accounting and credit shares to recipient */
+        uint128 shares = DepositLogic._deposit(
+            _storage,
+            tick,
+            _scale(amount).toUint128(),
+            minShares.toUint128(),
+            recipient
+        );
+        /* Call token hook (mints wrapper Transfer event from address(0) to recipient) */
+        _onExternalTransfer(address(0), recipient, tick, shares);
+        /* Transfer deposit amount from msg.sender (payer) */
+        _storage.currencyToken.safeTransferFrom(msg.sender, address(this), amount);
+        /* Emit Deposited keyed on recipient */
+        emit Deposited(recipient, tick, amount, shares);
+        return shares;
+    }
+
+    /**
+     * @inheritdoc IPool
+     */
     function redeem(uint128 tick, uint256 shares) external nonReentrant returns (uint128) {
         /* Handle redeem accounting */
         uint128 redemptionId = DepositLogic._redeem(_storage, tick, shares.toUint128());
