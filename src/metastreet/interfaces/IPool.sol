@@ -62,6 +62,11 @@ interface IPool {
      */
     error InvalidParameters();
 
+    /**
+     * @notice Recipient is the zero address
+     */
+    error InvalidRecipient();
+
     /**************************************************************************/
     /* Events */
     /**************************************************************************/
@@ -245,6 +250,29 @@ interface IPool {
      * @return shares Amount of shares minted
      */
     function deposit(uint128 tick, uint256 amount, uint256 minShares) external returns (uint256 shares);
+
+    /**
+     * @notice Deposit amount at tick on behalf of a recipient
+     *
+     * Currency tokens are pulled from `msg.sender`; deposit shares are credited to
+     * `recipient`. Reverts with {InvalidRecipient} if `recipient` is the zero address.
+     * Used by onramp/router contracts (e.g., Coinflow) where `msg.sender` is the
+     * intermediate contract rather than the depositing user.
+     *
+     * Emits a {Deposited} event with `account = recipient`.
+     *
+     * @param recipient Address to credit deposit shares to
+     * @param tick Tick
+     * @param amount Amount of currency tokens
+     * @param minShares Minimum amount of shares to receive
+     * @return shares Amount of shares minted to recipient
+     */
+    function depositFor(
+        address recipient,
+        uint128 tick,
+        uint256 amount,
+        uint256 minShares
+    ) external returns (uint256 shares);
 
     /**
      * @notice Redeem deposit shares for currency tokens. Currency tokens can
