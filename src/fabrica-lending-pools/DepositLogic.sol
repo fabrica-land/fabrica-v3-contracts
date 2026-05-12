@@ -32,9 +32,6 @@ library DepositLogic {
         uint128 minShares,
         address beneficiary
     ) external returns (uint128) {
-        /* Defense-in-depth: helper owns the recipient write, so guard zero here too */
-        if (beneficiary == address(0)) revert IPool.InvalidRecipient();
-
         /* Validate tick */
         Tick.validate(tick, 0, 0, self.durations.length - 1, 0, self.rates.length - 1);
 
