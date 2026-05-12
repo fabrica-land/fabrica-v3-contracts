@@ -45,13 +45,7 @@ contract FabricaLendingPoolCreateScript is Script {
         uint64[] memory rates = _defaultRates();
         address[] memory collateralTokens = new address[](1);
         collateralTokens[0] = collateralToken;
-        bytes memory params = abi.encode(
-            collateralTokens,
-            currencyToken,
-            oracleProxy,
-            durations,
-            rates
-        );
+        bytes memory params = abi.encode(collateralTokens, currencyToken, oracleProxy, durations, rates);
         console.log("Factory:        ", factory);
         console.log("Beacon:         ", beacon);
         console.log("Oracle proxy:   ", oracleProxy);

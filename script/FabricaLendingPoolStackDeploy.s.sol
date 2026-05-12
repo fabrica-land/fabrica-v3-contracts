@@ -7,10 +7,16 @@ import {UpgradeableBeacon} from "../lib/openzeppelin-contracts-v4/contracts/prox
 
 import {PoolFactory} from "../src/fabrica-lending-pools/PoolFactory.sol";
 import {ERC1155CollateralWrapper} from "../src/fabrica-lending-pools/wrappers/ERC1155CollateralWrapper.sol";
-import {EnglishAuctionCollateralLiquidator} from "../src/fabrica-lending-pools/liquidators/EnglishAuctionCollateralLiquidator.sol";
+import {
+    EnglishAuctionCollateralLiquidator
+} from "../src/fabrica-lending-pools/liquidators/EnglishAuctionCollateralLiquidator.sol";
 import {SimpleSignedPriceOracle} from "../src/fabrica-lending-pools/oracle/SimpleSignedPriceOracle.sol";
-import {ERC20DepositTokenImplementation} from "../src/fabrica-lending-pools/tokenization/ERC20DepositTokenImplementation.sol";
-import {WeightedRateERC1155CollectionPool} from "../src/fabrica-lending-pools/configurations/WeightedRateERC1155CollectionPool.sol";
+import {
+    ERC20DepositTokenImplementation
+} from "../src/fabrica-lending-pools/tokenization/ERC20DepositTokenImplementation.sol";
+import {
+    WeightedRateERC1155CollectionPool
+} from "../src/fabrica-lending-pools/configurations/WeightedRateERC1155CollectionPool.sol";
 
 /**
  * @title Fabrica Lending Pool stack deployment (one-shot)
@@ -64,11 +70,7 @@ contract FabricaLendingPoolStackDeployScript is Script {
         bytes memory factoryInit = abi.encodeWithSelector(PoolFactory.initialize.selector);
         ERC1967Proxy factoryProxy = new ERC1967Proxy(address(factoryImpl), factoryInit);
         WeightedRateERC1155CollectionPool poolImpl = new WeightedRateERC1155CollectionPool(
-            address(liquidatorProxy),
-            delegateV1,
-            delegateV2,
-            address(depositTokenImpl),
-            wrappersList
+            address(liquidatorProxy), delegateV1, delegateV2, address(depositTokenImpl), wrappersList
         );
         UpgradeableBeacon beacon = new UpgradeableBeacon(address(poolImpl));
         PoolFactory(address(factoryProxy)).addPoolImplementation(address(beacon));
