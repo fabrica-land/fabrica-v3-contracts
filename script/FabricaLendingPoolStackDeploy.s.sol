@@ -31,6 +31,11 @@ import {
  *   FABRICA_LENDING_DELEGATE_REGISTRY_V1   delegate.xyz v1 canonical address
  *   FABRICA_LENDING_DELEGATE_REGISTRY_V2   delegate.xyz v2 canonical address
  *   FABRICA_LENDING_ORACLE_DOMAIN_NAME     EIP-712 domain name (e.g. "All Fabrica Properties")
+ *   FABRICA_LENDING_OWNER                  address that owns the deployed oracle + factory
+ *                                          (must equal the broadcaster). Required explicitly to
+ *                                          avoid silently inheriting Foundry's default sender
+ *                                          (0x1804…) when `forge script` runs without a
+ *                                          configured signer.
  *
  * Optional env (defaults mirror mainnet):
  *   FABRICA_LENDING_AUCTION_DURATION       uint64 seconds; default 86400
@@ -45,6 +50,8 @@ contract FabricaLendingPoolStackDeployScript is Script {
         address delegateV1 = vm.envAddress("FABRICA_LENDING_DELEGATE_REGISTRY_V1");
         address delegateV2 = vm.envAddress("FABRICA_LENDING_DELEGATE_REGISTRY_V2");
         string memory oracleName = vm.envString("FABRICA_LENDING_ORACLE_DOMAIN_NAME");
+        address owner = vm.envAddress("FABRICA_LENDING_OWNER");
+        require(owner == msg.sender, "FABRICA_LENDING_OWNER must equal broadcaster");
         uint64 auctionDuration = uint64(vm.envOr("FABRICA_LENDING_AUCTION_DURATION", uint256(86400)));
         uint64 auctionExtWindow = uint64(vm.envOr("FABRICA_LENDING_AUCTION_EXT_WINDOW", uint256(600)));
         uint64 auctionExt = uint64(vm.envOr("FABRICA_LENDING_AUCTION_EXT", uint256(900)));
@@ -64,7 +71,7 @@ contract FabricaLendingPoolStackDeployScript is Script {
         );
         ERC1967Proxy liquidatorProxy = new ERC1967Proxy(address(liquidatorImpl), liquidatorInit);
         SimpleSignedPriceOracle oracleImpl = new SimpleSignedPriceOracle(oracleName);
-        bytes memory oracleInit = abi.encodeCall(SimpleSignedPriceOracle.initialize, (msg.sender));
+        bytes memory oracleInit = abi.encodeCall(SimpleSignedPriceOracle.initialize, (owner));
         ERC1967Proxy oracleProxy = new ERC1967Proxy(address(oracleImpl), oracleInit);
         PoolFactory factoryImpl = new PoolFactory();
         bytes memory factoryInit = abi.encodeWithSelector(PoolFactory.initialize.selector);
@@ -87,6 +94,6 @@ contract FabricaLendingPoolStackDeployScript is Script {
         console.log("WeightedRateERC1155CollectionPool impl:", address(poolImpl));
         console.log("UpgradeableBeacon:                  ", address(beacon));
         console.log("Beacon registered with factory:     true");
-        console.log("Oracle owner / factory owner:       ", msg.sender);
+        console.log("Oracle owner / factory owner:       ", owner);
     }
 }

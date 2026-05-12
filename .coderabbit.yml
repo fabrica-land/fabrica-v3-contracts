@@ -1,0 +1,18 @@
+# CodeRabbit configuration for fabrica-v3-contracts.
+#
+# Excludes the vendored MetaStreet upstream tree from CodeRabbit's analysis.
+# `src/fabrica-lending-pools/**` is bit-for-bit vendored from
+# metastreet-labs/metastreet-contracts-v2 at a pinned upstream SHA (see the
+# banner at the top of each vendored file). Modifications are enumerated in
+# the file's commit history and kept to the documented Fabrica delta
+# (depositFor + InvalidRecipient + DepositLogic beneficiary param).
+#
+# CodeRabbit findings on the unmodified vendored portion expand reviewer
+# audit surface without giving Fabrica auditable signal — upstream's code
+# is already audited and deployed live on mainnet (pool impl
+# 0x4b1576Df8D8911d2F404391a7f8fAcEfA7F4b6da, IMPLEMENTATION_VERSION 2.15).
+# Keeping the vendored tree out of CR scope lets reviewers focus on
+# Fabrica's own contracts (src/Fabrica*.sol), scripts, and tests.
+reviews:
+  path_filters:
+    - "!src/fabrica-lending-pools/**"
