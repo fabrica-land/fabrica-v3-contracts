@@ -994,26 +994,11 @@ abstract contract Pool is
     /**
      * @inheritdoc IPool
      */
-    function deposit(uint128 tick, uint256 amount, uint256 minShares) external nonReentrant returns (uint256) {
-        /* Handle deposit accounting and compute shares (msg.sender is the beneficiary) */
-        uint128 shares = DepositLogic._deposit(
-            _storage,
-            tick,
-            _scale(amount).toUint128(),
-            minShares.toUint128(),
-            msg.sender
-        );
-
-        /* Call token hook */
-        _onExternalTransfer(address(0), msg.sender, tick, shares);
-
-        /* Transfer deposit amount */
-        _storage.currencyToken.safeTransferFrom(msg.sender, address(this), amount);
-
-        /* Emit Deposited */
-        emit Deposited(msg.sender, tick, amount, shares);
-
-        return shares;
+    function deposit(uint128 tick, uint256 amount, uint256 minShares) external returns (uint256) {
+        /* Wraps depositFor with msg.sender as the beneficiary. No nonReentrant
+           here — depositFor carries the guard, and double-locking the same
+           reentrancy slot from a wrapper would revert every call. */
+        return depositFor(msg.sender, tick, amount, minShares);
     }
 
     /**
@@ -1024,9 +1009,10 @@ abstract contract Pool is
         uint128 tick,
         uint256 amount,
         uint256 minShares
-    ) external nonReentrant returns (uint256) {
+    ) public nonReentrant returns (uint256) {
         /* Validate recipient */
         if (recipient == address(0)) revert InvalidRecipient();
+
         /* Handle deposit accounting and credit shares to recipient */
         uint128 shares = DepositLogic._deposit(
             _storage,
@@ -1035,12 +1021,16 @@ abstract contract Pool is
             minShares.toUint128(),
             recipient
         );
+
         /* Call token hook (mints wrapper Transfer event from address(0) to recipient) */
         _onExternalTransfer(address(0), recipient, tick, shares);
+
         /* Transfer deposit amount from msg.sender (payer) */
         _storage.currencyToken.safeTransferFrom(msg.sender, address(this), amount);
+
         /* Emit Deposited keyed on recipient */
         emit Deposited(recipient, tick, amount, shares);
+
         return shares;
     }
 
