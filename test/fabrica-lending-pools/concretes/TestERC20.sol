@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity 0.8.28;
+pragma solidity ^0.8.25;
 
 /**
  * Minimal mintable ERC20 for unit tests. 18 decimals so Pool's _scaleFactor

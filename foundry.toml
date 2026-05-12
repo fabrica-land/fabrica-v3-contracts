@@ -2,36 +2,45 @@
 src = "src"
 out = "out"
 libs = ["lib"]
-solc = "0.8.28"
+auto_detect_solc = true
 optimizer = true
 optimizer_runs = 1
 via_ir = false
 
-# Vendored MetaStreet contracts (src/fabrica-lending-pools/**) and test scaffolding that
-# extends Pool (test/fabrica-lending-pools/**) need viaIR + higher optimizer runs to compile
-# cleanly without "Stack too deep". Mirrors upstream MetaStreet's hardhat config
-# (viaIR: true, runs: 800, evmVersion: shanghai). Scoped so Fabrica's own
-# contracts keep their original bytecode.
+# Vendored MetaStreet contracts (src/fabrica-lending-pools/**) and test
+# scaffolding that extends Pool (test/fabrica-lending-pools/**) need viaIR to
+# compile cleanly without "Stack too deep". Mirrors upstream metastreet-
+# contracts-v2's hardhat.config at SHA 8ed467d (viaIR: true,
+# optimizer.runs: 100 for the contracts/configurations override that contains
+# the deployable concretes, evmVersion: shanghai). We apply runs=1 across
+# the whole vendored tree: Foundry can't replicate hardhat's per-file
+# `overrides` within a single import graph, and runs=1 saves the few-dozen
+# bytes Pool needs to fit its concrete configuration under EIP-170's
+# 24576-byte runtime-bytecode limit with our Fabrica depositFor additions.
+# bytecode_hash and cbor_metadata are stripped so the appended CBOR
+# metadata trailer doesn't eat into the budget either.
 [[profile.default.additional_compiler_profiles]]
 name = "metastreet"
 via_ir = true
-optimizer_runs = 800
+optimizer_runs = 1
 evm_version = "shanghai"
+bytecode_hash = "None"
+cbor_metadata = false
 
 [[profile.default.compilation_restrictions]]
 paths = "src/fabrica-lending-pools/**"
 via_ir = true
-min_optimizer_runs = 800
+min_optimizer_runs = 1
 min_evm_version = "shanghai"
 
 [[profile.default.compilation_restrictions]]
 paths = "test/fabrica-lending-pools/**"
 via_ir = true
-min_optimizer_runs = 800
+min_optimizer_runs = 1
 min_evm_version = "shanghai"
 
 # Vendored MetaStreet sources are kept bit-for-bit with upstream
-# (only pragma bump + 2-line banner are intentional modifications).
+# (banner comment only — pragma matches upstream verbatim at 0.8.25).
 # Skip forge fmt on this tree so `forge fmt --check` in CI does not
 # try to reformat upstream-style code into Fabrica style.
 [fmt]

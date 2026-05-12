@@ -32,16 +32,26 @@
   enumerated in the file's commit history.
 - **Two OpenZeppelin trees coexist**: `lib/openzeppelin-contracts` (v5.3.0) for
   Fabrica's own contracts, and `lib/openzeppelin-contracts-v4` (pinned to
-  v4.8.0) for the vendored MetaStreet tree. The split is enforced by the
+  v4.9.6) for the vendored MetaStreet tree. The split is enforced by the
   `src/fabrica-lending-pools/`-scoped remap in `remappings.txt`. This isolates upstream
   MetaStreet's OZ v4 API expectations (e.g. `security/ReentrancyGuard.sol`
   path, SafeERC20 return-value semantics) from Fabrica's contracts which
-  target OZ v5. Do NOT run `git submodule update --remote
-  lib/openzeppelin-contracts-v4` — the `branch = release-v4.8` entry in
-  `.gitmodules` would silently advance the pin off `v4.8.0`. Use the explicit
-  pinned SHA for any update.
-- **MetaStreet compilation profile**: `src/fabrica-lending-pools/**` and `test/fabrica-lending-pools/**`
-  compile under an `additional_compiler_profiles` entry in `foundry.toml`
-  (via_ir + optimizer_runs=800 + evm_version=shanghai), mirroring upstream
-  MetaStreet's hardhat config. Fabrica's own contracts continue to compile
-  under the original profile so their bytecode is unaffected.
+  target OZ v5. The v4.9.6 pin specifically matches upstream
+  metastreet-contracts-v2's package.json at SHA 8ed467d — this is the OZ
+  version mainnet's deployed pool impl was compiled against, and is what
+  produces byte-equivalence with mainnet's deployed bytecode. Do NOT run
+  `git submodule update --remote lib/openzeppelin-contracts-v4` — the
+  `branch = release-v4.9` entry in `.gitmodules` would silently advance the
+  pin off `v4.9.6`. Use the explicit pinned SHA for any update.
+- **MetaStreet compilation profile**: `src/fabrica-lending-pools/**` and
+  `test/fabrica-lending-pools/**` compile under an
+  `additional_compiler_profiles` entry in `foundry.toml` (via_ir +
+  optimizer_runs=1 + evm_version=shanghai + bytecode_hash=None +
+  cbor_metadata=false). The settings match upstream MetaStreet's hardhat
+  config (viaIR, evmVersion shanghai) but use runs=1 instead of upstream's
+  runs=800 / per-file runs=100 because Foundry can't replicate hardhat's
+  per-file overrides, and we need the smallest-bytecode setting to fit the
+  WeightedRateERC1155CollectionPool concrete under EIP-170's 24576-byte
+  runtime-bytecode limit with Fabrica's depositFor additions on top. CBOR
+  metadata is stripped to save bytes too. Fabrica's own contracts continue
+  to compile under the original profile so their bytecode is unaffected.
