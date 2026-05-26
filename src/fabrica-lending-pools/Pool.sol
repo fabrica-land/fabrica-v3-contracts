@@ -829,7 +829,7 @@ abstract contract Pool is
             uint256 feeShareAmount,
             LoanReceipt.LoanReceiptV2 memory loanReceipt,
             bytes32 loanReceiptHash
-        ) = BorrowLogic._repay(_storage, _getFeeShareStorage(), encodedLoanReceipt);
+        ) = BorrowLogic._repay(_storage, _getFeeShareStorage(), encodedLoanReceipt, false);
         uint256 unscaledRepayment = _unscale(repayment, true);
 
         /* Revoke delegates */
@@ -841,8 +841,15 @@ abstract contract Pool is
             _delegateRegistryV2
         );
 
-        /* Transfer repayment from borrower to pool */
-        _storage.currencyToken.safeTransferFrom(loanReceipt.borrower, address(this), unscaledRepayment);
+        /* Transfer repayment from caller to pool (Fabrica ENG-3076: anyone
+           may repay on the borrower's behalf; funds pulled from msg.sender).
+           Bare IERC20 transferFrom + bool check instead of SafeERC20 here
+           keeps via_ir + runs=1 from emitting the full SafeERC20 dispatch
+           inlined at this call site — saves ~1 KB of runtime bytecode. */
+        require(
+            _storage.currencyToken.transferFrom(msg.sender, address(this), unscaledRepayment),
+            "T"
+        );
 
         /* Transfer collateral from pool to borrower */
         _transferCollateral(
@@ -874,13 +881,14 @@ abstract contract Pool is
     ) external nonReentrant returns (uint256) {
         uint256 scaledPrincipal = _scale(principal);
 
-        /* Handle repay accounting */
+        /* Handle repay accounting. Refinance opens a new loan position; only
+           the borrower may do that, so requireBorrower=true (Fabrica ENG-3076). */
         (
             uint256 repayment,
             uint256 feeShareAmount,
             LoanReceipt.LoanReceiptV2 memory loanReceipt,
             bytes32 loanReceiptHash
-        ) = BorrowLogic._repay(_storage, _getFeeShareStorage(), encodedLoanReceipt);
+        ) = BorrowLogic._repay(_storage, _getFeeShareStorage(), encodedLoanReceipt, true);
         uint256 unscaledRepayment = _unscale(repayment, true);
 
         /* Quote new repayment, admin fee, and liquidity nodes */
