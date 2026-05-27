@@ -71,6 +71,14 @@ import {SimpleSignedPriceOracle} from "../src/fabrica-lending-pools/oracle/Simpl
  * If returndata is `0x` (empty), the token is non-conforming and MUST NOT be
  * used. If returndata is `0x0000...00` (32-byte bool, value=false because
  * allowance=0), the token is conforming.
+ *
+ * Deployment (per CLAUDE.md — always include `--verify`):
+ *   forge script script/FabricaLendingPoolCreate.s.sol:FabricaLendingPoolCreateScript \
+ *     --rpc-url $RPC_URL --broadcast --verify
+ * If verification fails during the broadcast, follow up afterward with:
+ *   forge verify-contract <deployed_address> \
+ *     src/fabrica-lending-pools/configurations/WeightedRateERC1155CollectionPool.sol:WeightedRateERC1155CollectionPool \
+ *     --chain <chain_id>
  */
 contract FabricaLendingPoolCreateScript is Script {
     function setUp() public {}

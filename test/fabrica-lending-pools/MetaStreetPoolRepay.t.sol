@@ -74,7 +74,7 @@ contract MetaStreetPoolRepayTest is Test {
         Vm.Log[] memory logs = vm.getRecordedLogs();
         bytes32 topic = keccak256("LoanOriginated(bytes32,bytes)");
         for (uint256 i; i < logs.length; i++) {
-            if (logs[i].emitter == address(pool) && logs[i].topics[0] == topic) {
+            if (logs[i].emitter == address(pool) && logs[i].topics.length > 0 && logs[i].topics[0] == topic) {
                 /* Non-indexed bytes payload is abi.encode(bytes). */
                 encodedLoanReceipt = abi.decode(logs[i].data, (bytes));
                 return encodedLoanReceipt;

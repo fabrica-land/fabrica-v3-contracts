@@ -24,6 +24,7 @@ contract TestERC721 {
     }
 
     function mint(address to, uint256 tokenId) external {
+        require(to != address(0), "zero to");
         require(ownerOf[tokenId] == address(0), "minted");
         ownerOf[tokenId] = to;
         emit Transfer(address(0), to, tokenId);
@@ -46,6 +47,7 @@ contract TestERC721 {
     }
 
     function transferFrom(address from, address to, uint256 tokenId) public {
+        require(to != address(0), "zero to");
         address owner = ownerOf[tokenId];
         require(owner == from, "wrong from");
         require(
