@@ -46,12 +46,18 @@
 - **MetaStreet compilation profile**: `src/fabrica-lending-pools/**` and
   `test/fabrica-lending-pools/**` compile under an
   `additional_compiler_profiles` entry in `foundry.toml` (via_ir +
-  optimizer_runs=1 + evm_version=shanghai + bytecode_hash=None +
-  cbor_metadata=false). The settings match upstream MetaStreet's hardhat
-  config (viaIR, evmVersion shanghai) but use runs=1 instead of upstream's
-  runs=800 / per-file runs=100 because Foundry can't replicate hardhat's
-  per-file overrides, and we need the smallest-bytecode setting to fit the
+  optimizer_runs=1 + evm_version=cancun + bytecode_hash=None +
+  cbor_metadata=false). runs=1 instead of upstream's runs=800 /
+  per-file runs=100 because Foundry can't replicate hardhat's per-file
+  overrides, and we need the smallest-bytecode setting to fit the
   WeightedRateERC1155CollectionPool concrete under EIP-170's 24576-byte
-  runtime-bytecode limit with Fabrica's depositFor additions on top. CBOR
-  metadata is stripped to save bytes too. Fabrica's own contracts continue
-  to compile under the original profile so their bytecode is unaffected.
+  runtime-bytecode limit with Fabrica's depositFor + anyone-can-repay
+  additions on top. evm_version=cancun (rather than upstream's shanghai)
+  is also load-bearing: cancun enables PUSH0 + MCOPY in via_ir codegen,
+  saving ~1.3 KB on the inlined SafeERC20/IERC20 dispatch sites that
+  ENG-3076 touches; with shanghai the deployable concrete blows the
+  EIP-170 budget by ~1 KB. All Fabrica target chains (Ethereum mainnet,
+  Sepolia, Base, Base Sepolia) are post-Dencun so cancun opcodes are
+  available everywhere we deploy. CBOR metadata is stripped to save
+  bytes too. Fabrica's own contracts continue to compile under the
+  original profile so their bytecode is unaffected.
