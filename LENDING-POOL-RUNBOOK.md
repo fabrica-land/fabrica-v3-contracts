@@ -128,4 +128,25 @@ cast call 0x6C56d0953377D7AB479BBA85Da8d61050F774c0B 'IMPLEMENTATION_VERSION()(s
 | Date | Network | Impl Address | Notes |
 |------|---------|--------------|-------|
 | (initial deploy, pre-broadcast-log) | Sepolia | `0x890625c28d221B65e97D300d2BC0F305D12acDCf` | Upstream MetaStreet `WeightedRateERC1155CollectionPool` 2.15. No Fabrica modifications. |
-| 2026-05-27 (ENG-3076) | Sepolia | `0xA84C15ecA620C5E4766fE0c6dd8Eaf419A838518` | Adds `Pool.depositFor(recipient, ...)` (ENG-3101) and anyone-can-repay (ENG-3076). EIP-170: 24,259 bytes (317 under). Deployed via the original FabricaLendingPoolStackDeploy.s.sol's `new WeightedRateERC1155CollectionPool(...)` site (broadcast tx `0x38efda31d7f12fe780d9a31e5b7bec0c74d15040829868de4265bbb38820bbc5`); beacon repointed via `UpgradeableBeacon.upgradeTo` shortly after. Subsequent upgrades use `FabricaLendingPoolUpgrade.s.sol` (one-shot deploy + repoint). |
+| 2026-05-27 (ENG-3076) | Sepolia | `0xA84C15ecA620C5E4766fE0c6dd8Eaf419A838518` | Adds `Pool.depositFor(recipient, ...)` (ENG-3101) and anyone-can-repay (ENG-3076). EIP-170: 24,259 bytes (317 under). Deployed via the original FabricaLendingPoolStackDeploy.s.sol's `new WeightedRateERC1155CollectionPool(...)` site (broadcast tx `0x38efda31d7f12fe780d9a31e5b7bec0c74d15040829868de4265bbb38820bbc5`); beacon repointed via `UpgradeableBeacon.upgradeTo` shortly after. Subsequent upgrades use `FabricaLendingPoolUpgrade.s.sol` (one-shot deploy + repoint). [Etherscan-verified](https://sepolia.etherscan.io/address/0xA84C15ecA620C5E4766fE0c6dd8Eaf419A838518#code). |
+
+### Live verification (Sepolia, 2026-05-27)
+
+Functional smoke against the LIVE upgraded pool — third-party repay
+exercised the new code path end-to-end with no config change to Soil
+or the API (pool address `0x6C56d0953377D7AB479BBA85Da8d61050F774c0B`
+is the unchanged BeaconProxy).
+
+| Assertion | Before tx | After tx | ✓ |
+|---|---|---|---|
+| Loan status | 1 (Active) | 2 (Repaid) | ✓ |
+| Staging-API-wallet USDC | 17,127,900 | 16,126,156 | -1,001,744 raw USDC pulled from third party (NOT the borrower) |
+| Original borrower USDC | 5,999,554 | 5,999,554 | unchanged — borrower paid nothing |
+| Borrower holds collateral | 0 | 1 | collateral returned to original borrower |
+| Pool holds collateral | 1 | 0 | pool released collateral |
+
+- Loan receipt hash: `0x7c60c27cf5176aedcd005825842f4a2c84ae4e33e45b6b6cfd0c5129ce957934`
+- Original borrower: `0xadd5a1b8f83cad37120dc0c80af29cd42406e7a6`
+- Third-party caller (the staging API `mintingWallet`): `0x5Cf573087BB00d56b457C108F373a3ac4984e28b`
+- Collateral: FabricaToken id `6916740955630765930`
+- Repay tx: [`0x90e99cfddfd2ec8ec7afabb8084d2f943a82a944b4f4a07b74bd6183456ed59a`](https://sepolia.etherscan.io/tx/0x90e99cfddfd2ec8ec7afabb8084d2f943a82a944b4f4a07b74bd6183456ed59a)
