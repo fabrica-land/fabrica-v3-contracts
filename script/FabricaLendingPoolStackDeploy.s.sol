@@ -27,6 +27,13 @@ import {
  * (IMPLEMENTATION_VERSION 2.15). Pool instances are created separately
  * via FabricaLendingPoolCreate.s.sol against this infra.
  *
+ * Use this script when standing up a new lending market on a fresh
+ * chain (or a fresh liquidity-isolation domain on an existing chain).
+ * For upgrading an existing pool's implementation in-place — same
+ * beacon, same BeaconProxy instances, same liquidity — use
+ * `FabricaLendingPoolDeployImpl.s.sol` + `FabricaLendingPoolUpgrade.s.sol`
+ * instead.
+ *
  * Required env:
  *   FABRICA_LENDING_DELEGATE_REGISTRY_V1   delegate.xyz v1 canonical address
  *   FABRICA_LENDING_DELEGATE_REGISTRY_V2   delegate.xyz v2 canonical address

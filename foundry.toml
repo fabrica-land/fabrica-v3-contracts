@@ -12,7 +12,7 @@ via_ir = false
 # compile cleanly without "Stack too deep". Mirrors upstream metastreet-
 # contracts-v2's hardhat.config at SHA 8ed467d (viaIR: true,
 # optimizer.runs: 100 for the contracts/configurations override that contains
-# the deployable concretes, evmVersion: shanghai). We apply runs=1 across
+# the deployable concretes, evmVersion: cancun). We apply runs=1 across
 # the whole vendored tree: Foundry can't replicate hardhat's per-file
 # `overrides` within a single import graph, and runs=1 saves the few-dozen
 # bytes Pool needs to fit its concrete configuration under EIP-170's
@@ -23,7 +23,7 @@ via_ir = false
 name = "metastreet"
 via_ir = true
 optimizer_runs = 1
-evm_version = "shanghai"
+evm_version = "cancun"
 bytecode_hash = "None"
 cbor_metadata = false
 
@@ -31,13 +31,13 @@ cbor_metadata = false
 paths = "src/fabrica-lending-pools/**"
 via_ir = true
 min_optimizer_runs = 1
-min_evm_version = "shanghai"
+min_evm_version = "cancun"
 
 [[profile.default.compilation_restrictions]]
 paths = "test/fabrica-lending-pools/**"
 via_ir = true
 min_optimizer_runs = 1
-min_evm_version = "shanghai"
+min_evm_version = "cancun"
 
 # Vendored MetaStreet sources are kept bit-for-bit with upstream
 # (banner comment only — pragma matches upstream verbatim at 0.8.25).

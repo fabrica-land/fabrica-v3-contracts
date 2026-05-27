@@ -11,6 +11,12 @@
   "lib/openzeppelin-contracts-upgradeable": {
     "rev": "60b305a8f3ff0c7688f02ac470417b6bbf1c4d27"
   },
+  "lib/openzeppelin-contracts-v4": {
+    "branch": {
+      "name": "release-v4.9",
+      "rev": "dc44c9f1a4c3b10af99492eed84f83ed244203f6"
+    }
+  },
   "lib/seaport-types": {
     "rev": "b72493221ee1d2f2fb30ed94a3cc535a9028d09f"
   },

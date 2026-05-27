@@ -30,6 +30,55 @@ import {SimpleSignedPriceOracle} from "../src/fabrica-lending-pools/oracle/Simpl
  *   FABRICA_LENDING_CURRENCY_TOKEN     ERC20 currency (USDC)
  *   FABRICA_LENDING_COLLATERAL_TOKEN   FabricaToken collection address
  *   FABRICA_LENDING_ORACLE_SIGNER      EOA whose signatures the oracle will accept
+ *
+ * !!! CURRENCY TOKEN COMPLIANCE — READ BEFORE DEPLOYING A POOL !!!
+ *
+ * `FABRICA_LENDING_CURRENCY_TOKEN` MUST be a fully ERC-20-compliant token —
+ * specifically, its `transferFrom(address,address,uint256)` MUST return
+ * `bool` per the ERC-20 spec.
+ *
+ * The Fabrica-forked Pool's `repay()` path calls the currency token's
+ * `transferFrom` directly (not via OpenZeppelin's SafeERC20) — this was the
+ * lever that made ENG-3076 (anyone-can-repay) fit under the EIP-170 24,576-
+ * byte runtime budget for `WeightedRateERC1155CollectionPool`. The trade-off
+ * is that non-bool-returning ERC-20s are NOT SUPPORTED on this code path.
+ *
+ * Known unsupported tokens include:
+ *   - Tether USDT on Ethereum (0xdAC1...) — non-standard, no return value.
+ *   - BNB legacy ERC-20 (0xB8C7...) — same non-standard pattern.
+ *   - Any other "USDT-style" token whose `transferFrom` signature is
+ *     `function transferFrom(address,address,uint256) public` (returns
+ *     nothing) rather than `returns (bool)`.
+ *
+ * If a pool is created with one of these as its currency token, borrowers
+ * will be UNABLE TO REPAY: the bare `IERC20.transferFrom` call in `Pool.repay`
+ * will revert when Solidity's strict ABI decoder fails to decode a bool from
+ * the empty returndata. Loans on such a pool can only be resolved through
+ * liquidation, which is a destructive outcome for the borrower.
+ *
+ * Supported tokens — those that return `bool` from `transferFrom`:
+ *   - Circle USDC (all chains)
+ *   - PayPal PYUSD
+ *   - Paxos USDP
+ *   - DAI (MakerDAO)
+ *   - Most modern stablecoins issued under the GENIUS Act
+ *     framework (verify each contract before listing — newer issuances
+ *     generally conform, but spot-check before pool creation).
+ *
+ * Spot-check procedure for a candidate currency token:
+ *   cast call <token> 'transferFrom(address,address,uint256)' \
+ *     <a> <b> 0 --rpc-url $RPC
+ * If returndata is `0x` (empty), the token is non-conforming and MUST NOT be
+ * used. If returndata is `0x0000...00` (32-byte bool, value=false because
+ * allowance=0), the token is conforming.
+ *
+ * Deployment (per CLAUDE.md — always include `--verify`):
+ *   forge script script/FabricaLendingPoolCreate.s.sol:FabricaLendingPoolCreateScript \
+ *     --rpc-url $RPC_URL --broadcast --verify
+ * If verification fails during the broadcast, follow up afterward with:
+ *   forge verify-contract <deployed_address> \
+ *     src/fabrica-lending-pools/configurations/WeightedRateERC1155CollectionPool.sol:WeightedRateERC1155CollectionPool \
+ *     --chain <chain_id>
  */
 contract FabricaLendingPoolCreateScript is Script {
     function setUp() public {}
@@ -38,6 +87,11 @@ contract FabricaLendingPoolCreateScript is Script {
         address factory = vm.envAddress("FABRICA_LENDING_FACTORY");
         address beacon = vm.envAddress("FABRICA_LENDING_BEACON");
         address oracleProxy = vm.envAddress("FABRICA_LENDING_ORACLE");
+        // !!! Must be a bool-returning ERC-20. USDT-style tokens (transferFrom
+        // returns nothing) are NOT SUPPORTED — borrowers cannot repay loans
+        // backed by them and would have to be liquidated. See the contract-
+        // level NatSpec block above for the supported/unsupported list and the
+        // cast-based spot-check procedure.
         address currencyToken = vm.envAddress("FABRICA_LENDING_CURRENCY_TOKEN");
         address collateralToken = vm.envAddress("FABRICA_LENDING_COLLATERAL_TOKEN");
         address oracleSigner = vm.envAddress("FABRICA_LENDING_ORACLE_SIGNER");

@@ -43,15 +43,37 @@
   `git submodule update --remote lib/openzeppelin-contracts-v4` — the
   `branch = release-v4.9` entry in `.gitmodules` would silently advance the
   pin off `v4.9.6`. Use the explicit pinned SHA for any update.
+- **MetaStreet-pool currency tokens must be fully ERC-20 compliant**
+  (`transferFrom` MUST return `bool`). ENG-3076's anyone-can-repay change
+  swapped `Pool.repay`'s `safeTransferFrom` for a raw `IERC20.transferFrom`
+  + `require` on the new payer-pull line to fit the deployable concrete
+  under EIP-170 (~770 bytes saved at that single call site). The trade-off:
+  USDT-style ERC-20s whose `transferFrom` returns no value cause `Pool.repay`
+  to revert on Solidity 0.8+ strict ABI decoding of empty returndata —
+  borrowers using such a pool would be UNABLE TO REPAY and could only resolve
+  loans through liquidation. Known unsupported: USDT on Ethereum (`0xdAC1...`),
+  BNB legacy ERC-20 (`0xB8C7...`). Known supported: USDC, PYUSD, USDP, DAI,
+  and most modern GENIUS Act-framework stablecoins (spot-check each via
+  `cast call <token> 'transferFrom(address,address,uint256)' <a> <b> 0 --rpc-url $RPC`
+  — empty returndata = unsupported, 32-byte returndata = supported). The
+  operational warning lives in `script/FabricaLendingPoolCreate.s.sol` (where
+  pool currency token is picked at deploy time) and in `fabrica-v3-api`'s
+  `MetaStreetCurrencyTokenModel`.
 - **MetaStreet compilation profile**: `src/fabrica-lending-pools/**` and
   `test/fabrica-lending-pools/**` compile under an
   `additional_compiler_profiles` entry in `foundry.toml` (via_ir +
-  optimizer_runs=1 + evm_version=shanghai + bytecode_hash=None +
-  cbor_metadata=false). The settings match upstream MetaStreet's hardhat
-  config (viaIR, evmVersion shanghai) but use runs=1 instead of upstream's
-  runs=800 / per-file runs=100 because Foundry can't replicate hardhat's
-  per-file overrides, and we need the smallest-bytecode setting to fit the
+  optimizer_runs=1 + evm_version=cancun + bytecode_hash=None +
+  cbor_metadata=false). runs=1 instead of upstream's runs=800 /
+  per-file runs=100 because Foundry can't replicate hardhat's per-file
+  overrides, and we need the smallest-bytecode setting to fit the
   WeightedRateERC1155CollectionPool concrete under EIP-170's 24576-byte
-  runtime-bytecode limit with Fabrica's depositFor additions on top. CBOR
-  metadata is stripped to save bytes too. Fabrica's own contracts continue
-  to compile under the original profile so their bytecode is unaffected.
+  runtime-bytecode limit with Fabrica's depositFor + anyone-can-repay
+  additions on top. evm_version=cancun (rather than upstream's shanghai)
+  is also load-bearing: cancun enables PUSH0 + MCOPY in via_ir codegen,
+  saving ~1.3 KB on the inlined SafeERC20/IERC20 dispatch sites that
+  ENG-3076 touches; with shanghai the deployable concrete blows the
+  EIP-170 budget by ~1 KB. All Fabrica target chains (Ethereum mainnet,
+  Sepolia, Base, Base Sepolia) are post-Dencun so cancun opcodes are
+  available everywhere we deploy. CBOR metadata is stripped to save
+  bytes too. Fabrica's own contracts continue to compile under the
+  original profile so their bytecode is unaffected.

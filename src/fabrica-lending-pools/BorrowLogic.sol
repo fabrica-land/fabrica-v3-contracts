@@ -313,7 +313,8 @@ library BorrowLogic {
     function _repay(
         Pool.PoolStorage storage self,
         Pool.FeeShareStorage storage feeShareStorage,
-        bytes calldata encodedLoanReceipt
+        bytes calldata encodedLoanReceipt,
+        bool requireBorrower
     ) external returns (uint256, uint256, LoanReceipt.LoanReceiptV2 memory, bytes32) {
         /* Compute loan receipt hash */
         bytes32 loanReceiptHash = LoanReceipt.hash(encodedLoanReceipt);
@@ -327,8 +328,10 @@ library BorrowLogic {
         /* Validate borrow and repay is not in same block */
         if (loanReceipt.maturity - loanReceipt.duration == block.timestamp) revert IPool.InvalidLoanReceipt();
 
-        /* Validate caller is borrower */
-        if (msg.sender != loanReceipt.borrower) revert IPool.InvalidCaller();
+        /* Fabrica ENG-3076: borrower-only check gated by `requireBorrower`.
+           Pool.repay passes false (anyone can repay); Pool.refinance passes
+           true (refinance opens a new loan, only the borrower may do that). */
+        if (requireBorrower && msg.sender != loanReceipt.borrower) revert IPool.InvalidCaller();
 
         /* Compute prorated repayment using prorated interest, prorated admin fee and proration */
         (uint256 repayment, uint256 adminFee, uint256 proration) = _prorateRepayment(loanReceipt);
