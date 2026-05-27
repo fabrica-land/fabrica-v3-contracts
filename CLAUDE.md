@@ -43,6 +43,22 @@
   `git submodule update --remote lib/openzeppelin-contracts-v4` — the
   `branch = release-v4.9` entry in `.gitmodules` would silently advance the
   pin off `v4.9.6`. Use the explicit pinned SHA for any update.
+- **MetaStreet-pool currency tokens must be fully ERC-20 compliant**
+  (`transferFrom` MUST return `bool`). ENG-3076's anyone-can-repay change
+  swapped `Pool.repay`'s `safeTransferFrom` for a raw `IERC20.transferFrom`
+  + `require` on the new payer-pull line to fit the deployable concrete
+  under EIP-170 (~770 bytes saved at that single call site). The trade-off:
+  USDT-style ERC-20s whose `transferFrom` returns no value cause `Pool.repay`
+  to revert on Solidity 0.8+ strict ABI decoding of empty returndata —
+  borrowers using such a pool would be UNABLE TO REPAY and could only resolve
+  loans through liquidation. Known unsupported: USDT on Ethereum (`0xdAC1...`),
+  BNB legacy ERC-20 (`0xB8C7...`). Known supported: USDC, PYUSD, USDP, DAI,
+  and most modern GENIUS Act-framework stablecoins (spot-check each via
+  `cast call <token> 'transferFrom(address,address,uint256)' <a> <b> 0 --rpc-url $RPC`
+  — empty returndata = unsupported, 32-byte returndata = supported). The
+  operational warning lives in `script/FabricaLendingPoolCreate.s.sol` (where
+  pool currency token is picked at deploy time) and in `fabrica-v3-api`'s
+  `MetaStreetCurrencyTokenModel`.
 - **MetaStreet compilation profile**: `src/fabrica-lending-pools/**` and
   `test/fabrica-lending-pools/**` compile under an
   `additional_compiler_profiles` entry in `foundry.toml` (via_ir +
