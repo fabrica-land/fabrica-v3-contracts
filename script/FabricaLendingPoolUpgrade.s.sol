@@ -64,12 +64,12 @@ contract FabricaLendingPoolUpgradeScript is Script {
     function setUp() public {}
 
     function run() public {
-        address beaconAddr = vm.envAddress("FABRICA_LENDING_BEACON");
-        address collateralLiquidator = vm.envAddress("FABRICA_LENDING_COLLATERAL_LIQUIDATOR");
-        address delegateV1 = vm.envAddress("FABRICA_LENDING_DELEGATE_REGISTRY_V1");
-        address delegateV2 = vm.envAddress("FABRICA_LENDING_DELEGATE_REGISTRY_V2");
-        address erc20DepositTokenImpl = vm.envAddress("FABRICA_LENDING_ERC20_DEPOSIT_TOKEN_IMPL");
-        address erc1155CollateralWrapper = vm.envAddress("FABRICA_LENDING_ERC1155_COLLATERAL_WRAPPER");
+        address beaconAddr = _requireEnvAddress("FABRICA_LENDING_BEACON");
+        address collateralLiquidator = _requireEnvAddress("FABRICA_LENDING_COLLATERAL_LIQUIDATOR");
+        address delegateV1 = _requireEnvAddress("FABRICA_LENDING_DELEGATE_REGISTRY_V1");
+        address delegateV2 = _requireEnvAddress("FABRICA_LENDING_DELEGATE_REGISTRY_V2");
+        address erc20DepositTokenImpl = _requireEnvAddress("FABRICA_LENDING_ERC20_DEPOSIT_TOKEN_IMPL");
+        address erc1155CollateralWrapper = _requireEnvAddress("FABRICA_LENDING_ERC1155_COLLATERAL_WRAPPER");
 
         UpgradeableBeacon beacon = UpgradeableBeacon(beaconAddr);
         address currentImpl = beacon.implementation();
@@ -117,5 +117,13 @@ contract FabricaLendingPoolUpgradeScript is Script {
         );
         console.log("Verified beacon.implementation():     ", postImpl);
         require(postImpl == newImpl, "upgrade verification failed");
+    }
+
+    /// @dev `vm.envAddress` does not protect against a misconfigured `0x000...000`.
+    /// All upgrade dependencies must be non-zero so we never beacon-upgrade pool
+    /// instances into an implementation that delegates into the zero address.
+    function _requireEnvAddress(string memory name) private view returns (address addr) {
+        addr = vm.envAddress(name);
+        require(addr != address(0), string.concat(name, " is zero"));
     }
 }
