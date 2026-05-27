@@ -49,15 +49,15 @@ the beacon's implementation atomically upgrades every pool created
 against it. There is no per-pool upgrade; you upgrade the beacon and
 every BeaconProxy sees the new code on its next call.
 
-The upgrade is a two-script split (matching FabricaToken's split):
-
-| Step | Script                              | Wallet            | What it does                                      |
-|------|-------------------------------------|-------------------|---------------------------------------------------|
-| 1    | `FabricaLendingPoolDeployImpl.s.sol`| Any wallet        | Deploys a new `WeightedRateERC1155CollectionPool` impl with the existing constructor-arg immutables. |
-| 2    | `FabricaLendingPoolUpgrade.s.sol`   | Beacon owner only | Calls `beacon.upgradeTo(newImpl)`.                |
-
-Both should be run with `--verify` on Etherscan-supported networks per
-the repo deployment policy.
+The upgrade is a single script (`FabricaLendingPoolUpgrade.s.sol`) that
+deploys the new implementation AND calls `beacon.upgradeTo(newImpl)` in
+one broadcast. Both operations are run by the beacon owner, so the
+split-by-wallet pattern used for FabricaToken doesn't apply here. The
+script uses `vm.deployCode` (reads the precompiled artifact) rather
+than direct Solidity `new WeightedRateERC1155CollectionPool(...)` to
+keep its compilation graph isolated from `FabricaLendingPoolStackDeploy.s.sol`'s
+— adding a second `new` site to the project would otherwise push the
+pool's runtime bytecode over EIP-170.
 
 ## Running the Upgrade
 
@@ -80,44 +80,32 @@ cast call 0x6C56d0953377D7AB479BBA85Da8d61050F774c0B 'getERC20DepositTokenImplem
 cast call 0x6C56d0953377D7AB479BBA85Da8d61050F774c0B 'collateralWrappers()(address[])' --rpc-url $SEPOLIA_RPC_URL
 ```
 
-### 2. Deploy the new implementation
+### 2. Run the upgrade
 
 ```bash
-# .env should include TESTNET_DEPLOYER_PRIVATE_KEY (the beacon owner)
-# and SEPOLIA_RPC_URL.
+# .env (e.g. fabrica-v3/fabrica-v3-contracts/.env) should include
+# TESTNET_DEPLOYER_PRIVATE_KEY (the beacon owner), SEPOLIA_RPC_URL,
+# and ETHERSCAN_API_KEY (for --verify).
 
+export FABRICA_LENDING_BEACON=0xe1b74cbf78a693E6289dC1c983D8bC2e5097139E
 export FABRICA_LENDING_COLLATERAL_LIQUIDATOR=0xc780FEe561fc6E50493C496a53c62518971ba9EF
 export FABRICA_LENDING_DELEGATE_REGISTRY_V1=0x00000000000076A84feF008CDAbe6409d2FE638B
 export FABRICA_LENDING_DELEGATE_REGISTRY_V2=0x00000000000000447e69651d841bD8D104Bed493
 export FABRICA_LENDING_ERC20_DEPOSIT_TOKEN_IMPL=0x479c18dcEB406C88a0E05c86b9Ca02B6B043507B
 export FABRICA_LENDING_ERC1155_COLLATERAL_WRAPPER=0xf6E3932F8b4ef957f3E361CECBF1489Ea93cb086
 
-forge script script/FabricaLendingPoolDeployImpl.s.sol:FabricaLendingPoolDeployImplScript \
+forge script script/FabricaLendingPoolUpgrade.s.sol:FabricaLendingPoolUpgradeScript \
   --rpc-url $SEPOLIA_RPC_URL \
   --private-key $TESTNET_DEPLOYER_PRIVATE_KEY \
   --broadcast \
   --verify
 ```
 
-Record the printed `New WeightedRateERC1155CollectionPool:` address as
-`$NEW_IMPL`.
-
-### 3. Point the beacon at the new implementation
-
-```bash
-forge script script/FabricaLendingPoolUpgrade.s.sol:FabricaLendingPoolUpgradeScript \
-  --sig 'run(address,address)' \
-  0xe1b74cbf78a693E6289dC1c983D8bC2e5097139E \
-  $NEW_IMPL \
-  --rpc-url $SEPOLIA_RPC_URL \
-  --private-key $TESTNET_DEPLOYER_PRIVATE_KEY \
-  --broadcast
-```
-
+Record the printed `New WeightedRateERC1155CollectionPool:` address.
 The script asserts `currentImpl != newImpl` (no-op upgrade fails fast)
 and asserts `beacon.implementation() == newImpl` after the call.
 
-### 4. Post-upgrade verification
+### 3. Post-upgrade verification
 
 ```bash
 # Beacon points at the new impl
@@ -140,4 +128,4 @@ cast call 0x6C56d0953377D7AB479BBA85Da8d61050F774c0B 'IMPLEMENTATION_VERSION()(s
 | Date | Network | Impl Address | Notes |
 |------|---------|--------------|-------|
 | (initial deploy, pre-broadcast-log) | Sepolia | `0x890625c28d221B65e97D300d2BC0F305D12acDCf` | Upstream MetaStreet `WeightedRateERC1155CollectionPool` 2.15. No Fabrica modifications. |
-| _pending — ENG-3076_ | Sepolia | _TBD_ | Adds `Pool.depositFor(recipient, ...)` (ENG-3101) and anyone-can-repay (ENG-3076). EIP-170: 24,259 bytes (317 under). |
+| 2026-05-27 (ENG-3076) | Sepolia | `0xA84C15ecA620C5E4766fE0c6dd8Eaf419A838518` | Adds `Pool.depositFor(recipient, ...)` (ENG-3101) and anyone-can-repay (ENG-3076). EIP-170: 24,259 bytes (317 under). Deployed via the original FabricaLendingPoolStackDeploy.s.sol's `new WeightedRateERC1155CollectionPool(...)` site (broadcast tx `0x38efda31d7f12fe780d9a31e5b7bec0c74d15040829868de4265bbb38820bbc5`); beacon repointed via `UpgradeableBeacon.upgradeTo` shortly after. Subsequent upgrades use `FabricaLendingPoolUpgrade.s.sol` (one-shot deploy + repoint). |

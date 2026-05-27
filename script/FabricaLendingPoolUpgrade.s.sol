@@ -4,58 +4,118 @@ pragma solidity ^0.8.13;
 import {Script, console} from "forge-std/Script.sol";
 
 import {UpgradeableBeacon} from "../lib/openzeppelin-contracts-v4/contracts/proxy/beacon/UpgradeableBeacon.sol";
-import {IPool} from "../src/fabrica-lending-pools/interfaces/IPool.sol";
+
+interface IWeightedRateERC1155CollectionPoolView {
+    function IMPLEMENTATION_NAME() external pure returns (string memory);
+    function IMPLEMENTATION_VERSION() external pure returns (string memory);
+}
 
 /**
- * @title Fabrica Lending Pool beacon upgrade
+ * @title Fabrica Lending Pool beacon upgrade (deploy new impl + repoint beacon)
  *
- * Points the existing `UpgradeableBeacon` (the one all Fabrica-deployed
- * `BeaconProxy` pool instances delegate-call through) at a new
- * `WeightedRateERC1155CollectionPool` implementation. Atomically upgrades
- * every BeaconProxy pool created against that beacon — no liquidity is
- * moved, no pool addresses change, depositors and borrowers see the new
- * code at the next call.
+ * One-shot upgrade of every Fabrica-deployed `BeaconProxy` lending pool
+ * tied to the named beacon. Two distinct on-chain operations, batched
+ * into one script because both must be run by the beacon owner and the
+ * deploy → repoint sequence is invariant:
  *
- * Must be run by the beacon's owner — the same wallet that deployed the
- * stack via `FabricaLendingPoolStackDeploy.s.sol`. Deploy the new impl
- * first via `FabricaLendingPoolDeployImpl.s.sol`, then pass the resulting
- * address as the `newImplementation` argument here.
+ *   1. Deploy a new `WeightedRateERC1155CollectionPool` implementation
+ *      with the same constructor immutables as the current one.
+ *   2. Call `beacon.upgradeTo(newImpl)` on the existing beacon. Every
+ *      `BeaconProxy` pool created against this beacon picks up the
+ *      new code at its next call. No liquidity moves; no pool
+ *      addresses change.
  *
- * Sepolia state (recorded for the ENG-3076 upgrade):
- *   Beacon:          0xe1b74cbf78a693E6289dC1c983D8bC2e5097139E
- *   Beacon owner:    0xBF03076547a99857b796717faF4034dea94569dF
- *   Factory:         0x110bD40421Bf418A8B0d8AbA6568fB020c42Ee83
- *   Pool (BeaconProxy, currency=USDC, collateral=FabricaToken):
- *                    0x6C56d0953377D7AB479BBA85Da8d61050F774c0B
+ * Sibling scripts and when to use which:
  *
- * Deployment (per CLAUDE.md — always include `--verify` where applicable;
- * this script only calls `upgradeTo` on an existing contract, no new
- * deploy, so `--verify` is a no-op but harmless):
+ *   - `FabricaLendingPoolStackDeploy.s.sol`  — stand up a NEW lending
+ *      pool stack on a fresh chain (or a fresh liquidity-isolation
+ *      domain on an existing chain). Use when no beacon exists yet.
+ *      Use this script instead when upgrading the impl that an
+ *      existing beacon already references.
+ *   - `FabricaLendingPoolCreate.s.sol`       — spawn a new BeaconProxy
+ *      pool instance against an existing stack (different collateral
+ *      token, different currency token, etc).
+ *
+ * Required env (pulled off the live pool — see LENDING-POOL-RUNBOOK.md):
+ *   FABRICA_LENDING_BEACON                       UpgradeableBeacon address
+ *   FABRICA_LENDING_COLLATERAL_LIQUIDATOR        Auction-based liquidator proxy
+ *   FABRICA_LENDING_DELEGATE_REGISTRY_V1         delegate.xyz V1 canonical
+ *   FABRICA_LENDING_DELEGATE_REGISTRY_V2         delegate.xyz V2 canonical
+ *   FABRICA_LENDING_ERC20_DEPOSIT_TOKEN_IMPL     ERC20DepositTokenImplementation
+ *   FABRICA_LENDING_ERC1155_COLLATERAL_WRAPPER   ERC1155CollateralWrapper
+ *
+ * Constructor immutables MUST match the current beacon target —
+ * `WeightedRateERC1155CollectionPool` stores `_collateralLiquidator`,
+ * `_delegateRegistryV1`, `_delegateRegistryV2`, `_collateralWrapper{1,2,3}`,
+ * and `_erc20DepositTokenImpl` as bytecode immutables. Re-using the same
+ * values guarantees that every existing BeaconProxy pool continues to
+ * see the same dependency contracts post-upgrade. The runbook documents
+ * the `cast call` queries that read these off the live pool.
+ *
+ * Deployment (per CLAUDE.md — always include `--verify`):
  *   forge script script/FabricaLendingPoolUpgrade.s.sol:FabricaLendingPoolUpgradeScript \
- *     --sig 'run(address,address)' <beacon> <newImplementation> \
- *     --rpc-url $RPC_URL --broadcast
+ *     --rpc-url $RPC_URL --broadcast --verify
+ * If verification fails during the broadcast, follow up afterward with:
+ *   forge verify-contract <new_impl_address> \
+ *     src/fabrica-lending-pools/configurations/WeightedRateERC1155CollectionPool.sol:WeightedRateERC1155CollectionPool \
+ *     --chain <chain_id>
  */
 contract FabricaLendingPoolUpgradeScript is Script {
     function setUp() public {}
 
-    function run(address beacon, address newImplementation) public {
-        UpgradeableBeacon b = UpgradeableBeacon(beacon);
-        address currentImpl = b.implementation();
-        address beaconOwner = b.owner();
+    function run() public {
+        address beaconAddr = vm.envAddress("FABRICA_LENDING_BEACON");
+        address collateralLiquidator = vm.envAddress("FABRICA_LENDING_COLLATERAL_LIQUIDATOR");
+        address delegateV1 = vm.envAddress("FABRICA_LENDING_DELEGATE_REGISTRY_V1");
+        address delegateV2 = vm.envAddress("FABRICA_LENDING_DELEGATE_REGISTRY_V2");
+        address erc20DepositTokenImpl = vm.envAddress("FABRICA_LENDING_ERC20_DEPOSIT_TOKEN_IMPL");
+        address erc1155CollateralWrapper = vm.envAddress("FABRICA_LENDING_ERC1155_COLLATERAL_WRAPPER");
 
-        console.log("Beacon:                  ", beacon);
-        console.log("Beacon owner:            ", beaconOwner);
-        console.log("Current implementation:  ", currentImpl);
-        console.log("Upgrading to:            ", newImplementation);
-        require(currentImpl != newImplementation, "no-op upgrade");
+        UpgradeableBeacon beacon = UpgradeableBeacon(beaconAddr);
+        address currentImpl = beacon.implementation();
+        address beaconOwner = beacon.owner();
 
+        console.log("Beacon:                    ", beaconAddr);
+        console.log("Beacon owner:              ", beaconOwner);
+        console.log("Current implementation:    ", currentImpl);
+        console.log("Collateral liquidator:     ", collateralLiquidator);
+        console.log("Delegate registry V1:      ", delegateV1);
+        console.log("Delegate registry V2:      ", delegateV2);
+        console.log("ERC20 deposit token impl:  ", erc20DepositTokenImpl);
+        console.log("ERC1155 collateral wrapper:", erc1155CollateralWrapper);
+
+        address[] memory wrappersList = new address[](1);
+        wrappersList[0] = erc1155CollateralWrapper;
+
+        // Deploy via vm.deployCode (reads the precompiled artifact + handles
+        // library linking) instead of `new WeightedRateERC1155CollectionPool`.
+        // Direct Solidity instantiation here would add a second `new` call
+        // site to the project's via_ir compilation graph (alongside
+        // FabricaLendingPoolStackDeploy.s.sol's), which perturbs the
+        // whole-program inliner and pushes the pool's runtime bytecode ~1.4 KB
+        // over EIP-170. Reading the artifact at runtime keeps the
+        // compilation graph identical to the stack-deploy-only case.
+        bytes memory constructorArgs =
+            abi.encode(collateralLiquidator, delegateV1, delegateV2, erc20DepositTokenImpl, wrappersList);
         vm.startBroadcast();
-        b.upgradeTo(newImplementation);
+        address newImpl =
+            vm.deployCode("WeightedRateERC1155CollectionPool.sol:WeightedRateERC1155CollectionPool", constructorArgs);
+        require(newImpl != currentImpl, "no-op upgrade");
+        beacon.upgradeTo(newImpl);
         vm.stopBroadcast();
 
-        address postImpl = b.implementation();
+        address postImpl = beacon.implementation();
         console.log("=== Beacon upgraded ===");
-        console.log("Verified implementation:", postImpl);
-        require(postImpl == newImplementation, "upgrade verification failed");
+        console.log("New WeightedRateERC1155CollectionPool:", newImpl);
+        console.log(
+            "IMPLEMENTATION_NAME:                  ",
+            IWeightedRateERC1155CollectionPoolView(newImpl).IMPLEMENTATION_NAME()
+        );
+        console.log(
+            "IMPLEMENTATION_VERSION:               ",
+            IWeightedRateERC1155CollectionPoolView(newImpl).IMPLEMENTATION_VERSION()
+        );
+        console.log("Verified beacon.implementation():     ", postImpl);
+        require(postImpl == newImpl, "upgrade verification failed");
     }
 }
