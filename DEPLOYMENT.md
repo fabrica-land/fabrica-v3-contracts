@@ -6,7 +6,9 @@ script per logical operation, against the network's `--rpc-url`.
 
 For UUPS-proxy upgrades to existing FabricaToken / FabricaValidator
 deployments, see [`UPGRADE-RUNBOOK.md`](./UPGRADE-RUNBOOK.md) instead — this
-doc covers deploying new contracts.
+doc covers deploying new contracts. For beacon-based upgrades of the
+vendored MetaStreet lending pool stack, see
+[`LENDING-POOL-RUNBOOK.md`](./LENDING-POOL-RUNBOOK.md).
 
 ## TL;DR (for anyone vendoring something new)
 
