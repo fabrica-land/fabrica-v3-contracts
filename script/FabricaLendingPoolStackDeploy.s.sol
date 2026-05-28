@@ -49,6 +49,13 @@ import {
  *   FABRICA_LENDING_AUCTION_EXT_WINDOW     uint64 seconds; default 600
  *   FABRICA_LENDING_AUCTION_EXT            uint64 seconds; default 900
  *   FABRICA_LENDING_AUCTION_MIN_BID_BPS    uint64 basis points; default 200
+ *   FABRICA_LENDING_LIQUIDATION_GRACE_PERIOD  uint64 seconds; default 1728000
+ *                                          (20 days) — Fabrica ENG-3113 grace
+ *                                          window between default and
+ *                                          liquidate(). Baked into the pool
+ *                                          implementation at deploy time;
+ *                                          deploy a new implementation to
+ *                                          change it.
  */
 contract FabricaLendingPoolStackDeployScript is Script {
     function setUp() public {}
@@ -63,6 +70,7 @@ contract FabricaLendingPoolStackDeployScript is Script {
         uint64 auctionExtWindow = uint64(vm.envOr("FABRICA_LENDING_AUCTION_EXT_WINDOW", uint256(600)));
         uint64 auctionExt = uint64(vm.envOr("FABRICA_LENDING_AUCTION_EXT", uint256(900)));
         uint64 auctionMinBidBps = uint64(vm.envOr("FABRICA_LENDING_AUCTION_MIN_BID_BPS", uint256(200)));
+        uint64 liquidationGracePeriod = uint64(vm.envOr("FABRICA_LENDING_LIQUIDATION_GRACE_PERIOD", uint256(1728000)));
         console.log("Delegate registry v1:", delegateV1);
         console.log("Delegate registry v2:", delegateV2);
         console.log("Oracle domain name:", oracleName);
@@ -83,8 +91,14 @@ contract FabricaLendingPoolStackDeployScript is Script {
         PoolFactory factoryImpl = new PoolFactory();
         bytes memory factoryInit = abi.encodeWithSelector(PoolFactory.initialize.selector);
         ERC1967Proxy factoryProxy = new ERC1967Proxy(address(factoryImpl), factoryInit);
+        console.log("Liquidation grace period (s):", liquidationGracePeriod);
         WeightedRateERC1155CollectionPool poolImpl = new WeightedRateERC1155CollectionPool(
-            address(liquidatorProxy), delegateV1, delegateV2, address(depositTokenImpl), wrappersList
+            address(liquidatorProxy),
+            delegateV1,
+            delegateV2,
+            address(depositTokenImpl),
+            wrappersList,
+            liquidationGracePeriod
         );
         UpgradeableBeacon beacon = new UpgradeableBeacon(address(poolImpl));
         PoolFactory(address(factoryProxy)).addPoolImplementation(address(beacon));

@@ -179,6 +179,14 @@ abstract contract Pool is
     address internal immutable _delegateRegistryV2;
 
     /**
+     * @notice Fabrica ENG-3113: liquidation grace period in seconds
+     * @dev Buffer between a loan's maturity (default) and the moment
+     * `liquidate()` may be called. Set once at implementation-deploy time via
+     * the constructor; not adjustable thereafter without a new implementation.
+     */
+    uint64 internal immutable _liquidationGracePeriod;
+
+    /**
      * @notice Delegate cash storage slot
      * @dev keccak256(abi.encode(uint256(keccak256("erc7201:pool.delegateStorage")) - 1)) & ~bytes32(uint256(0xff));
      * @dev Erroneous inclusion of "erc7201" in the above namespace ID. No intention to fix.
@@ -236,12 +244,15 @@ abstract contract Pool is
      * @param delegateRegistryV1_ Delegate registry v1 contract
      * @param delegateRegistryV2_ Delegate registry v2 contract
      * @param collateralWrappers_ Collateral wrappers
+     * @param liquidationGracePeriod_ Fabrica ENG-3113: grace period in seconds
+     * between default and when liquidate() may be called
      */
     constructor(
         address collateralLiquidator_,
         address delegateRegistryV1_,
         address delegateRegistryV2_,
-        address[] memory collateralWrappers_
+        address[] memory collateralWrappers_,
+        uint64 liquidationGracePeriod_
     ) {
         if (collateralWrappers_.length > 3) revert InvalidParameters();
 
@@ -251,6 +262,7 @@ abstract contract Pool is
         _collateralWrapper1 = (collateralWrappers_.length > 0) ? collateralWrappers_[0] : address(0);
         _collateralWrapper2 = (collateralWrappers_.length > 1) ? collateralWrappers_[1] : address(0);
         _collateralWrapper3 = (collateralWrappers_.length > 2) ? collateralWrappers_[2] : address(0);
+        _liquidationGracePeriod = liquidationGracePeriod_;
     }
 
     /**************************************************************************/
@@ -389,6 +401,13 @@ abstract contract Pool is
      */
     function delegationRegistryV2() external view returns (address) {
         return address(_delegateRegistryV2);
+    }
+
+    /**
+     * @inheritdoc IPool
+     */
+    function liquidationGracePeriod() external view returns (uint64) {
+        return _liquidationGracePeriod;
     }
 
     /**
@@ -949,6 +968,15 @@ abstract contract Pool is
             _storage,
             encodedLoanReceipt
         );
+
+        /* Fabrica ENG-3113: enforce the constructor-parameterized grace window.
+           Liquidation is permitted only once block.timestamp passes the loan's
+           maturity plus the pool's grace period. maturity (uint64) + grace
+           (uint64) is widened to uint256 to compare against block.timestamp and
+           to avoid any uint64 overflow. */
+        if (block.timestamp <= uint256(loanReceipt.maturity) + _liquidationGracePeriod) {
+            revert IPool.LoanNotExpired();
+        }
 
         /* Revoke delegates */
         BorrowLogic._revokeDelegates(

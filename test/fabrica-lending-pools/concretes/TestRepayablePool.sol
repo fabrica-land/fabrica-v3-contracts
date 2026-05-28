@@ -19,7 +19,7 @@ import "../../../src/fabrica-lending-pools/tokenization/ERC20DepositToken.sol";
  */
 contract TestRepayablePool is Pool, ERC20DepositToken {
     constructor(address erc20DepositTokenImpl)
-        Pool(address(0), address(0), address(0), new address[](0))
+        Pool(address(0), address(0), address(0), new address[](0), 0)
         ERC20DepositToken(erc20DepositTokenImpl)
     {}
 

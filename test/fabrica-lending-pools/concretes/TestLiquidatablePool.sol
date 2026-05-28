@@ -5,17 +5,17 @@ import "../../../src/fabrica-lending-pools/Pool.sol";
 import "../../../src/fabrica-lending-pools/tokenization/ERC20DepositToken.sol";
 
 /**
- * @title Minimal concrete Pool for unit testing the deposit / depositFor
- * accounting and event paths only.
+ * @title Concrete Pool that exercises the borrow → default → liquidate path
+ * for the Fabrica ENG-3113 liquidation grace-period guard.
  *
- * Stubs out CollateralFilter, InterestRateModel, and PriceOracle abstracts —
- * tests in this PR exercise the deposit-side, not borrow-side, so a stub
- * collateral/rate/oracle is sufficient. The deploy ticket (per cycle-222
- * §11.C) selects the canonical concrete configuration for production.
+ * Extends the borrow/repay-capable stub (mirrors TestRepayablePool) but takes
+ * a real collateral liquidator and a configurable grace period in the
+ * constructor so tests can drive Pool.liquidate() end-to-end. Trivial interest
+ * model keeps repayment == principal; the ERC721 base collateral path is used.
  */
-contract TestPool is Pool, ERC20DepositToken {
-    constructor(address erc20DepositTokenImpl)
-        Pool(address(0), address(0), address(0), new address[](0), 0)
+contract TestLiquidatablePool is Pool, ERC20DepositToken {
+    constructor(address erc20DepositTokenImpl, address collateralLiquidator, uint64 liquidationGracePeriod_)
+        Pool(collateralLiquidator, address(0), address(0), new address[](0), liquidationGracePeriod_)
         ERC20DepositToken(erc20DepositTokenImpl)
     {}
 
@@ -24,11 +24,11 @@ contract TestPool is Pool, ERC20DepositToken {
     }
 
     function IMPLEMENTATION_NAME() external pure override returns (string memory) {
-        return "TestPool";
+        return "TestLiquidatablePool";
     }
 
     function COLLATERAL_FILTER_NAME() external pure override returns (string memory) {
-        return "TestCollateralFilter";
+        return "TestPermissiveCollateralFilter";
     }
 
     function COLLATERAL_FILTER_VERSION() external pure override returns (string memory) {
@@ -44,23 +44,31 @@ contract TestPool is Pool, ERC20DepositToken {
     }
 
     function _collateralSupported(address, uint256, uint256, bytes calldata) internal pure override returns (bool) {
-        return false;
+        return true;
     }
 
     function INTEREST_RATE_MODEL_NAME() external pure override returns (string memory) {
-        return "TestInterestRateModel";
+        return "TestTrivialInterestRateModel";
     }
 
     function INTEREST_RATE_MODEL_VERSION() external pure override returns (string memory) {
         return "0.0.0";
     }
 
-    function _price(uint256 principal, uint64, LiquidityLogic.NodeSource[] memory, uint16, uint64[] memory, uint32)
-        internal
-        pure
-        override
-        returns (uint256 repayment, uint256 adminFee)
-    {
+    function _price(
+        uint256 principal,
+        uint64,
+        LiquidityLogic.NodeSource[] memory nodes,
+        uint16 count,
+        uint64[] memory,
+        uint32
+    ) internal pure override returns (uint256 repayment, uint256 adminFee) {
+        /* No interest — repayment equals principal. Set each node's pending
+           to its used so LiquidityLogic.use() doesn't underflow on
+           `pending - used`. */
+        for (uint256 i; i < count; i++) {
+            nodes[i].pending = nodes[i].used;
+        }
         return (principal, 0);
     }
 
