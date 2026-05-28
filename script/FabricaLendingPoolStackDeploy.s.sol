@@ -56,6 +56,14 @@ import {
  *                                          implementation at deploy time;
  *                                          deploy a new implementation to
  *                                          change it.
+ *
+ * Deployment (per CLAUDE.md — always include `--verify`):
+ *   forge script script/FabricaLendingPoolStackDeploy.s.sol:FabricaLendingPoolStackDeployScript \
+ *     --rpc-url $RPC_URL --broadcast --verify
+ * If verification fails during the broadcast, follow up afterward with
+ *   forge verify-contract <address> <contract-path>:<ContractName> --chain <chain_id>
+ * for each deployed contract (pool implementation, liquidator, oracle,
+ * factory, deposit-token, wrapper).
  */
 contract FabricaLendingPoolStackDeployScript is Script {
     function setUp() public {}
