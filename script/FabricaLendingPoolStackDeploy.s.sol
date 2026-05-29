@@ -31,8 +31,7 @@ import {
  * chain (or a fresh liquidity-isolation domain on an existing chain).
  * For upgrading an existing pool's implementation in-place — same
  * beacon, same BeaconProxy instances, same liquidity — use
- * `FabricaLendingPoolDeployImpl.s.sol` + `FabricaLendingPoolUpgrade.s.sol`
- * instead.
+ * `FabricaLendingPoolUpgrade.s.sol` instead.
  *
  * Required env:
  *   FABRICA_LENDING_DELEGATE_REGISTRY_V1   delegate.xyz v1 canonical address

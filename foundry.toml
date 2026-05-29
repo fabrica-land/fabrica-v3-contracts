@@ -43,6 +43,53 @@ min_evm_version = "cancun"
 # (banner comment only — pragma matches upstream verbatim at 0.8.25).
 # Skip forge fmt on this tree so `forge fmt --check` in CI does not
 # try to reformat upstream-style code into Fabrica style.
+# Per-chain library linking for the Fabrica lending-pool implementation.
+#
+# WeightedRateERC1155CollectionPool links 4 external libraries, all under
+# src/fabrica-lending-pools/**: BorrowLogic, DepositLogic, LiquidityLogic,
+# and ERC20DepositTokenFactory. On a clean checkout there is no link mapping,
+# so vm.deployCode("WeightedRateERC1155CollectionPool.sol:...") in the
+# Create/Upgrade scripts reverts with "no bytecode … unlinked".
+#
+# forge 1.5.1 cannot key `libraries` by chain (no [libraries.<chain>] table,
+# no ${ENV} substitution inside the libraries array), so per-chain linking is
+# expressed as top-level profiles selected with FOUNDRY_PROFILE=<chain>.
+# Run the lending-pool Create/Upgrade scripts with the matching profile, e.g.
+#   FOUNDRY_PROFILE=mainnet forge script script/FabricaLendingPoolUpgrade.s.sol ...
+#   FOUNDRY_PROFILE=sepolia forge script script/FabricaLendingPoolUpgrade.s.sol ...
+#
+# Each `libraries` list contains ONLY the 4 pool-lib paths, so Foundry links
+# them solely into contracts that reference them (the pool tree). Token,
+# Validator, and the rest are untouched — the linking is scoped to the
+# lending pool, not shared. Named profiles inherit the default profile's
+# compilation_restrictions and the "metastreet" additional_compiler_profiles,
+# so the pool still builds with via_ir / cancun / runs=1 under these profiles
+# (verified via `FOUNDRY_PROFILE=<chain> forge config`).
+#
+# Addresses are each chain's canonical, currently-live deployments:
+#   sepolia — recorded in
+#     broadcast/FabricaLendingPoolStackDeploy.s.sol/11155111/ and confirmed
+#     against the live pool implementation's on-chain bytecode.
+#   mainnet — recovered from the live pool implementation's on-chain bytecode
+#     (pool 0x842ffbf1ad5314503904626122376f71603a3cf9, beacon impl
+#     0x4b1576Df8D8911d2F404391a7f8fAcEfA7F4b6da); no mainnet StackDeploy
+#     broadcast exists in-repo.
+[profile.mainnet]
+libraries = [
+    "src/fabrica-lending-pools/BorrowLogic.sol:BorrowLogic:0x6749f43BB2f4d5af0ce0fc3Fc4756Dc1d44F1d73",
+    "src/fabrica-lending-pools/DepositLogic.sol:DepositLogic:0xEc7716d72990374EB4E5f72f3B60179F5256d39B",
+    "src/fabrica-lending-pools/LiquidityLogic.sol:LiquidityLogic:0x07e2C0C066F231E57857B7fB3CD51E18D364AAB0",
+    "src/fabrica-lending-pools/tokenization/ERC20DepositTokenFactory.sol:ERC20DepositTokenFactory:0x08ccc36252f61983EE04fd5946eA958bC195090c",
+]
+
+[profile.sepolia]
+libraries = [
+    "src/fabrica-lending-pools/BorrowLogic.sol:BorrowLogic:0x23319E369d4e4AE2E9D1f78388DAe9cF6425e4FE",
+    "src/fabrica-lending-pools/DepositLogic.sol:DepositLogic:0x84b790C05A2cba1b452D614914d534d342587F80",
+    "src/fabrica-lending-pools/LiquidityLogic.sol:LiquidityLogic:0xc98899f5A7feFC5146C1574D6b51C0A5C993b505",
+    "src/fabrica-lending-pools/tokenization/ERC20DepositTokenFactory.sol:ERC20DepositTokenFactory:0x8722651F6f79Bde509c48Fc65c37A3b8faf9086D",
+]
+
 [fmt]
 ignore = ["src/fabrica-lending-pools/**/*.sol"]
 
