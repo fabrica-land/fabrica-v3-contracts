@@ -47,15 +47,18 @@ contract WeightedRateERC1155CollectionPool is
      * @param delegateRegistryV2 Delegation registry v2 contract
      * @param erc20DepositTokenImplementation ERC20 Deposit Token implementation address
      * @param collateralWrappers Collateral wrappers (must be one, ERC1155 Collateral Wrapper)
+     * @param liquidationGracePeriod_ Fabrica ENG-3113: grace period in seconds
+     * between default and when liquidate() may be called
      */
     constructor(
         address collateralLiquidator,
         address delegateRegistryV1,
         address delegateRegistryV2,
         address erc20DepositTokenImplementation,
-        address[] memory collateralWrappers
+        address[] memory collateralWrappers,
+        uint64 liquidationGracePeriod_
     )
-        Pool(collateralLiquidator, delegateRegistryV1, delegateRegistryV2, collateralWrappers)
+        Pool(collateralLiquidator, delegateRegistryV1, delegateRegistryV2, collateralWrappers, liquidationGracePeriod_)
         WeightedInterestRateModel()
         ERC20DepositToken(erc20DepositTokenImplementation)
         ExternalPriceOracle()

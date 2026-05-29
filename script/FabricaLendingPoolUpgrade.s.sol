@@ -44,6 +44,13 @@ interface IWeightedRateERC1155CollectionPoolView {
  *   FABRICA_LENDING_ERC20_DEPOSIT_TOKEN_IMPL     ERC20DepositTokenImplementation
  *   FABRICA_LENDING_ERC1155_COLLATERAL_WRAPPER   ERC1155CollateralWrapper
  *
+ * Optional env (Fabrica ENG-3113):
+ *   FABRICA_LENDING_LIQUIDATION_GRACE_PERIOD     uint64 seconds; default
+ *      1728000 (20 days). Grace window between default and liquidate(),
+ *      baked into the new implementation as an immutable. This is a NEW
+ *      immutable introduced in ENG-3113 — there is no prior value to match,
+ *      so set it explicitly to the intended window for the upgraded pool.
+ *
  * Constructor immutables MUST match the current beacon target —
  * `WeightedRateERC1155CollectionPool` stores `_collateralLiquidator`,
  * `_delegateRegistryV1`, `_delegateRegistryV2`, `_collateralWrapper{1,2,3}`,
@@ -70,6 +77,7 @@ contract FabricaLendingPoolUpgradeScript is Script {
         address delegateV2 = _requireEnvAddress("FABRICA_LENDING_DELEGATE_REGISTRY_V2");
         address erc20DepositTokenImpl = _requireEnvAddress("FABRICA_LENDING_ERC20_DEPOSIT_TOKEN_IMPL");
         address erc1155CollateralWrapper = _requireEnvAddress("FABRICA_LENDING_ERC1155_COLLATERAL_WRAPPER");
+        uint64 liquidationGracePeriod = uint64(vm.envOr("FABRICA_LENDING_LIQUIDATION_GRACE_PERIOD", uint256(1728000)));
 
         UpgradeableBeacon beacon = UpgradeableBeacon(beaconAddr);
         address currentImpl = beacon.implementation();
@@ -83,6 +91,7 @@ contract FabricaLendingPoolUpgradeScript is Script {
         console.log("Delegate registry V2:      ", delegateV2);
         console.log("ERC20 deposit token impl:  ", erc20DepositTokenImpl);
         console.log("ERC1155 collateral wrapper:", erc1155CollateralWrapper);
+        console.log("Liquidation grace period:  ", liquidationGracePeriod);
 
         address[] memory wrappersList = new address[](1);
         wrappersList[0] = erc1155CollateralWrapper;
@@ -95,8 +104,9 @@ contract FabricaLendingPoolUpgradeScript is Script {
         // whole-program inliner and pushes the pool's runtime bytecode ~1.4 KB
         // over EIP-170. Reading the artifact at runtime keeps the
         // compilation graph identical to the stack-deploy-only case.
-        bytes memory constructorArgs =
-            abi.encode(collateralLiquidator, delegateV1, delegateV2, erc20DepositTokenImpl, wrappersList);
+        bytes memory constructorArgs = abi.encode(
+            collateralLiquidator, delegateV1, delegateV2, erc20DepositTokenImpl, wrappersList, liquidationGracePeriod
+        );
         vm.startBroadcast();
         address newImpl =
             vm.deployCode("WeightedRateERC1155CollectionPool.sol:WeightedRateERC1155CollectionPool", constructorArgs);

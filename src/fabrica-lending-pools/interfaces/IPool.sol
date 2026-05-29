@@ -235,6 +235,13 @@ interface IPool {
      */
     function delegationRegistryV2() external view returns (address);
 
+    /**
+     * @notice Fabrica ENG-3113: get liquidation grace period
+     * @return Grace period in seconds between a loan's maturity (default) and
+     * when liquidate() may be called
+     */
+    function liquidationGracePeriod() external view returns (uint64);
+
     /**************************************************************************/
     /* Deposit API */
     /**************************************************************************/

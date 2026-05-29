@@ -389,7 +389,10 @@ library BorrowLogic {
         /* Decode loan receipt */
         LoanReceipt.LoanReceiptV2 memory loanReceipt = LoanReceipt.decode(encodedLoanReceipt);
 
-        /* Validate loan is expired */
+        /* Validate loan is expired. Fabrica ENG-3113: the grace-period guard
+           (maturity + gracePeriod) is enforced in Pool.liquidate() against the
+           pool's constructor immutable; this base expiry check is a strictly
+           weaker subset retained from upstream. */
         if (block.timestamp <= loanReceipt.maturity) revert IPool.LoanNotExpired();
 
         /* Mark loan status liquidated */
