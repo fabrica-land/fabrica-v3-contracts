@@ -103,4 +103,21 @@ contract FabricaTokenSepoliaForkTest is Test {
         assertEq(token.balanceOf(user1, tokenId), 700, "user1 balance after transfer");
         assertEq(token.balanceOf(user2, tokenId), 300, "user2 balance after transfer");
     }
+
+    /// @dev ENG-3226: after upgrading the canonical Sepolia proxy to the symbol
+    /// implementation, symbol() must return "FABRICA". The proxy is already at
+    /// reinitializer version 5, so the upgrade carries EMPTY calldata (no
+    /// initializer runs) — this mirrors the exact transaction used for the
+    /// production Sepolia rollout and asserts existing state is preserved.
+    function test_symbolAfterEmptyDataUpgrade() public onlyFork {
+        address ownerBefore = token.owner();
+        address validatorBefore = token.defaultValidator();
+        FabricaToken newImpl = new FabricaToken();
+        vm.prank(PROXY_ADMIN);
+        token.upgradeToAndCall(address(newImpl), "");
+        assertEq(token.implementation(), address(newImpl), "implementation should be the symbol build");
+        assertEq(token.symbol(), "FABRICA", "symbol should be FABRICA after upgrade");
+        assertEq(token.owner(), ownerBefore, "owner preserved through empty-data upgrade");
+        assertEq(token.defaultValidator(), validatorBefore, "defaultValidator preserved through empty-data upgrade");
+    }
 }
