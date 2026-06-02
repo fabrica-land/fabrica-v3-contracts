@@ -114,6 +114,18 @@ contract FabricaToken is
 
     string private _contractURI;
 
+    // ENG-3145: per-token-id "ever minted" flag. Appended at slot 307 (immediately after
+    // _contractURI at slot 306). APPEND-ONLY — never reorder, resize, retype, or remove it
+    // (UUPS upgrade safety). Set on first mint under this version and never cleared by `_burn`,
+    // so an id minted under this version can never be re-minted and have its Property struct
+    // overwritten. The mint guard AND-combines this with the legacy `supply == 0` check so that
+    // ids minted BEFORE this upgrade (whose flag is false) stay protected while live; only ids
+    // already fully burned before this upgrade remain re-mintable (the pre-existing behavior,
+    // closable only by an off-chain-enumerated backfill). A dedicated flag rather than a reused
+    // Property field keeps validator semantics intact: `validator == address(0)` remains a valid
+    // "use the default validator" state that `uri()` resolves.
+    mapping(uint256 => bool) private _everMinted;
+
     // On-chain data update
     event UpdateConfiguration(uint256, string newData);
     event UpdateOperatingAgreement(uint256, string newData);
@@ -579,7 +591,22 @@ contract FabricaToken is
             property.operatingAgreement = IFabricaValidator(property.validator).defaultOperatingAgreement();
         }
         uint256 id = generateId(_msgSender(), sessionId, property.operatingAgreement);
-        require(_property[id].supply == 0, "Session ID already exist, please use a different one");
+        // Uniqueness guard: an id is re-usable only if it is NOT currently live (`supply == 0`)
+        // AND has never been minted since this upgrade (`!_everMinted[id]`). `_burn` zeroes
+        // `supply` but never clears `_everMinted`, so a fully-burned id minted under this
+        // version can never be re-minted and overwrite its definition/operatingAgreement/
+        // validator (ENG-3145). The `supply == 0` term is load-bearing for UPGRADE safety:
+        // tokens minted before this upgrade have `_everMinted == false`, so without it a live
+        // pre-upgrade token could be re-minted and overwritten. We deliberately do NOT reuse a
+        // Property field as the sentinel: `validator == address(0)` is a legitimate "use the
+        // default validator" state that `uri()` resolves, so it cannot mark a never-minted id.
+        require(_property[id].supply == 0 && !_everMinted[id], "Session ID already exist, please use a different one");
+        // Checks-effects-interactions: set the guard flag and property BEFORE the ERC-1155
+        // receiver acceptance-check callbacks, so a recipient that re-enters `mint` during
+        // `onERC1155Received` sees the flag set and cannot bypass the uniqueness guard.
+        // Mirrors `_mintBatch`, which writes its state before its acceptance checks.
+        _everMinted[id] = true;
+        _property[id] = property;
         for (uint256 i = 0; i < recipients.length; i++) {
             address to = recipients[i];
             require(to != address(0), "ERC1155: mint to the zero address");
@@ -588,8 +615,6 @@ contract FabricaToken is
             _doSafeTransferAcceptanceCheck(_msgSender(), address(0), to, id, amount, data);
             emit TransferSingle(_msgSender(), address(0), to, id, amount);
         }
-        // Update property data
-        _property[id] = property;
         return id;
     }
 
@@ -628,7 +653,13 @@ contract FabricaToken is
                     IFabricaValidator(properties[i].validator).defaultOperatingAgreement();
             }
             uint256 id = generateId(_msgSender(), sessionIds[i], properties[i].operatingAgreement);
-            require(_property[id].supply == 0, "Session ID already exist, please use a different one");
+            // ENG-3145: same uniqueness guard as `_mint` (see its comment). `supply == 0`
+            // preserves live-token protection for pre-upgrade ids; `!_everMinted[id]`
+            // permanently retires any id minted under this version, which `_burn` never clears.
+            require(
+                _property[id].supply == 0 && !_everMinted[id], "Session ID already exist, please use a different one"
+            );
+            _everMinted[id] = true;
             ids[i] = id;
             _property[id] = properties[i];
         }

@@ -22,6 +22,8 @@ contract FabricaTokenStorageLayoutTest is Test {
     uint256 constant SLOT_DEFAULT_VALIDATOR = 304;
     uint256 constant SLOT_VALIDATOR_REGISTRY = 305;
     uint256 constant SLOT_CONTRACT_URI = 306;
+    // ENG-3145: _everMinted mapping appended immediately after _contractURI.
+    uint256 constant SLOT_EVER_MINTED = 307;
     // OZ v5 ERC-7201 namespaced slot for OwnableUpgradeable._owner
     bytes32 constant OZ_V5_OWNER_SLOT = 0x9016d09d72d40fdae2fd8ceac6b6234c7706214fd39c1cd1e609a0528c199300;
     // OZ v5 ERC-7201 namespaced slot for Initializable._initialized
@@ -126,6 +128,30 @@ contract FabricaTokenStorageLayoutTest is Test {
         bytes32 propertyBaseSlot = keccak256(abi.encode(tokenId, SLOT_PROPERTY));
         uint256 rawSupply = uint256(vm.load(proxy, propertyBaseSlot));
         assertEq(rawSupply, 100, "_property.supply not at expected slot 303");
+    }
+
+    function test_everMinted_atSlot307() public {
+        // ENG-3145: _everMinted is mapping(uint256 => bool) appended at slot 307, after
+        // _contractURI (306). Minting an id must set _everMinted[id] at keccak256(id . 307),
+        // and must NOT disturb any earlier slot.
+        address recipient = makeAddr("recipient");
+        address[] memory recipients = new address[](1);
+        recipients[0] = recipient;
+        uint256[] memory amounts = new uint256[](1);
+        amounts[0] = 100;
+        // Capture _contractURI's slot-306 encoding before the mint to prove the append is non-disruptive.
+        bytes32 contractUriBefore = vm.load(proxy, bytes32(SLOT_CONTRACT_URI));
+        vm.prank(recipient);
+        uint256 tokenId = token.mint(recipients, 7, amounts, "test-definition", "", "", address(0));
+        // _everMinted[tokenId] == true lives at keccak256(tokenId . 307).
+        bytes32 everMintedSlot = keccak256(abi.encode(tokenId, SLOT_EVER_MINTED));
+        assertEq(uint256(vm.load(proxy, everMintedSlot)), 1, "_everMinted[id] not set at expected slot 307");
+        // An id that was never minted reads false (zero) at its slot.
+        uint256 unmintedId = token.generateId(recipient, 999, "ipfs://never");
+        bytes32 unmintedSlot = keccak256(abi.encode(unmintedId, SLOT_EVER_MINTED));
+        assertEq(uint256(vm.load(proxy, unmintedSlot)), 0, "never-minted id must read 0 at slot 307");
+        // Slot 306 (_contractURI) is untouched by the new variable + the mint.
+        assertEq(vm.load(proxy, bytes32(SLOT_CONTRACT_URI)), contractUriBefore, "_contractURI slot 306 disturbed");
     }
 
     function test_initializeV4_migratesOwner() public {
