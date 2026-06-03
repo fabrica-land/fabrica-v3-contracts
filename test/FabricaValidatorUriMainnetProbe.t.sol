@@ -4,6 +4,7 @@ pragma solidity ^0.8.28;
 import {Test} from "forge-std/Test.sol";
 import {console2} from "forge-std/console2.sol";
 import {IFabricaValidator} from "../src/IFabricaValidator.sol";
+import {FabricaValidator} from "../src/FabricaValidator.sol";
 
 /// @notice ENG-3007 DIAGNOSTIC (not a fix). Probes whether the default validator's `uri()`
 /// storage-encoding panic (Panic 0x22) that canele found on Sepolia also affects MAINNET in its
@@ -238,5 +239,109 @@ contract FabricaValidatorUriProbeTest is Test {
             vm.createSelectFork("sepolia", SEPOLIA_BLOCK);
             _assertUpgradedV4ToV5("[SEPOLIA validator upgrade fingerprint]", SEPOLIA_VALIDATOR);
         }
+    }
+
+    // Exact pre-migration base URLs recovered from each validator's orphaned slot-201 data.
+    string constant MAINNET_BASEURI = "https://metadata.fabrica.land/ethereum/0x5cbeb7a0df7ed85d82a472fd56d81ed550f3ea95/";
+    string constant SEPOLIA_BASEURI = "https://metadata.fabrica.land/sepolia/0xb52ED2Dc8EBD49877De57De3f454Fd71b75bc1fD/";
+
+    // A v5-era operating agreement (same CID + name on both networks) that already resolves and
+    // therefore MUST NOT regress when we patch storage.
+    string constant V5_OA_URI = "ipfs://bafkreihepeqissghiwo5zplcywrjlr6bfkgag5jm3jt5szxnsm6kptcpue";
+
+    /// @dev The 6 pre-v5 operating-agreement names stranded at the old v4 mapping slot. Identical
+    /// IPFS CIDs on mainnet and Sepolia (same underlying documents).
+    function _strandedOAs() internal pure returns (string[] memory uris, string[] memory names) {
+        uris = new string[](6);
+        names = new string[](6);
+        uris[0] = "ipfs://QmRH7d7TGJ3DymLSRimjnH5cNGHzYfcvUTUA1tM9gizFY8";
+        uris[1] = "ipfs://QmXRQx7wPxSwQDVVr1pTkiwvBHBUd1SYLbLgSn1Bvirqpc";
+        uris[2] = "ipfs://QmcgEJkgCwizvs6Tu12jCaNMGciRNtH8dLA2TRS3aYWStX";
+        uris[3] = "ipfs://Qmf6Aia6gJfRgGyGroYft3kjxsLUhJEhMYVKPKj2JwY41Z";
+        uris[4] = "ipfs://QmeRZqhU59Vpn4JQvggBVQ97uMfmS68utweUury8n5JLPR";
+        uris[5] = "ipfs://QmNxY3ooc4VXbW6ETd1wVAxvajZYWu81U95MmWJiNBQw14";
+        names[0] = "Fabrica US Trust v3.0";
+        names[1] = "Fabrica US Trust v3.1";
+        names[2] = "Fabrica US Trust v3.2";
+        names[3] = "Fabrica US Trust v3.3";
+        names[4] = "Fabrica US Trust v3.4";
+        names[5] = "Fabrica US Trust v3.5";
+    }
+
+    /// Proves THE FIX: deploy the new impl and run initializeV2 atomically via upgradeToAndCall (the
+    /// exact live tx). This SAME code path runs on whichever network's fork is selected. Asserts
+    /// uri() is restored, the 6 stranded OA names are re-stored, and the live v5-era data
+    /// (defaultOperatingAgreement + a v5-era OA name) is NOT regressed. No __legacy_gap.
+    function _runValidatorUpgradeFix(string memory net, address val, address proxyAdmin, string memory baseUri)
+        internal
+    {
+        (string[] memory uris, string[] memory names) = _strandedOAs();
+
+        // --- BEFORE: uri() panics; snapshot non-regression observables. ---
+        (bool uriBefore,) = val.staticcall(abi.encodeWithSignature("uri(uint256)", uint256(7)));
+        assertFalse(uriBefore, "precondition: uri() panics before fix");
+        string memory doaBefore = abi.decode(_staticOk(val, "defaultOperatingAgreement()"), (string));
+        string memory v5NameBefore = _oaName(val, V5_OA_URI);
+        assertGt(bytes(v5NameBefore).length, 0, "precondition: a v5-era OA resolves before");
+        assertEq(bytes(_oaName(val, uris[0])).length, 0, "precondition: pre-v5 OA is stranded (empty) before");
+
+        // --- APPLY: deploy new impl + upgradeToAndCall(initializeV2) atomically (the live tx). ---
+        FabricaValidator newImpl = new FabricaValidator();
+        bytes memory initData = abi.encodeWithSignature("initializeV2(string,string[],string[])", baseUri, uris, names);
+        vm.prank(proxyAdmin);
+        (bool ok,) =
+            val.call(abi.encodeWithSignature("upgradeToAndCall(address,bytes)", address(newImpl), initData));
+        assertTrue(ok, "upgradeToAndCall(initializeV2) must succeed");
+
+        // --- AFTER: uri() resolves. ---
+        (bool uriAfter, bytes memory ur) = val.staticcall(abi.encodeWithSignature("uri(uint256)", uint256(7)));
+        assertTrue(uriAfter, "uri() must no longer revert");
+        assertEq(abi.decode(ur, (string)), string.concat(baseUri, "7"), "uri(7) = baseUri + id");
+        console2.log(net, abi.decode(ur, (string)));
+
+        // --- All 6 stranded OA names restored. ---
+        for (uint256 i = 0; i < 6; i++) {
+            assertEq(_oaName(val, uris[i]), names[i], "stranded OA name restored");
+        }
+        // --- NO REGRESSION: live v5-era data untouched. ---
+        assertEq(_oaName(val, V5_OA_URI), v5NameBefore, "v5-era OA name unchanged");
+        assertEq(abi.decode(_staticOk(val, "defaultOperatingAgreement()"), (string)), doaBefore, "defaultOA unchanged");
+    }
+
+    function test_sepolia_upgradeFix_fixesUri_restoresOAs_noRegression() public {
+        if (_skipIfNoRpc("SEPOLIA_RPC_URL")) {
+            vm.skip(true);
+            return;
+        }
+        vm.createSelectFork("sepolia", SEPOLIA_BLOCK);
+        _runValidatorUpgradeFix(
+            "[SEPOLIA] fixed -> uri(7) =", SEPOLIA_VALIDATOR, 0xBF03076547a99857b796717faF4034dea94569dF, SEPOLIA_BASEURI
+        );
+    }
+
+    /// Same impl, same code path, on a MAINNET fork — proving the single parameterized fix is safe
+    /// to ship to mainnet via the Safe (which we cannot broadcast from here; owner+proxyAdmin is a
+    /// Safe contract 0x769586A6...). Validates the calldata that goes into the mainnet Safe tx.
+    function test_mainnet_upgradeFix_fixesUri_restoresOAs_noRegression() public {
+        if (_skipIfNoRpc("MAINNET_RPC_URL")) {
+            vm.skip(true);
+            return;
+        }
+        vm.createSelectFork("mainnet", MAINNET_BLOCK);
+        _runValidatorUpgradeFix(
+            "[MAINNET] fixed -> uri(7) =", MAINNET_VALIDATOR, 0x769586A65825B028b005176F1ebbd3B82bB07Fb0, MAINNET_BASEURI
+        );
+    }
+
+    function _staticOk(address target, string memory sig) internal view returns (bytes memory) {
+        (bool ok, bytes memory ret) = target.staticcall(abi.encodeWithSignature(sig));
+        require(ok, "staticcall failed");
+        return ret;
+    }
+
+    function _oaName(address val, string memory uri_) internal view returns (string memory) {
+        (bool ok, bytes memory ret) = val.staticcall(abi.encodeWithSignature("operatingAgreementName(string)", uri_));
+        require(ok, "operatingAgreementName failed");
+        return abi.decode(ret, (string));
     }
 }

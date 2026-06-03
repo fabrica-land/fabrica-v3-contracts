@@ -34,6 +34,49 @@ contract FabricaValidator is IFabricaValidator, Initializable, FabricaUUPSUpgrad
     event OperatingAgreementNameUpdated(string uri, string name);
     event DefaultOperatingAgreementUpdated(string uri);
 
+    /**
+     * @dev One-time storage repair for validator proxies that were upgraded OZ v4 -> v5 without
+     * migrating their original linear-layout storage.
+     *
+     * Under OZ v4 the base contracts consumed ~200 linear slots via `__gap` arrays, so the first
+     * custom variable `_baseUri` lived at slot 201. Under OZ v5 the bases use ERC-7201 namespaced
+     * storage (zero linear slots), so `_baseUri` is now slot 0 — which still holds the leftover v4
+     * `Initializable._initialized = 1`. That is an invalid string length encoding, so `uri()` /
+     * `baseUri()` revert with Panic 0x22, and `_baseUri` cannot be repaired with a normal assignment
+     * (assigning over it decodes the corrupt length and panics).
+     *
+     * `_defaultOperatingAgreement` and newer `_operatingAgreementNames` self-healed because they were
+     * re-written after the v5 upgrade (so they sit at the v5 slots and read fine); only `_baseUri`
+     * was never re-written, and operating-agreement names added before the v5 upgrade are stranded
+     * at the old v4 mapping slot. This reinitializer therefore: (1) wipes the corrupt `_baseUri` slot
+     * and sets the correct value, and (2) re-stores the stranded operating-agreement names. It keeps
+     * the v5 layout (no `__legacy_gap`) so the live v5-era data is preserved. Identical code runs on
+     * every network; per-network values are passed as arguments and applied atomically inside
+     * `upgradeToAndCall`.
+     */
+    function initializeV2(
+        string calldata baseUri_,
+        string[] calldata strandedOperatingAgreementUris,
+        string[] calldata strandedOperatingAgreementNames
+    ) external onlyProxyAdmin reinitializer(2) {
+        require(
+            strandedOperatingAgreementUris.length == strandedOperatingAgreementNames.length,
+            "uris/names length mismatch"
+        );
+        // A normal `_baseUri = ...` assignment first decodes the existing (corrupt) value to free its
+        // storage and panics 0x22, so clear the slot directly before assigning.
+        assembly {
+            sstore(_baseUri.slot, 0)
+        }
+        _baseUri = baseUri_;
+        for (uint256 i = 0; i < strandedOperatingAgreementUris.length; i++) {
+            _operatingAgreementNames[strandedOperatingAgreementUris[i]] = strandedOperatingAgreementNames[i];
+            emit OperatingAgreementNameUpdated(
+                strandedOperatingAgreementUris[i], strandedOperatingAgreementNames[i]
+            );
+        }
+    }
+
     function setDefaultOperatingAgreement(string memory uri_) public onlyOwner {
         _defaultOperatingAgreement = uri_;
         emit DefaultOperatingAgreementUpdated(uri_);
