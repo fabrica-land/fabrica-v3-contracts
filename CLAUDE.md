@@ -77,3 +77,51 @@
   available everywhere we deploy. CBOR metadata is stripped to save
   bytes too. Fabrica's own contracts continue to compile under the
   original profile so their bytecode is unaffected.
+
+## Shipping a live contract change or upgrade (playbook)
+
+Required workflow for any change that ends in an on-chain deploy or proxy
+upgrade (validator/token fix, new impl, etc.). Do the steps in this order — in
+particular, get CI green BEFORE spending time on fork tests or deployments.
+
+1. **Make the change and write tests** on an issue branch off `main`.
+2. **Pass CI locally before fork-testing or deploying anything.** Don't burn a
+   fork run or an on-chain transaction on code CI will reject. Run the same
+   gates CI runs, and confirm the PR is green first:
+   - `forge fmt --check` — the most common CI failure; run `forge fmt` to fix.
+     (Vendored `src/fabrica-lending-pools/**` is fmt-ignored.)
+   - `forge build`.
+   - markdownlint on any docs you touched — tables need a blank line before and
+     after (MD058); fenced code blocks need a language tag (MD040).
+3. **Fork-test on every target network.** Write Foundry fork tests pinned to a
+   recent block, guarded to skip when the RPC env var is absent (`vm.envOr` +
+   `vm.skip`), using `vm.createSelectFork(<alias>, <block>)` so one `forge test`
+   exercises mainnet AND sepolia from the `foundry.toml` rpc aliases. Assert the
+   fix works AND that unrelated state does not regress. Capture raw on-chain
+   evidence — verification is binary and evidence-based, no hand-waving.
+4. **Ship and verify on Sepolia first.** Deploy/upgrade with the testnet keys
+   (`TESTNET_*_PRIVATE_KEY`; on Sepolia owner == proxy admin == deployer EOA),
+   Etherscan-verify, and confirm the live result with `cast call`.
+5. **Deploy the mainnet implementation ahead of time.** Implementations are
+   immutable and unprivileged (the constructor calls `_disableInitializers()`),
+   so deployer identity is irrelevant and the impl is inert until the proxy
+   points at it. Deploy, Etherscan-verify, and pin the concrete address.
+6. **Spec the mainnet upgrade transaction — never execute it.** On mainnet the
+   owner and proxy admin are a **Safe multisig** (a contract, not a key in
+   `.env`). Agents must NEVER sign or submit a mainnet transaction. Produce the
+   exact Safe tx (target, value, function, params/calldata), fork-test that
+   exact call against the REAL deployed mainnet impl, and hand it to the
+   operator + signers. One-off Safe-execution runbooks live in the Linear
+   ticket, NOT in this repo (`docs/` is gitignored; the repo root is for
+   evergreen runbooks only).
+7. **Merge** once CI is green and human review passes.
+
+Notes:
+
+- Diagnose before fixing — probe the CURRENT on-chain state with raw `cast` /
+  fork evidence; don't presuppose the cause.
+- For OZ v4→v5 storage-migration fixes, before reaching for a `__legacy_gap`
+  layout restore, check whether live data was already WRITTEN under the broken
+  v5 layout. If so, a gap that points reads back at the old v4 slots will
+  REGRESS that data — patch the lagging variable(s) instead (see ENG-3256: the
+  validator `initializeV2` data-repair vs. the token's ENG-2764 `__legacy_gap`).
