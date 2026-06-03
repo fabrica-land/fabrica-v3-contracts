@@ -226,7 +226,9 @@ contract FabricaValidatorUriProbeTest is Test {
         }
         console2.log("recovered _baseUri @ v4 slot 201:", string(out));
         assertEq(
-            uint256(vm.load(MAINNET_VALIDATOR, bytes32(uint256(0)))), 1, "v5 read-slot (0) holds the malformed leftover 1"
+            uint256(vm.load(MAINNET_VALIDATOR, bytes32(uint256(0)))),
+            1,
+            "v5 read-slot (0) holds the malformed leftover 1"
         );
     }
 
@@ -242,8 +244,10 @@ contract FabricaValidatorUriProbeTest is Test {
     }
 
     // Exact pre-migration base URLs recovered from each validator's orphaned slot-201 data.
-    string constant MAINNET_BASEURI = "https://metadata.fabrica.land/ethereum/0x5cbeb7a0df7ed85d82a472fd56d81ed550f3ea95/";
-    string constant SEPOLIA_BASEURI = "https://metadata.fabrica.land/sepolia/0xb52ED2Dc8EBD49877De57De3f454Fd71b75bc1fD/";
+    string constant MAINNET_BASEURI =
+        "https://metadata.fabrica.land/ethereum/0x5cbeb7a0df7ed85d82a472fd56d81ed550f3ea95/";
+    string constant SEPOLIA_BASEURI =
+        "https://metadata.fabrica.land/sepolia/0xb52ED2Dc8EBD49877De57De3f454Fd71b75bc1fD/";
 
     // A v5-era operating agreement (same CID + name on both networks) that already resolves and
     // therefore MUST NOT regress when we patch storage.
@@ -289,8 +293,7 @@ contract FabricaValidatorUriProbeTest is Test {
         FabricaValidator newImpl = new FabricaValidator();
         bytes memory initData = abi.encodeWithSignature("initializeV2(string,string[],string[])", baseUri, uris, names);
         vm.prank(proxyAdmin);
-        (bool ok,) =
-            val.call(abi.encodeWithSignature("upgradeToAndCall(address,bytes)", address(newImpl), initData));
+        (bool ok,) = val.call(abi.encodeWithSignature("upgradeToAndCall(address,bytes)", address(newImpl), initData));
         assertTrue(ok, "upgradeToAndCall(initializeV2) must succeed");
 
         // --- AFTER: uri() resolves. ---
@@ -315,7 +318,10 @@ contract FabricaValidatorUriProbeTest is Test {
         }
         vm.createSelectFork("sepolia", SEPOLIA_BLOCK);
         _runValidatorUpgradeFix(
-            "[SEPOLIA] fixed -> uri(7) =", SEPOLIA_VALIDATOR, 0xBF03076547a99857b796717faF4034dea94569dF, SEPOLIA_BASEURI
+            "[SEPOLIA] fixed -> uri(7) =",
+            SEPOLIA_VALIDATOR,
+            0xBF03076547a99857b796717faF4034dea94569dF,
+            SEPOLIA_BASEURI
         );
     }
 
@@ -329,7 +335,10 @@ contract FabricaValidatorUriProbeTest is Test {
         }
         vm.createSelectFork("mainnet", MAINNET_BLOCK);
         _runValidatorUpgradeFix(
-            "[MAINNET] fixed -> uri(7) =", MAINNET_VALIDATOR, 0x769586A65825B028b005176F1ebbd3B82bB07Fb0, MAINNET_BASEURI
+            "[MAINNET] fixed -> uri(7) =",
+            MAINNET_VALIDATOR,
+            0x769586A65825B028b005176F1ebbd3B82bB07Fb0,
+            MAINNET_BASEURI
         );
     }
 
