@@ -31,23 +31,28 @@ contract ForkMockValidator is IFabricaValidator {
 }
 
 /// @notice ENG-3145 fork-deploy UPGRADE functional verification against the LIVE Sepolia proxy.
-/// Forks the real network, deploys the NEW `_everMinted` implementation, upgrades the live proxy
-/// via the real (empty-data) upgrade path, and exercises the guard against actual on-chain state.
+/// Forks the real network, deploys the NEW definition-guard implementation, upgrades the live
+/// proxy via the real V6 path (`initializeV6`, 5 -> 6), and exercises the guard against actual
+/// on-chain state.
 ///
 /// Run: forge test --match-contract FabricaTokenForkUpgradeTest \
 ///        --fork-url $SEPOLIA_RPC_URL -vvv
 ///
-/// The Sepolia proxy is already at reinitializer v5 (storage-gap + symbol deployed), and the
-/// `_everMinted` mapping needs no migration (defaults to false), so the upgrade carries EMPTY
-/// calldata — mirroring the exact production-rollout transaction.
+/// The Sepolia proxy is already at reinitializer v5 (storage-gap + symbol deployed). ENG-3145
+/// adds no storage migration; the upgrade calldata is `initializeV6()` — the empty version-stamp
+/// reinitializer that bumps 5 -> 6 and makes the upgrade one-shot. This mirrors the exact
+/// production-rollout transaction for Sepolia.
 contract FabricaTokenForkUpgradeTest is Test {
     address constant PROXY = 0xb52ED2Dc8EBD49877De57De3f454Fd71b75bc1fD;
     address constant PROXY_ADMIN = 0xBF03076547a99857b796717faF4034dea94569dF;
-    uint256 constant SLOT_EVER_MINTED = 307;
+    uint256 constant SLOT_PROPERTY = 303;
+    uint256 constant SLOT_FREE_307 = 307;
+    // OZ v5 ERC-7201 namespaced slot for Initializable._initialized.
+    bytes32 constant OZ_V5_INITIALIZABLE_SLOT = 0xf0c57e16840df040f15088dc2f81fe391c3923bec73e23a9662efc9c229c6a00;
     // Pin the fork to a fixed Sepolia block so the LIVE_* fixtures (liveness, metadata) are
     // deterministic and the suite cannot go flaky as Sepolia advances. At this block: impl ==
-    // 0x0106BC5A025996E0D67f893F0f9F47be87ED510a (v5/symbol build), LIVE_ID & LIVE_ID_2 supply == 1,
-    // and LIVE_DEF/LIVE_OA match. Verified on-chain.
+    // 0x0106BC5A025996E0D67f893F0f9F47be87ED510a (v5/symbol build), _initialized == 5,
+    // LIVE_ID & LIVE_ID_2 supply == 1, and LIVE_DEF/LIVE_OA match. Verified on-chain.
     uint256 constant FORK_BLOCK = 10_977_800;
 
     // A REAL, currently-LIVE pre-upgrade token discovered on Sepolia. The id is verified to be
@@ -83,8 +88,13 @@ contract FabricaTokenForkUpgradeTest is Test {
         if (addr.code.length > 0) vm.etch(addr, "");
     }
 
-    function _everMintedSlot(uint256 id) internal pure returns (bytes32) {
-        return keccak256(abi.encode(id, SLOT_EVER_MINTED));
+    function _propertyBaseSlot(uint256 id) internal pure returns (bytes32) {
+        // Property struct base slot; offset +0 is `supply`.
+        return keccak256(abi.encode(id, SLOT_PROPERTY));
+    }
+
+    function _initializedVersion() internal view returns (uint256) {
+        return uint256(vm.load(PROXY, OZ_V5_INITIALIZABLE_SLOT)) & 0xff;
     }
 
     struct Snap {
@@ -99,12 +109,14 @@ contract FabricaTokenForkUpgradeTest is Test {
         (s.supply, s.oa, s.def, s.cfg, s.val) = token._property(id);
     }
 
-    /// Steps (1)+(2): take the LIVE proxy, deploy the NEW impl, upgrade via the real path.
+    /// Steps (1)+(2): take the LIVE proxy, deploy the NEW impl, upgrade via the real V6 path.
     function _upgradeToNewImpl() internal returns (address newImpl) {
+        assertEq(_initializedVersion(), 5, "fork precondition: proxy at _initialized = 5");
         newImpl = address(new FabricaToken());
         vm.prank(PROXY_ADMIN);
-        token.upgradeToAndCall(newImpl, "");
-        assertEq(token.implementation(), newImpl, "proxy should point at the new _everMinted impl");
+        token.upgradeToAndCall(newImpl, abi.encodeCall(FabricaToken.initializeV6, ()));
+        assertEq(token.implementation(), newImpl, "proxy should point at the new definition-guard impl");
+        assertEq(_initializedVersion(), 6, "upgrade must bump _initialized to 6");
     }
 
     function _newEOA(string memory label) internal returns (address a) {
@@ -122,8 +134,8 @@ contract FabricaTokenForkUpgradeTest is Test {
         a[0] = v;
     }
 
-    /// (3) Upgrade preserves existing storage, and _everMinted reads false for all pre-upgrade ids.
-    function test_fork_upgrade_preservesStorage_and_everMintedFalse() public onlyFork {
+    /// (3) Upgrade preserves existing storage, bumps version to 6, and leaves slot 307 free.
+    function test_fork_upgrade_preservesStorage() public onlyFork {
         // --- pre-upgrade snapshot ---
         Snap memory before = _snap(LIVE_ID);
         (uint256 sup0b,,,,) = token._property(LIVE_ID_2);
@@ -131,8 +143,6 @@ contract FabricaTokenForkUpgradeTest is Test {
         address regBefore = token.validatorRegistry();
         string memory uriBefore = token.contractURI();
         assertGt(before.supply, 0, "precondition: LIVE_ID must be live (supply > 0)");
-        // _everMinted is false BEFORE the upgrade (slot does not exist yet on the deployed impl).
-        assertEq(uint256(vm.load(PROXY, _everMintedSlot(LIVE_ID))), 0, "everMinted pre-upgrade must read 0");
 
         // --- upgrade ---
         _upgradeToNewImpl();
@@ -150,22 +160,25 @@ contract FabricaTokenForkUpgradeTest is Test {
         assertEq(token.contractURI(), uriBefore, "contractURI preserved");
         assertEq(token.owner(), ownerBefore, "owner preserved");
 
-        // _everMinted reads false for pre-upgrade ids (no backfill; new slot 307 starts empty).
-        assertEq(uint256(vm.load(PROXY, _everMintedSlot(LIVE_ID))), 0, "everMinted must be 0 for pre-upgrade LIVE_ID");
+        // Slot 307 stays FREE — the definition-based guard appends no storage variable.
+        assertEq(uint256(vm.load(PROXY, bytes32(SLOT_FREE_307))), 0, "slot 307 base must remain free");
         assertEq(
-            uint256(vm.load(PROXY, _everMintedSlot(LIVE_ID_2))), 0, "everMinted must be 0 for pre-upgrade LIVE_ID_2"
+            uint256(vm.load(PROXY, keccak256(abi.encode(LIVE_ID, SLOT_FREE_307)))),
+            0,
+            "no per-id slot-307 data may be written"
         );
     }
 
-    /// (4a) A REAL pre-upgrade LIVE token cannot be re-minted: the `supply == 0` term protects it
-    /// even though its `_everMinted` flag is false post-upgrade. This is the upgrade-safety case.
+    /// (4a) A REAL pre-upgrade LIVE token cannot be re-minted — its non-empty on-chain
+    /// `definition` is the guard marker, independent of supply.
     function test_fork_4a_preUpgradeLiveToken_remintReverts() public onlyFork {
         _upgradeToNewImpl();
         // The id is genuinely reproducible from the original (minter, sessionId, operatingAgreement).
         assertEq(token.generateId(LIVE_MINTER, LIVE_SESSION_ID, LIVE_OA), LIVE_ID, "id must reproduce");
         (uint256 sup,, string memory defBefore,,) = token._property(LIVE_ID);
         assertGt(sup, 0, "token must be live");
-        assertEq(uint256(vm.load(PROXY, _everMintedSlot(LIVE_ID))), 0, "everMinted false (pre-upgrade)");
+        assertEq(defBefore, LIVE_DEF, "fixture matches the on-chain definition");
+        assertGt(bytes(defBefore).length, 0, "live token has a non-empty definition (the guard marker)");
 
         // The original minter attempts to re-mint the same id with a NEW definition.
         vm.prank(LIVE_MINTER);
@@ -185,7 +198,8 @@ contract FabricaTokenForkUpgradeTest is Test {
         assertEq(defAfter, defBefore, "live token definition must NOT be overwritten");
     }
 
-    /// (4b) A token minted AFTER the upgrade, burned to zero, cannot be re-minted (`!_everMinted`).
+    /// (4b) A token minted AFTER the upgrade, burned to zero, cannot be re-minted — the definition
+    /// survives the burn and blocks the remint.
     function test_fork_4b_postUpgradeBurnRemint_reverts() public onlyFork {
         _upgradeToNewImpl();
         address minter = _newEOA("fork-4b-minter");
@@ -193,14 +207,14 @@ contract FabricaTokenForkUpgradeTest is Test {
         uint256 id = token.mint(
             _single(minter), 4337, _single(uint256(10)), "ipfs://def-A", "ipfs://oa-fork-b", "{}", address(0)
         );
-        assertEq(uint256(vm.load(PROXY, _everMintedSlot(id))), 1, "everMinted set after post-upgrade mint");
 
         vm.prank(minter);
         token.burn(minter, id, 10);
-        (uint256 supAfterBurn,,,,) = token._property(id);
+        (uint256 supAfterBurn,, string memory defAfterBurn,,) = token._property(id);
         assertEq(supAfterBurn, 0, "burned to zero");
+        assertEq(defAfterBurn, "ipfs://def-A", "definition survives the burn (the guard marker)");
 
-        // Re-mint the same id (same minter+sessionId+OA) must revert on the _everMinted flag.
+        // Re-mint the same id (same minter+sessionId+OA) must revert on the definition guard.
         vm.prank(minter);
         vm.expectRevert("Session ID already exist, please use a different one");
         token.mint(_single(minter), 4337, _single(uint256(5)), "ipfs://def-B", "ipfs://oa-fork-b", "{}", address(0));
@@ -261,5 +275,42 @@ contract FabricaTokenForkUpgradeTest is Test {
         assertEq(vAfter, address(0), "validator must be reset to address(0)");
         // With stored validator == address(0), uri() falls back to the default validator.
         assertEq(token.uri(id), "ipfs://mock-default-uri", "uri() must fall back to the default validator after reset");
+    }
+
+    /// (4e) THE GAP THIS PR CLOSES, on REAL pre-upgrade storage: a token that existed before the
+    /// upgrade and is then FULLY BURNED post-upgrade cannot be re-minted. The earlier _everMinted
+    /// approach left this open — the pre-upgrade id's flag was never set, so a post-upgrade burn
+    /// dropped supply to 0 and the id became re-mintable. The definition-based guard blocks it
+    /// because `_burn` never clears the (real, on-chain) `definition`. We model the full burn by
+    /// zeroing LIVE_ID's supply slot directly; the rest of its real pre-upgrade `_property`
+    /// (definition included) is left exactly as deployed.
+    function test_fork_4e_preUpgradeLiveToken_burnedThenRemintReverts() public onlyFork {
+        _upgradeToNewImpl();
+        assertEq(token.generateId(LIVE_MINTER, LIVE_SESSION_ID, LIVE_OA), LIVE_ID, "id must reproduce");
+        (uint256 sup,, string memory defBefore,,) = token._property(LIVE_ID);
+        assertGt(sup, 0, "precondition: live");
+        assertEq(defBefore, LIVE_DEF, "precondition: real definition present");
+
+        // Simulate a full post-upgrade burn: supply -> 0 (struct offset +0); definition untouched.
+        vm.store(PROXY, _propertyBaseSlot(LIVE_ID), bytes32(uint256(0)));
+        (uint256 supAfter,, string memory defStill,,) = token._property(LIVE_ID);
+        assertEq(supAfter, 0, "burned to zero");
+        assertEq(defStill, defBefore, "definition persists through the burn");
+
+        // Re-minting the now-burned pre-upgrade id must revert on the definition guard.
+        vm.prank(LIVE_MINTER);
+        vm.expectRevert("Session ID already exist, please use a different one");
+        token.mint(
+            _single(LIVE_MINTER),
+            LIVE_SESSION_ID,
+            _single(uint256(1)),
+            "ipfs://EVIL-OVERWRITE",
+            LIVE_OA,
+            "{}",
+            address(0)
+        );
+
+        (,, string memory defFinal,,) = token._property(LIVE_ID);
+        assertEq(defFinal, defBefore, "definition must remain untouched after the blocked remint");
     }
 }

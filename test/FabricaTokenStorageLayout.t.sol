@@ -22,8 +22,9 @@ contract FabricaTokenStorageLayoutTest is Test {
     uint256 constant SLOT_DEFAULT_VALIDATOR = 304;
     uint256 constant SLOT_VALIDATOR_REGISTRY = 305;
     uint256 constant SLOT_CONTRACT_URI = 306;
-    // ENG-3145: _everMinted mapping appended immediately after _contractURI.
-    uint256 constant SLOT_EVER_MINTED = 307;
+    // ENG-3145: slot 307 is intentionally left FREE — the burn-remint guard reuses
+    // _property[id].definition rather than appending a new state variable.
+    uint256 constant SLOT_FREE_307 = 307;
     // OZ v5 ERC-7201 namespaced slot for OwnableUpgradeable._owner
     bytes32 constant OZ_V5_OWNER_SLOT = 0x9016d09d72d40fdae2fd8ceac6b6234c7706214fd39c1cd1e609a0528c199300;
     // OZ v5 ERC-7201 namespaced slot for Initializable._initialized
@@ -130,27 +131,23 @@ contract FabricaTokenStorageLayoutTest is Test {
         assertEq(rawSupply, 100, "_property.supply not at expected slot 303");
     }
 
-    function test_everMinted_atSlot307() public {
-        // ENG-3145: _everMinted is mapping(uint256 => bool) appended at slot 307, after
-        // _contractURI (306). Minting an id must set _everMinted[id] at keccak256(id . 307),
-        // and must NOT disturb any earlier slot.
+    function test_slot307_isFree() public {
+        // ENG-3145 dropped the transient _everMinted mapping; slot 307 (and its keccak-derived
+        // per-id slots) must remain UNTOUCHED by mint. The burn-remint guard now keys on
+        // _property[id].definition (slot 303), so nothing is appended after _contractURI (306).
         address recipient = makeAddr("recipient");
         address[] memory recipients = new address[](1);
         recipients[0] = recipient;
         uint256[] memory amounts = new uint256[](1);
         amounts[0] = 100;
-        // Capture _contractURI's slot-306 encoding before the mint to prove the append is non-disruptive.
         bytes32 contractUriBefore = vm.load(proxy, bytes32(SLOT_CONTRACT_URI));
         vm.prank(recipient);
         uint256 tokenId = token.mint(recipients, 7, amounts, "test-definition", "", "", address(0));
-        // _everMinted[tokenId] == true lives at keccak256(tokenId . 307).
-        bytes32 everMintedSlot = keccak256(abi.encode(tokenId, SLOT_EVER_MINTED));
-        assertEq(uint256(vm.load(proxy, everMintedSlot)), 1, "_everMinted[id] not set at expected slot 307");
-        // An id that was never minted reads false (zero) at its slot.
-        uint256 unmintedId = token.generateId(recipient, 999, "ipfs://never");
-        bytes32 unmintedSlot = keccak256(abi.encode(unmintedId, SLOT_EVER_MINTED));
-        assertEq(uint256(vm.load(proxy, unmintedSlot)), 0, "never-minted id must read 0 at slot 307");
-        // Slot 306 (_contractURI) is untouched by the new variable + the mint.
+        // Base slot 307 and the per-id slot keccak256(id . 307) are both zero — nothing lives there.
+        assertEq(uint256(vm.load(proxy, bytes32(SLOT_FREE_307))), 0, "slot 307 base must be free");
+        bytes32 perIdSlot = keccak256(abi.encode(tokenId, SLOT_FREE_307));
+        assertEq(uint256(vm.load(proxy, perIdSlot)), 0, "no per-id data may be written at slot 307");
+        // _contractURI (306) — the last used variable — is undisturbed by the mint.
         assertEq(vm.load(proxy, bytes32(SLOT_CONTRACT_URI)), contractUriBefore, "_contractURI slot 306 disturbed");
     }
 
@@ -213,8 +210,41 @@ contract FabricaTokenStorageLayoutTest is Test {
         freshToken.initializeV5();
     }
 
-    function test_mainnetUpgradePath_V4thenV5() public {
-        // Mainnet/Base Sepolia path: V4 (owner migration) + V5 (version bump)
+    function test_initializeV6_isNoOp() public {
+        // V6 (ENG-3145) is a no-op version stamp — it must not change any state.
+        FabricaToken impl = new FabricaToken();
+        FabricaProxy freshProxy =
+            new FabricaProxy(address(impl), proxyAdmin, abi.encodeCall(FabricaToken.initialize, ()));
+        FabricaToken freshToken = FabricaToken(address(freshProxy));
+        address ownerBefore = freshToken.owner();
+        vm.prank(proxyAdmin);
+        freshToken.initializeV6();
+        assertEq(freshToken.owner(), ownerBefore, "Owner should be unchanged after V6");
+    }
+
+    function test_initializeV6_revertsForNonAdmin() public {
+        address attacker = makeAddr("attacker");
+        vm.prank(attacker);
+        vm.expectRevert("FabricaUUPSUpgradeable: caller is not the proxy admin");
+        token.initializeV6();
+    }
+
+    function test_initializeV6_cannotBeCalledTwice() public {
+        FabricaToken impl = new FabricaToken();
+        FabricaProxy freshProxy =
+            new FabricaProxy(address(impl), proxyAdmin, abi.encodeCall(FabricaToken.initialize, ()));
+        FabricaToken freshToken = FabricaToken(address(freshProxy));
+        // First call bumps _initialized to 6.
+        vm.prank(proxyAdmin);
+        freshToken.initializeV6();
+        // A replay reverts — this is the one-shot upgrade-ceremony guard.
+        vm.prank(proxyAdmin);
+        vm.expectRevert(abi.encodeWithSignature("InvalidInitialization()"));
+        freshToken.initializeV6();
+    }
+
+    function test_mainnetUpgradePath_V4thenV5thenV6() public {
+        // Mainnet/Base Sepolia (ENG-3145) path: V4 (owner migration) + V5 + V6 (version bumps).
         FabricaToken impl = new FabricaToken();
         FabricaProxy freshProxy =
             new FabricaProxy(address(impl), proxyAdmin, abi.encodeCall(FabricaToken.initialize, ()));
@@ -222,35 +252,40 @@ contract FabricaTokenStorageLayoutTest is Test {
         address expectedOwner = makeAddr("expectedOwner");
         vm.store(address(freshProxy), bytes32(uint256(101)), bytes32(uint256(uint160(expectedOwner))));
         vm.store(address(freshProxy), OZ_V5_OWNER_SLOT, bytes32(0));
-        // Deploy new implementation and upgrade with V4
+        // Deploy new implementation and upgrade with V4 (owner migration).
         FabricaToken newImpl = new FabricaToken();
         vm.prank(proxyAdmin);
         freshToken.upgradeToAndCall(address(newImpl), abi.encodeCall(FabricaToken.initializeV4, ()));
         assertEq(freshToken.owner(), expectedOwner, "Owner should be migrated after V4 upgrade");
         assertEq(freshToken.implementation(), address(newImpl), "Implementation should be updated");
-        // Then run V5 (no-op, just bumps version)
+        // Then V5 (no-op bump), then V6 (ENG-3145 no-op version stamp).
         vm.prank(proxyAdmin);
         freshToken.initializeV5();
         assertEq(freshToken.owner(), expectedOwner, "Owner unchanged after V5");
+        vm.prank(proxyAdmin);
+        freshToken.initializeV6();
+        assertEq(freshToken.owner(), expectedOwner, "Owner unchanged after V6");
+        // _initialized must now be 6.
+        assertEq(uint256(vm.load(address(freshProxy), OZ_V5_INITIALIZABLE_SLOT)) & 0xff, 6, "_initialized should be 6");
     }
 
-    function test_sepoliaUpgradePath_V5only() public {
-        // Sepolia path: V4 already consumed, only V5 needed
+    function test_sepoliaUpgradePath_V6only() public {
+        // Sepolia (ENG-3145) path: already at _initialized = 5, only V6 needed.
         FabricaToken impl = new FabricaToken();
         FabricaProxy freshProxy =
             new FabricaProxy(address(impl), proxyAdmin, abi.encodeCall(FabricaToken.initialize, ()));
         FabricaToken freshToken = FabricaToken(address(freshProxy));
-        // Simulate Sepolia state: V4 already ran, owner already in ERC-7201 slot
+        // Simulate Sepolia state: owner already in ERC-7201 slot, _initialized = 5.
         address expectedOwner = makeAddr("expectedOwner");
         vm.store(address(freshProxy), OZ_V5_OWNER_SLOT, bytes32(uint256(uint160(expectedOwner))));
-        // Advance _initialized to 4 (simulate V4 already consumed)
-        vm.store(address(freshProxy), OZ_V5_INITIALIZABLE_SLOT, bytes32(uint256(4)));
-        // Deploy new implementation and upgrade with V5 only
+        vm.store(address(freshProxy), OZ_V5_INITIALIZABLE_SLOT, bytes32(uint256(5)));
+        // Deploy new implementation and upgrade with V6 only.
         FabricaToken newImpl = new FabricaToken();
         vm.prank(proxyAdmin);
-        freshToken.upgradeToAndCall(address(newImpl), abi.encodeCall(FabricaToken.initializeV5, ()));
-        assertEq(freshToken.owner(), expectedOwner, "Owner should remain set after V5-only upgrade");
+        freshToken.upgradeToAndCall(address(newImpl), abi.encodeCall(FabricaToken.initializeV6, ()));
+        assertEq(freshToken.owner(), expectedOwner, "Owner should remain set after V6-only upgrade");
         assertEq(freshToken.implementation(), address(newImpl), "Implementation should be updated");
+        assertEq(uint256(vm.load(address(freshProxy), OZ_V5_INITIALIZABLE_SLOT)) & 0xff, 6, "_initialized should be 6");
     }
 
     function test_allSlots_endToEnd() public {
