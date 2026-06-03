@@ -13,13 +13,25 @@ import {IFabricaValidator} from "../src/IFabricaValidator.sol";
 /// SEPOLIA_RPC_URL in the environment — `source .env` first):
 ///   forge test --match-contract FabricaValidatorUriProbeTest -vv
 ///
-/// FINDING: the panic affects BOTH networks identically. The "default validator" is a SEPARATE
-/// UUPS contract (its own proxy + impl) from the FabricaToken proxy. On BOTH mainnet and Sepolia
-/// it has ALREADY been upgraded OZ v4 -> v5 WITHOUT the `__legacy_gap` storage-restoration fix that
-/// FabricaToken received in ENG-2764, so its first custom string `_baseUri` now reads slot 0 —
-/// which still holds the v4 `Initializable._initialized = 1` flag, an invalid string encoding —
-/// and `uri()` (which is `string.concat(_baseUri, toString(id))`) panics 0x22. This is independent
-/// of, and pre-dates, the pending ENG-3007 FabricaToken proxy upgrade.
+/// FINDING (verified against the on-chain upgrade log + Etherscan-verified impl sources):
+/// The "default validator" is a SEPARATE UUPS contract from the FabricaToken proxy, with its OWN
+/// upgrade history. The MAINNET validator proxy 0x1705…8ab0 was upgraded 3 times:
+///   #1 block 17,928,566 -> impl 0x7ded932f… (solc 0.8.21, OZ v4 LINEAR, `__gap`)
+///   #2 block 19,840,240 -> impl 0x33f1b766… (solc 0.8.25, OZ v4 LINEAR, `__gap`)
+///   #3 block 24,344,085 -> impl 0x401f9b22… (solc 0.8.28, OZ v5 NAMESPACED, `erc7201`, NO `__gap`)
+/// Upgrade #3 went live 2026-01-30T00:25:59Z. It swapped the validator to an OZ-v5 (ERC-7201
+/// namespaced base storage) impl WITHOUT a `__legacy_gap`. Under the v4 impls the base contracts
+/// consumed linear slots 0..200 (`_owner` at 151), so the custom vars lived at `_baseUri` slot 201,
+/// `_operatingAgreementNames` slot 202, `_defaultOperatingAgreement` slot 203 — that real data is STILL
+/// there (slot 201 = "https://metadata.fabrica.land/ethereum/0x5cbeb7…ea95/"). The v5 impl's bases
+/// consume ZERO linear slots, so it now reads `_baseUri` at slot 0 — which still holds the v4
+/// `Initializable._initialized = 1` leftover, an invalid string length. `uri()` =
+/// `string.concat(_baseUri, toString(id))` therefore panics 0x22. Same on Sepolia's validator.
+///
+/// So this IS an OZ v4->v5 (namespaced-storage) migration bug, but it lives in the VALIDATOR, not
+/// the token: the mainnet FabricaToken proxy 0x5cbeb…ea95 is STILL on OZ v4 (current impl
+/// 0x7c26b9e4…, solc 0.8.26, `__gap`, not upgraded to v5). The pending ENG-3007 token upgrade
+/// neither caused nor fixes this; the broken contract is the already-v5-migrated validator.
 contract FabricaValidatorUriProbeTest is Test {
     // FabricaToken proxies (UPGRADE-RUNBOOK.md "Network Addresses").
     address constant MAINNET_PROXY = 0x5cbeb7A0df7Ed85D82a472FD56d81ed550f3Ea95;
@@ -37,6 +49,10 @@ contract FabricaValidatorUriProbeTest is Test {
     // Pinned recent blocks (apples-to-apples; both reproduce as of 2026-06-03, tips ~25.24M / ~10.98M).
     uint256 constant MAINNET_BLOCK = 25_237_000;
     uint256 constant SEPOLIA_BLOCK = 10_980_000;
+
+    // Original OZ-v4 linear slot of `_baseUri` (verified on mainnet): data is still physically here
+    // (slot 201 = the live metadata URL), proving the WRITING impl used the v4 linear base layout.
+    uint256 constant SLOT_BASEURI_V4 = 201;
 
     // Solidity Panic(uint256) selector and the "storage byte array incorrectly encoded" code.
     bytes4 constant PANIC_SELECTOR = 0x4e487b71;
@@ -137,25 +153,80 @@ contract FabricaValidatorUriProbeTest is Test {
         // setBaseUri() call could ever produce slot0 == 1 (it would be the `_baseUri` string slot,
         // which is 0 when empty). This is the fingerprint of an original v4 deployment.
         uint256 slot0 = uint256(vm.load(validator, bytes32(uint256(0))));
-        // Owner now resolves via the v5 namespaced slot; the v4 `_owner` slot 101 is empty ->
-        // the live implementation is OZ v5 and ran a v5 owner-migration.
+        // The live impl reads owner() from the OZ-v5 ERC-7201 namespaced slot (not a linear slot),
+        // which proves the CURRENT implementation is OZ v5.
         address ownerNamespaced = address(uint160(uint256(vm.load(validator, OWNABLE_V5_SLOT))));
-        address ownerLegacy101 = address(uint160(uint256(vm.load(validator, bytes32(uint256(101))))));
+        uint256 slot151 = uint256(vm.load(validator, bytes32(uint256(151)))); // validator's v4 _owner location
         (bool ok, bytes memory ret) = validator.staticcall(abi.encodeWithSignature("owner()"));
         address ownerGetter = ok && ret.length == 32 ? abi.decode(ret, (address)) : address(0);
 
         console2.log("--------------------------------------------------");
         console2.log(net);
         console2.log("  validator:                        ", validator);
-        console2.log("  slot 0 (expect v4 _initialized=1):", slot0);
+        console2.log("  slot 0 (v4 _initialized leftover):", slot0);
         console2.log("  owner via v5 namespaced slot:     ", ownerNamespaced);
-        console2.log("  owner via legacy v4 slot 101:     ", ownerLegacy101);
+        console2.log("  raw slot 151 (v4 _owner location):", slot151);
         console2.log("  owner() getter:                   ", ownerGetter);
 
-        assertEq(slot0, 1, "slot 0 must be the leftover v4 Initializable._initialized=1 (v4 deployment fingerprint)");
-        assertEq(ownerLegacy101, address(0), "v4 _owner slot 101 must be empty (owner migrated off it)");
+        assertEq(slot0, 1, "slot 0 must be the leftover v4 Initializable._initialized=1 (written by an OZ-v4 impl)");
         assertTrue(ownerNamespaced != address(0), "owner must live in the v5 ERC-7201 namespaced slot");
         assertEq(ownerGetter, ownerNamespaced, "owner() must read the v5 namespaced slot => live impl is OZ v5");
+    }
+
+    /// EMPIRICAL PROOF the running mainnet impl reads `_baseUri` at SLOT 0 — i.e. its base contracts
+    /// occupy ZERO linear slots (OZ-v5 namespaced), NOT a sibling variable inserted before `_baseUri`
+    /// in a v4-linear layout (which would leave `_baseUri` at slot 202 = the mapping slot = empty, no
+    /// panic). We overwrite slot 0 with a valid short-string encoding on the fork; baseUri() then
+    /// returning it proves the getter reads slot 0.
+    function test_mainnet_runningImpl_readsBaseUriAtSlot0() public {
+        if (_skipIfNoRpc("MAINNET_RPC_URL")) {
+            vm.skip(true);
+            return;
+        }
+        vm.createSelectFork("mainnet", MAINNET_BLOCK);
+        (bool okBefore,) = MAINNET_VALIDATOR.staticcall(abi.encodeWithSignature("baseUri()"));
+        assertFalse(okBefore, "precondition: baseUri() panics as-is (reads slot 0 == malformed 1)");
+
+        // OZ short-string encoding of "PROBE": data left-aligned in the high bytes, low byte = 2*len.
+        bytes memory s = bytes("PROBE");
+        bytes32 word;
+        assembly {
+            word := mload(add(s, 0x20))
+        }
+        bytes32 enc = word | bytes32(uint256(s.length * 2));
+        vm.store(MAINNET_VALIDATOR, bytes32(uint256(0)), enc);
+
+        (bool okAfter, bytes memory ret) = MAINNET_VALIDATOR.staticcall(abi.encodeWithSignature("baseUri()"));
+        string memory got = okAfter ? abi.decode(ret, (string)) : "";
+        console2.log("after vm.store(slot0, encode('PROBE')) -> baseUri() =", got);
+        assertTrue(okAfter, "baseUri() must succeed after writing slot 0");
+        assertEq(got, "PROBE", "running impl reads _baseUri at SLOT 0 => OZ-v5 namespaced base storage");
+    }
+
+    /// The real `_baseUri` data is intact at its ORIGINAL OZ-v4 linear slot 201; the v5 impl simply
+    /// stops looking there (it reads slot 0). Recovers and logs the live metadata URL. (mainnet)
+    function test_mainnet_baseUriData_orphanedAtV4Slot201() public {
+        if (_skipIfNoRpc("MAINNET_RPC_URL")) {
+            vm.skip(true);
+            return;
+        }
+        vm.createSelectFork("mainnet", MAINNET_BLOCK);
+        uint256 lenMarker = uint256(vm.load(MAINNET_VALIDATOR, bytes32(SLOT_BASEURI_V4)));
+        assertTrue(lenMarker != 0 && lenMarker % 2 == 1, "real _baseUri (long string) still lives at v4 slot 201");
+
+        uint256 len = (lenMarker - 1) / 2;
+        bytes32 dataLoc = keccak256(abi.encode(SLOT_BASEURI_V4));
+        bytes memory out = new bytes(len);
+        for (uint256 i = 0; i * 32 < len; i++) {
+            bytes32 wd = vm.load(MAINNET_VALIDATOR, bytes32(uint256(dataLoc) + i));
+            for (uint256 j = 0; j < 32 && i * 32 + j < len; j++) {
+                out[i * 32 + j] = wd[j];
+            }
+        }
+        console2.log("recovered _baseUri @ v4 slot 201:", string(out));
+        assertEq(
+            uint256(vm.load(MAINNET_VALIDATOR, bytes32(uint256(0)))), 1, "v5 read-slot (0) holds the malformed leftover 1"
+        );
     }
 
     function test_bothValidators_wereUpgradedV4ToV5() public {
