@@ -71,9 +71,7 @@ contract FabricaValidator is IFabricaValidator, Initializable, FabricaUUPSUpgrad
         _baseUri = baseUri_;
         for (uint256 i = 0; i < strandedOperatingAgreementUris.length; i++) {
             _operatingAgreementNames[strandedOperatingAgreementUris[i]] = strandedOperatingAgreementNames[i];
-            emit OperatingAgreementNameUpdated(
-                strandedOperatingAgreementUris[i], strandedOperatingAgreementNames[i]
-            );
+            emit OperatingAgreementNameUpdated(strandedOperatingAgreementUris[i], strandedOperatingAgreementNames[i]);
         }
     }
 
