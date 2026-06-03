@@ -76,6 +76,16 @@ contract FabricaToken is
     // first (owner migration), then V5 bumps the version.
     function initializeV5() public onlyProxyAdmin reinitializer(5) {}
 
+    // ENG-3145 (burn-remint guard). Empty version-stamp reinitializer — mirrors initializeV5.
+    // The burn-remint fix is pure runtime logic (the mint uniqueness guard now keys off the
+    // permanent `_property[id].definition` marker) with NO storage migration, so there is nothing
+    // to initialize. Its purpose is to (1) stamp `_initialized = 6` as "running the burn-remint
+    // build" (distinct from 5 = the __legacy_gap build), (2) make the upgrade ceremony one-shot —
+    // a re-submitted `upgradeToAndCall(impl, initializeV6)` reverts with InvalidInitialization —
+    // and (3) keep mainnet and Sepolia at the same version. Run order: Sepolia (already at 5)
+    // bumps 5->6 via this call; mainnet runs V4 (owner migration) -> V5 -> V6.
+    function initializeV6() public onlyProxyAdmin reinitializer(6) {}
+
     // Struct needed to avoid stack too deep error
     struct Property {
         uint256 supply;
@@ -114,17 +124,14 @@ contract FabricaToken is
 
     string private _contractURI;
 
-    // ENG-3145: per-token-id "ever minted" flag. Appended at slot 307 (immediately after
-    // _contractURI at slot 306). APPEND-ONLY — never reorder, resize, retype, or remove it
-    // (UUPS upgrade safety). Set on first mint under this version and never cleared by `_burn`,
-    // so an id minted under this version can never be re-minted and have its Property struct
-    // overwritten. The mint guard AND-combines this with the legacy `supply == 0` check so that
-    // ids minted BEFORE this upgrade (whose flag is false) stay protected while live; only ids
-    // already fully burned before this upgrade remain re-mintable (the pre-existing behavior,
-    // closable only by an off-chain-enumerated backfill). A dedicated flag rather than a reused
-    // Property field keeps validator semantics intact: `validator == address(0)` remains a valid
-    // "use the default validator" state that `uri()` resolves.
-    mapping(uint256 => bool) private _everMinted;
+    // Slot 307 is intentionally left free. A pre-merge revision of ENG-3145 briefly declared a
+    // `mapping(uint256 => bool) _everMinted` here; that approach was dropped in favor of guarding
+    // on the permanent `_property[id].definition` marker (which covers pre-upgrade and
+    // already-burned ids with no migration). The Sepolia proxy was staged against that revision,
+    // so its slot-307-derived mapping entries hold orphaned `true` values that the current code
+    // never reads (they do not collide with any live variable's namespace). Mainnet never ran
+    // that revision, so its slot 307 is pristine. Do NOT append a new variable at slot 307
+    // without first accounting for those Sepolia leftovers.
 
     // On-chain data update
     event UpdateConfiguration(uint256, string newData);
@@ -591,21 +598,21 @@ contract FabricaToken is
             property.operatingAgreement = IFabricaValidator(property.validator).defaultOperatingAgreement();
         }
         uint256 id = generateId(_msgSender(), sessionId, property.operatingAgreement);
-        // Uniqueness guard: an id is re-usable only if it is NOT currently live (`supply == 0`)
-        // AND has never been minted since this upgrade (`!_everMinted[id]`). `_burn` zeroes
-        // `supply` but never clears `_everMinted`, so a fully-burned id minted under this
-        // version can never be re-minted and overwrite its definition/operatingAgreement/
-        // validator (ENG-3145). The `supply == 0` term is load-bearing for UPGRADE safety:
-        // tokens minted before this upgrade have `_everMinted == false`, so without it a live
-        // pre-upgrade token could be re-minted and overwritten. We deliberately do NOT reuse a
-        // Property field as the sentinel: `validator == address(0)` is a legitimate "use the
-        // default validator" state that `uri()` resolves, so it cannot mark a never-minted id.
-        require(_property[id].supply == 0 && !_everMinted[id], "Session ID already exist, please use a different one");
-        // Checks-effects-interactions: set the guard flag and property BEFORE the ERC-1155
-        // receiver acceptance-check callbacks, so a recipient that re-enters `mint` during
-        // `onERC1155Received` sees the flag set and cannot bypass the uniqueness guard.
+        // Uniqueness guard (ENG-3145): an id may be minted only if it has never been minted
+        // before. `_property[id].definition` is required non-empty on every mint (checked above
+        // for the incoming property), is never cleared by `_burn`/`_burnBatch`, and has no
+        // setter — so a non-empty stored `definition` is a permanent on-chain "this id has
+        // existed" marker for EVERY token, including ids minted before this upgrade and ids
+        // already fully burned. Guarding on it (rather than `supply == 0`, which `_burn` resets
+        // to zero) closes burn-then-remint for the entire token population with no migration.
+        // We do NOT reuse `validator` as the sentinel: `validator == address(0)` is a legitimate
+        // "use the default validator" state that `uri()` resolves, whereas an empty stored
+        // `definition` uniquely identifies a never-minted id.
+        require(bytes(_property[id].definition).length == 0, "Session ID already exist, please use a different one");
+        // Checks-effects-interactions: write `_property[id]` (which sets the `definition` marker)
+        // BEFORE the ERC-1155 receiver acceptance-check callbacks, so a recipient that re-enters
+        // `mint` during `onERC1155Received` sees the marker set and cannot bypass the guard.
         // Mirrors `_mintBatch`, which writes its state before its acceptance checks.
-        _everMinted[id] = true;
         _property[id] = property;
         for (uint256 i = 0; i < recipients.length; i++) {
             address to = recipients[i];
@@ -653,13 +660,10 @@ contract FabricaToken is
                     IFabricaValidator(properties[i].validator).defaultOperatingAgreement();
             }
             uint256 id = generateId(_msgSender(), sessionIds[i], properties[i].operatingAgreement);
-            // ENG-3145: same uniqueness guard as `_mint` (see its comment). `supply == 0`
-            // preserves live-token protection for pre-upgrade ids; `!_everMinted[id]`
-            // permanently retires any id minted under this version, which `_burn` never clears.
-            require(
-                _property[id].supply == 0 && !_everMinted[id], "Session ID already exist, please use a different one"
-            );
-            _everMinted[id] = true;
+            // ENG-3145: same uniqueness guard as `_mint` (see its comment). An empty stored
+            // `definition` is the permanent never-minted marker; `_burn` never clears it, so any
+            // id ever minted — before or after this upgrade, live or burned — stays retired.
+            require(bytes(_property[id].definition).length == 0, "Session ID already exist, please use a different one");
             ids[i] = id;
             _property[id] = properties[i];
         }

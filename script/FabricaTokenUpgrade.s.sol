@@ -7,19 +7,20 @@ import {FabricaToken} from "../src/FabricaToken.sol";
 contract FabricaTokenUpgradeScript is Script {
     function setUp() public {}
 
-    // Sepolia: V4 already consumed (2025-02-12). Upgrade impl + run V5 (no-op).
+    // Sepolia (ENG-3145): already at _initialized = 5. Upgrade impl + run V6 (no-op, 5 -> 6).
     function run(address tokenProxy, address newImplementation) public {
         FabricaToken proxy = FabricaToken(tokenProxy);
         console.log("Proxy address:", tokenProxy);
         console.log("Current implementation:", proxy.implementation());
         console.log("Upgrading to:", newImplementation);
         vm.startBroadcast();
-        proxy.upgradeToAndCall(newImplementation, abi.encodeCall(FabricaToken.initializeV5, ()));
+        proxy.upgradeToAndCall(newImplementation, abi.encodeCall(FabricaToken.initializeV6, ()));
         vm.stopBroadcast();
         _logState(proxy);
     }
 
-    // Mainnet / Base Sepolia: V4 not yet consumed. Upgrade impl + run V4 (owner migration).
+    // Mainnet / Base Sepolia (ENG-3145): V4 not yet consumed. Step 1 of the V4 -> V5 -> V6
+    // ceremony — upgrade impl + run V4 (owner migration). Follow with runV5Only then runV6Only.
     function runWithV4(address tokenProxy, address newImplementation) public {
         FabricaToken proxy = FabricaToken(tokenProxy);
         console.log("Proxy address:", tokenProxy);
@@ -31,13 +32,24 @@ contract FabricaTokenUpgradeScript is Script {
         _logState(proxy);
     }
 
-    // Follow-up after runWithV4: run V5 (no-op, bumps version to match Sepolia).
+    // Mainnet step 2 (after runWithV4): run V5 (no-op, version bump 4 -> 5).
     function runV5Only(address tokenProxy) public {
         FabricaToken proxy = FabricaToken(tokenProxy);
         console.log("Proxy address:", tokenProxy);
         console.log("Running initializeV5 (no-op, version bump)");
         vm.startBroadcast();
         proxy.initializeV5();
+        vm.stopBroadcast();
+        _logState(proxy);
+    }
+
+    // Mainnet step 3 (after runV5Only): run V6 (ENG-3145 no-op version stamp, 5 -> 6).
+    function runV6Only(address tokenProxy) public {
+        FabricaToken proxy = FabricaToken(tokenProxy);
+        console.log("Proxy address:", tokenProxy);
+        console.log("Running initializeV6 (no-op, version bump)");
+        vm.startBroadcast();
+        proxy.initializeV6();
         vm.stopBroadcast();
         _logState(proxy);
     }
