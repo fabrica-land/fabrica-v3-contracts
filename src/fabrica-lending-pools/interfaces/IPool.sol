@@ -366,10 +366,21 @@ interface IPool {
     ) external view returns (uint256 repayment);
 
     /**
-     * @notice Originate a loan
+     * @notice Originate a loan, assigning the collateral and the loan to a
+     * designated borrower-of-record
+     *
+     * @dev Fabrica ENG-3231: `borrow` takes a required `borrower` parameter
+     * (breaking change vs upstream MetaStreet). The designated `borrower`
+     * becomes the borrower-of-record and beneficial owner of the (encumbered)
+     * collateral — redemption on repay, liquidation surplus, and refinance
+     * control all key off it. Collateral is still pulled from msg.sender and
+     * principal still sent to msg.sender, so a router can fund the purchase and
+     * take the proceeds. Pass `borrower == msg.sender` for the normal
+     * self-borrow path.
      *
      * Emits a {LoanOriginated} event.
      *
+     * @param borrower Borrower-of-record / beneficial owner of the collateral
      * @param principal Principal amount in currency tokens
      * @param duration Duration in seconds
      * @param collateralToken Collateral token address
@@ -380,6 +391,7 @@ interface IPool {
      * @return repayment Repayment amount in currency tokens
      */
     function borrow(
+        address borrower,
         uint256 principal,
         uint64 duration,
         address collateralToken,

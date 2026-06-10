@@ -778,6 +778,7 @@ abstract contract Pool is
      * @inheritdoc IPool
      */
     function borrow(
+        address borrower,
         uint256 principal,
         uint64 duration,
         address collateralToken,
@@ -801,9 +802,16 @@ abstract contract Pool is
             false
         );
 
-        /* Handle borrow accounting */
+        /* Handle borrow accounting. The designated `borrower` becomes the
+           borrower-of-record (Fabrica ENG-3231): collateral redemption,
+           liquidation surplus, and refinance control all key off it. Collateral
+           is still pulled from msg.sender and principal still sent to msg.sender,
+           so a router can fund the purchase and take the proceeds while the
+           designated party ends up owning the encumbered collateral. Pass
+           borrower == msg.sender for the normal self-borrow path. */
         (bytes memory encodedLoanReceipt, bytes32 loanReceiptHash) = BorrowLogic._borrow(
             _storage,
+            borrower,
             scaledPrincipal,
             duration,
             collateralToken,
@@ -826,14 +834,15 @@ abstract contract Pool is
             options
         );
 
-        /* Transfer collateral from borrower to pool */
+        /* Transfer collateral from msg.sender to pool */
         _transferCollateral(msg.sender, address(this), collateralToken, collateralTokenId);
 
-        /* Transfer principal from pool to borrower */
-        _storage.currencyToken.safeTransfer(msg.sender, principal);
-
-        /* Emit LoanOriginated */
-        emit LoanOriginated(loanReceiptHash, encodedLoanReceipt);
+        /* Settle: pay principal to msg.sender and emit LoanOriginated. Folded
+           into BorrowLogic to reclaim Pool concrete bytecode (Fabrica ENG-3231).
+           Ordering is load-bearing: this MUST run after the collateral escrow
+           above (collateral-in before principal-out); do not insert code between
+           _transferCollateral and this call. */
+        BorrowLogic._settleBorrow(_storage, principal, loanReceiptHash, encodedLoanReceipt);
 
         return _unscale(repayment, true);
     }
@@ -923,9 +932,13 @@ abstract contract Pool is
             true
         );
 
-        /* Handle borrow accounting */
+        /* Handle borrow accounting. Refinance preserves the borrower-of-record:
+           _repay above ran with requireBorrower=true, so msg.sender == the
+           existing borrower; pass loanReceipt.borrower to keep the new position
+           owned by the same party (Fabrica ENG-3231). */
         (bytes memory newEncodedLoanReceipt, bytes32 newLoanReceiptHash) = BorrowLogic._borrow(
             _storage,
+            loanReceipt.borrower,
             scaledPrincipal,
             duration,
             loanReceipt.collateralToken,
@@ -1046,44 +1059,18 @@ abstract contract Pool is
         uint256 amount,
         uint256 minShares
     ) public nonReentrant returns (uint256) {
-        /* Validate recipient */
-        if (recipient == address(0)) revert InvalidRecipient();
-
-        /* Handle deposit accounting and credit shares to recipient */
-        uint128 shares = DepositLogic._deposit(
-            _storage,
-            tick,
-            _scale(amount).toUint128(),
-            minShares.toUint128(),
-            recipient
-        );
-
-        /* Call token hook (mints wrapper Transfer event from address(0) to recipient) */
-        _onExternalTransfer(address(0), recipient, tick, shares);
-
-        /* Transfer deposit amount from msg.sender (payer) */
-        _storage.currencyToken.safeTransferFrom(msg.sender, address(this), amount);
-
-        /* Emit Deposited keyed on recipient */
-        emit Deposited(recipient, tick, amount, shares);
-
-        return shares;
+        /* Full orchestration delegated to DepositLogic to reclaim Pool concrete
+           bytecode (Fabrica ENG-3231); the deposit-token hook address is
+           resolved inside the library via its ERC-7201 storage mirror. */
+        return DepositLogic.depositFor(_storage, recipient, tick, amount, minShares);
     }
 
     /**
      * @inheritdoc IPool
      */
     function redeem(uint128 tick, uint256 shares) external nonReentrant returns (uint128) {
-        /* Handle redeem accounting */
-        uint128 redemptionId = DepositLogic._redeem(_storage, tick, shares.toUint128());
-
-        /* Call token hook */
-        _onExternalTransfer(msg.sender, address(0), tick, shares);
-
-        /* Emit Redeemed event */
-        emit Redeemed(msg.sender, tick, redemptionId, shares);
-
-        return redemptionId;
+        /* Full orchestration delegated to DepositLogic (Fabrica ENG-3231) */
+        return DepositLogic.redeem(_storage, tick, shares);
     }
 
     /**
@@ -1109,17 +1096,8 @@ abstract contract Pool is
      * @inheritdoc IPool
      */
     function withdraw(uint128 tick, uint128 redemptionId) external nonReentrant returns (uint256, uint256) {
-        /* Handle withdraw accounting and compute both shares and amount */
-        (uint128 shares, uint128 amount) = DepositLogic._withdraw(_storage, tick, redemptionId);
-        uint256 unscaledAmount = _unscale(amount, false);
-
-        /* Transfer withdrawal amount */
-        if (unscaledAmount != 0) _storage.currencyToken.safeTransfer(msg.sender, unscaledAmount);
-
-        /* Emit Withdrawn */
-        emit Withdrawn(msg.sender, tick, redemptionId, shares, unscaledAmount);
-
-        return (shares, unscaledAmount);
+        /* Full orchestration delegated to DepositLogic (Fabrica ENG-3231) */
+        return DepositLogic.withdraw(_storage, tick, redemptionId);
     }
 
     /**
@@ -1131,24 +1109,10 @@ abstract contract Pool is
         uint128 redemptionId,
         uint256 minShares
     ) external nonReentrant returns (uint256, uint256, uint256) {
-        /* Handle withdraw accounting and compute both shares and amount */
-        (uint128 oldShares, uint128 amount) = DepositLogic._withdraw(_storage, srcTick, redemptionId);
-
-        /* Handle deposit accounting and compute new shares (rebalance keeps msg.sender as beneficiary) */
-        uint128 newShares = DepositLogic._deposit(_storage, dstTick, amount, minShares.toUint128(), msg.sender);
-
-        uint256 unscaledAmount = _unscale(amount, false);
-
-        /* Call token hook */
-        _onExternalTransfer(address(0), msg.sender, dstTick, newShares);
-
-        /* Emit Withdrawn */
-        emit Withdrawn(msg.sender, srcTick, redemptionId, oldShares, unscaledAmount);
-
-        /* Emit Deposited */
-        emit Deposited(msg.sender, dstTick, unscaledAmount, newShares);
-
-        return (oldShares, newShares, unscaledAmount);
+        /* Full orchestration delegated to DepositLogic (Fabrica ENG-3231); the
+           dstTick deposit-token hook address is resolved inside the library via
+           its ERC-7201 storage mirror. */
+        return DepositLogic.rebalance(_storage, srcTick, dstTick, redemptionId, minShares);
     }
 
     /**
@@ -1162,14 +1126,10 @@ abstract contract Pool is
      * @param shares Shares
      */
     function transfer(address from, address to, uint128 tick, uint256 shares) external nonReentrant {
-        /* Validate caller is deposit token created by Pool */
-        if (msg.sender != depositToken(tick)) revert InvalidCaller();
-
-        /* Handle transfer accounting */
-        DepositLogic._transfer(_storage, from, to, tick, shares.toUint128());
-
-        /* Emit Transferred */
-        emit Transferred(from, to, tick, shares);
+        /* Full orchestration delegated to DepositLogic (Fabrica ENG-3231); the
+           caller-is-deposit-token check is enforced in the library against the
+           deposit-token address it resolves via its ERC-7201 storage mirror. */
+        DepositLogic.transfer(_storage, from, to, tick, shares);
     }
 
     /**

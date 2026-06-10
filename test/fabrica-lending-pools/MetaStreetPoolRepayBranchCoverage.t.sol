@@ -69,7 +69,7 @@ contract MetaStreetPoolRepayBranchCoverage is Test {
 
         vm.recordLogs();
         vm.prank(borrower);
-        pool.borrow(PRINCIPAL, DURATION, address(nft), NFT_ID, PRINCIPAL, ticks, "");
+        pool.borrow(borrower, PRINCIPAL, DURATION, address(nft), NFT_ID, PRINCIPAL, ticks, "");
 
         Vm.Log[] memory logs = vm.getRecordedLogs();
         bytes32 topic = keccak256("LoanOriginated(bytes32,bytes)");
