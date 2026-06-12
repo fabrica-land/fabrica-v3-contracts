@@ -40,7 +40,8 @@ import "./concretes/TestERC721.sol";
  * borrow() needs no signed oracle quote — it is the same Pool base linking the
  * same BorrowLogic/DepositLogic, so the borrower-param + LP-dispatch code under
  * test is identical. The deployable concrete's EIP-170 fit is verified
- * separately by `forge build --sizes` (23,628 B, +948 under).
+ * separately by `forge clean && forge build --sizes` (full graph, no --skip:
+ * 23,628 B, 948 under).
  *
  * The onlyFork modifier short-circuits when the chain's USDC bytecode is absent
  * (i.e. run without the matching --fork-url), mirroring the existing fork tests.
@@ -73,8 +74,6 @@ abstract contract MetaStreetPoolBorrowerForkUpgradeBase is Test {
     uint256 internal constant NFT_ID = 1;
 
     function _usdc() internal pure virtual returns (address);
-
-    function _chain() internal pure virtual returns (string memory);
 
     modifier onlyFork() {
         if (_usdc().code.length == 0) return;
@@ -249,19 +248,11 @@ contract MetaStreetPoolBorrowerForkUpgradeSepoliaTest is MetaStreetPoolBorrowerF
     function _usdc() internal pure override returns (address) {
         return 0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238;
     }
-
-    function _chain() internal pure override returns (string memory) {
-        return "sepolia";
-    }
 }
 
 contract MetaStreetPoolBorrowerForkUpgradeMainnetTest is MetaStreetPoolBorrowerForkUpgradeBase {
     /* Circle's USDC on Ethereum mainnet (6 decimals). */
     function _usdc() internal pure override returns (address) {
         return 0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48;
-    }
-
-    function _chain() internal pure override returns (string memory) {
-        return "ethereum";
     }
 }
