@@ -67,9 +67,12 @@ min_evm_version = "cancun"
 # (verified via `FOUNDRY_PROFILE=<chain> forge config`).
 #
 # Addresses are each chain's canonical, currently-live deployments:
-#   sepolia — recorded in
-#     broadcast/FabricaLendingPoolStackDeploy.s.sol/11155111/ and confirmed
-#     against the live pool implementation's on-chain bytecode.
+#   sepolia — LiquidityLogic + ERC20DepositTokenFactory from
+#     broadcast/FabricaLendingPoolStackDeploy.s.sol/11155111/; BorrowLogic +
+#     DepositLogic were relinked to the ENG-3231 deployment (deployed via
+#     `forge create`, not the StackDeploy broadcast — see the ENG-3231 row in
+#     LENDING-POOL-RUNBOOK.md). All confirmed against the live pool
+#     implementation's on-chain bytecode.
 #   mainnet — recovered from the live pool implementation's on-chain bytecode
 #     (pool 0x842ffbf1ad5314503904626122376f71603a3cf9, beacon impl
 #     0x4b1576Df8D8911d2F404391a7f8fAcEfA7F4b6da); no mainnet StackDeploy
