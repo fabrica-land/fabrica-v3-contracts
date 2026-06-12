@@ -38,7 +38,7 @@ abstract contract GracePeriodTestBase is Test {
 
         vm.recordLogs();
         vm.prank(borrower);
-        pool.borrow(principal, DURATION, address(nft), NFT_ID, principal, ticks, "");
+        pool.borrow(borrower, principal, DURATION, address(nft), NFT_ID, principal, ticks, "");
 
         Vm.Log[] memory logs = vm.getRecordedLogs();
         bytes32 topic = keccak256("LoanOriginated(bytes32,bytes)");

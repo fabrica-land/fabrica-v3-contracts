@@ -143,4 +143,47 @@ contract MetaStreetPoolDepositForTest is Test {
         assertGt(_shares(payer, TICK), 0, "payer rebalanced into self");
         assertEq(_shares(recipient, TICK), 0, "rebalance does not credit anyone else");
     }
+
+    /* ENG-3231: redeem's burn hook now fires from DepositLogic resolving the
+       deposit-token address via its own ERC-7201 storage mirror. Asserting the
+       Transfer fires from the SAME wrapper pool.tokenize/depositToken returns
+       guards the duplicated DEPOSIT_TOKEN_STORAGE_LOCATION against divergence. */
+    function test_redeem_emitsERC20BurnTransfer_viaLibrarySlotResolution() public {
+        address wrapper = pool.tokenize(TICK);
+        assertEq(wrapper, pool.depositToken(TICK), "tokenized wrapper matches accessor");
+        vm.prank(payer);
+        uint256 shares = pool.depositFor(recipient, TICK, DEPOSIT_AMOUNT, MIN_SHARES);
+        vm.expectEmit(true, true, true, true, wrapper);
+        emit Transfer(recipient, address(0), shares);
+        vm.prank(recipient);
+        pool.redeem(TICK, shares);
+    }
+
+    /* ENG-3231: rebalance into a tokenized destination tick must fire the mint
+       hook via the moved DepositLogic.rebalance + its ERC-7201 slot resolution. */
+    function test_rebalance_intoTokenizedTick_emitsERC20MintTransfer() public {
+        address wrapper = pool.tokenize(TICK);
+        vm.prank(payer);
+        uint256 shares = pool.deposit(TICK, DEPOSIT_AMOUNT, MIN_SHARES);
+        vm.prank(payer);
+        uint128 redemptionId = pool.redeem(TICK, shares);
+        /* Predict newShares by snapshot/revert so we can assert the full event. */
+        uint256 snapshotId = vm.snapshotState();
+        vm.prank(payer);
+        (, uint256 newShares,) = pool.rebalance(TICK, TICK, redemptionId, MIN_SHARES);
+        vm.revertToState(snapshotId);
+        vm.expectEmit(true, true, true, true, wrapper);
+        emit Transfer(address(0), payer, newShares);
+        vm.prank(payer);
+        pool.rebalance(TICK, TICK, redemptionId, MIN_SHARES);
+    }
+
+    /* ENG-3231: the transfer() caller check moved into DepositLogic and now
+       resolves the deposit token via the ERC-7201 slot mirror; a non-deposit-
+       token caller must still revert InvalidCaller. */
+    function test_transfer_revertsForNonDepositTokenCaller() public {
+        vm.expectRevert(IPool.InvalidCaller.selector);
+        vm.prank(payer);
+        pool.transfer(payer, recipient, TICK, 1);
+    }
 }
