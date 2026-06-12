@@ -67,9 +67,12 @@ min_evm_version = "cancun"
 # (verified via `FOUNDRY_PROFILE=<chain> forge config`).
 #
 # Addresses are each chain's canonical, currently-live deployments:
-#   sepolia — recorded in
-#     broadcast/FabricaLendingPoolStackDeploy.s.sol/11155111/ and confirmed
-#     against the live pool implementation's on-chain bytecode.
+#   sepolia — LiquidityLogic + ERC20DepositTokenFactory from
+#     broadcast/FabricaLendingPoolStackDeploy.s.sol/11155111/; BorrowLogic +
+#     DepositLogic were relinked to the ENG-3231 deployment (deployed via
+#     `forge create`, not the StackDeploy broadcast — see the ENG-3231 row in
+#     LENDING-POOL-RUNBOOK.md). All confirmed against the live pool
+#     implementation's on-chain bytecode.
 #   mainnet — recovered from the live pool implementation's on-chain bytecode
 #     (pool 0x842ffbf1ad5314503904626122376f71603a3cf9, beacon impl
 #     0x4b1576Df8D8911d2F404391a7f8fAcEfA7F4b6da); no mainnet StackDeploy
@@ -84,8 +87,8 @@ libraries = [
 
 [profile.sepolia]
 libraries = [
-    "src/fabrica-lending-pools/BorrowLogic.sol:BorrowLogic:0x23319E369d4e4AE2E9D1f78388DAe9cF6425e4FE",
-    "src/fabrica-lending-pools/DepositLogic.sol:DepositLogic:0x84b790C05A2cba1b452D614914d534d342587F80",
+    "src/fabrica-lending-pools/BorrowLogic.sol:BorrowLogic:0x97bD28cd2EC4D226969221574f7EeBE301bf7557",
+    "src/fabrica-lending-pools/DepositLogic.sol:DepositLogic:0xcab821709338df0f718491d0f3038fbD6a16CfbE",
     "src/fabrica-lending-pools/LiquidityLogic.sol:LiquidityLogic:0xc98899f5A7feFC5146C1574D6b51C0A5C993b505",
     "src/fabrica-lending-pools/tokenization/ERC20DepositTokenFactory.sol:ERC20DepositTokenFactory:0x8722651F6f79Bde509c48Fc65c37A3b8faf9086D",
 ]
