@@ -3,6 +3,7 @@
 pragma solidity ^0.8.28;
 
 import {IERC20} from "../lib/openzeppelin-contracts/contracts/token/ERC20/ERC20.sol";
+import {SafeERC20} from "../lib/openzeppelin-contracts/contracts/token/ERC20/utils/SafeERC20.sol";
 import {Address} from "../lib/openzeppelin-contracts/contracts/utils/Address.sol";
 import {OwnableUpgradeable} from "../lib/openzeppelin-contracts-upgradeable/contracts/access/OwnableUpgradeable.sol";
 import {Initializable} from "../lib/openzeppelin-contracts-upgradeable/contracts/proxy/utils/Initializable.sol";
@@ -12,6 +13,7 @@ import {IFabricaToken} from "./IFabricaToken.sol";
 
 contract FabricaFeeCollector is Initializable, OwnableUpgradeable, PausableUpgradeable, FabricaUUPSUpgradeable {
     using Address for address;
+    using SafeERC20 for IERC20;
 
     address private _protocolContractAddress;
     uint8 private _protocolSharePercent;
@@ -31,6 +33,7 @@ contract FabricaFeeCollector is Initializable, OwnableUpgradeable, PausableUpgra
 
     error InsufficientAllowance(uint256 approval, uint256 feeAmount);
     error InsufficientBalance(uint256 balance, uint256 feeAmount);
+    error ProtocolSharePercentExceedsMaximum(uint8 protocolSharePercent);
 
     constructor() {
         _disableInitializers();
@@ -40,6 +43,9 @@ contract FabricaFeeCollector is Initializable, OwnableUpgradeable, PausableUpgra
         external
         initializer
     {
+        if (protocolSharePercent_ > 100) {
+            revert ProtocolSharePercentExceedsMaximum(protocolSharePercent_);
+        }
         __FabricaUUPSUpgradeable_init();
         __Ownable_init(_msgSender());
         __Pausable_init();
@@ -74,6 +80,9 @@ contract FabricaFeeCollector is Initializable, OwnableUpgradeable, PausableUpgra
     }
 
     function setProtocolSharePercent(uint8 newProtocolSharePercent) external onlyOwner {
+        if (newProtocolSharePercent > 100) {
+            revert ProtocolSharePercentExceedsMaximum(newProtocolSharePercent);
+        }
         _protocolSharePercent = newProtocolSharePercent;
         emit ProtocolSharePercentChanged(newProtocolSharePercent);
     }
@@ -94,7 +103,7 @@ contract FabricaFeeCollector is Initializable, OwnableUpgradeable, PausableUpgra
         if (balance < amount) {
             revert InsufficientBalance(balance, amount);
         }
-        currency.transferFrom(obligor, address(this), amount);
+        currency.safeTransferFrom(obligor, address(this), amount);
         IFabricaToken protocolContract = IFabricaToken(_protocolContractAddress);
         (,,,, address validatorAddress) = protocolContract._property(tokenId);
         if (validatorAddress == address(0)) {
@@ -103,10 +112,10 @@ contract FabricaFeeCollector is Initializable, OwnableUpgradeable, PausableUpgra
         uint256 protocolShare = amount * _protocolSharePercent / 100;
         uint256 validatorShare = amount - protocolShare;
         if (protocolShare > 0) {
-            currency.transfer(_protocolFeeRecipient, protocolShare);
+            currency.safeTransfer(_protocolFeeRecipient, protocolShare);
         }
         if (validatorShare > 0) {
-            currency.transfer(validatorAddress, validatorShare);
+            currency.safeTransfer(validatorAddress, validatorShare);
         }
         emit FeeCollected(
             tokenId, feeType, obligor, erc20CurrencyAddress, protocolShare, validatorAddress, validatorShare
