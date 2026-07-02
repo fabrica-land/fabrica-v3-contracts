@@ -33,6 +33,8 @@ contract FabricaFeeCollector is Initializable, OwnableUpgradeable, PausableUpgra
 
     error InsufficientAllowance(uint256 approval, uint256 feeAmount);
     error InsufficientBalance(uint256 balance, uint256 feeAmount);
+    error ProtocolContractAddressZero();
+    error ProtocolFeeRecipientZero();
     error ProtocolSharePercentExceedsMaximum(uint8 protocolSharePercent);
 
     constructor() {
@@ -43,8 +45,14 @@ contract FabricaFeeCollector is Initializable, OwnableUpgradeable, PausableUpgra
         external
         initializer
     {
+        if (protocolContractAddress_ == address(0)) {
+            revert ProtocolContractAddressZero();
+        }
         if (protocolSharePercent_ > 100) {
             revert ProtocolSharePercentExceedsMaximum(protocolSharePercent_);
+        }
+        if (protocolFeeRecipient_ == address(0)) {
+            revert ProtocolFeeRecipientZero();
         }
         __FabricaUUPSUpgradeable_init();
         __Ownable_init(_msgSender());
@@ -71,6 +79,9 @@ contract FabricaFeeCollector is Initializable, OwnableUpgradeable, PausableUpgra
     }
 
     function setProtocolFeeRecipient(address newProtocolFeeRecipient) external onlyOwner {
+        if (newProtocolFeeRecipient == address(0)) {
+            revert ProtocolFeeRecipientZero();
+        }
         _protocolFeeRecipient = newProtocolFeeRecipient;
         emit ProtocolFeeRecipientChanged(newProtocolFeeRecipient);
     }

@@ -208,6 +208,43 @@ contract FabricaFeeCollectorTest is Test {
         assertEq(collector.protocolSharePercent(), 50);
     }
 
+    // ENG-3426: initialize() must reject a zero protocol contract address.
+    function test_initialize_revertsOnZeroProtocolContract() public {
+        FabricaFeeCollector impl = new FabricaFeeCollector();
+        bytes memory initData = abi.encodeCall(FabricaFeeCollector.initialize, (address(0), 10, protocolFeeRecipient));
+        vm.expectRevert(FabricaFeeCollector.ProtocolContractAddressZero.selector);
+        new FabricaProxy(address(impl), proxyAdmin, initData);
+    }
+
+    // ENG-3426: initialize() must reject a zero protocol fee recipient.
+    function test_initialize_revertsOnZeroFeeRecipient() public {
+        FabricaFeeCollector impl = new FabricaFeeCollector();
+        bytes memory initData =
+            abi.encodeCall(FabricaFeeCollector.initialize, (address(protocolContract), 10, address(0)));
+        vm.expectRevert(FabricaFeeCollector.ProtocolFeeRecipientZero.selector);
+        new FabricaProxy(address(impl), proxyAdmin, initData);
+    }
+
+    // ENG-3426: initialize() persists both addresses when they are non-zero.
+    function test_initialize_succeedsWithNonZeroAddresses() public {
+        FabricaFeeCollector c = _deployCollector(10);
+        assertEq(c.protocolContractAddress(), address(protocolContract));
+        assertEq(c.protocolFeeRecipient(), protocolFeeRecipient);
+    }
+
+    // ENG-3426: setProtocolFeeRecipient must reject the zero address.
+    function test_setProtocolFeeRecipient_revertsOnZero() public {
+        vm.expectRevert(FabricaFeeCollector.ProtocolFeeRecipientZero.selector);
+        collector.setProtocolFeeRecipient(address(0));
+    }
+
+    // ENG-3426: setProtocolFeeRecipient updates state for a non-zero address.
+    function test_setProtocolFeeRecipient_succeedsOnNonZero() public {
+        address newRecipient = address(0xB0B);
+        collector.setProtocolFeeRecipient(newRecipient);
+        assertEq(collector.protocolFeeRecipient(), newRecipient);
+    }
+
     // ENG-2547: collectFee on a standard, boolean-compliant ERC-20 works and
     // splits funds correctly between protocol and validator.
     function test_collectFee_compliantToken_movesFundsAndSplits() public {
