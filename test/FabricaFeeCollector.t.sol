@@ -180,8 +180,15 @@ contract FabricaFeeCollectorTest is Test {
         internal
         returns (FabricaFeeCollector configuredCollector, MockERC20Compliant currency)
     {
+        return _setupApprovedCollection(defaultValidator_, validator_, 10);
+    }
+
+    function _setupApprovedCollection(address defaultValidator_, address validator_, uint8 protocolSharePercent_)
+        internal
+        returns (FabricaFeeCollector configuredCollector, MockERC20Compliant currency)
+    {
         MockFabricaToken tokenContract = new MockFabricaToken(defaultValidator_, validator_);
-        configuredCollector = _deployCollectorFor(address(tokenContract), 10);
+        configuredCollector = _deployCollectorFor(address(tokenContract), protocolSharePercent_);
         currency = new MockERC20Compliant();
         currency.mint(obligor, 1_000);
         vm.prank(obligor);
@@ -298,6 +305,18 @@ contract FabricaFeeCollectorTest is Test {
     function test_collectFee_revertsWhenResolvedValidatorZero() public {
         (FabricaFeeCollector configuredCollector, MockERC20Compliant token) =
             _setupApprovedCollection(address(0), address(0));
+        vm.expectRevert(FabricaFeeCollector.ValidatorAddressZero.selector);
+        configuredCollector.collectFee(1, "onramp", obligor, address(token), 1_000);
+        assertEq(token.balanceOf(protocolFeeRecipient), 0);
+        assertEq(token.balanceOf(address(0)), 0);
+        assertEq(token.balanceOf(obligor), 1_000);
+    }
+
+    // ENG-3450: resolved validator validation is unconditional, even when a
+    // 100% protocol share would leave no validator transfer to execute.
+    function test_collectFee_revertsWhenResolvedValidatorZeroAtFullProtocolShare() public {
+        (FabricaFeeCollector configuredCollector, MockERC20Compliant token) =
+            _setupApprovedCollection(address(0), address(0), 100);
         vm.expectRevert(FabricaFeeCollector.ValidatorAddressZero.selector);
         configuredCollector.collectFee(1, "onramp", obligor, address(token), 1_000);
         assertEq(token.balanceOf(protocolFeeRecipient), 0);

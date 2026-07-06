@@ -123,7 +123,7 @@ contract FabricaFeeCollector is Initializable, OwnableUpgradeable, PausableUpgra
         }
         uint256 protocolShare = amount * _protocolSharePercent / 100;
         uint256 validatorShare = amount - protocolShare;
-        if (validatorShare > 0 && validatorAddress == address(0)) {
+        if (validatorAddress == address(0)) {
             revert ValidatorAddressZero();
         }
         if (protocolShare > 0) {
