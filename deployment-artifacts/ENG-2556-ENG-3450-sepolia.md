@@ -1,6 +1,7 @@
 # ENG-2556 / ENG-3450 Sepolia Deployment Evidence
 
 Broadcast base commit: `a6eb23ff81958fb54d569e26d9af826424361610`
+Committed helper/source hardening commit: `bf71cdd01f137f4cfe79e11598fb10142e4b1dcc`
 Network: Sepolia (`11155111`)
 Signer address: `0xBF03076547a99857b796717faF4034dea94569dF`
 
