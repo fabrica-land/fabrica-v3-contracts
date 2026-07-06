@@ -156,20 +156,28 @@ contract FabricaFeeCollectorTest is Test {
     address public proxyAdmin = address(0xAD);
     address public owner = address(this);
     address public protocolFeeRecipient = address(0xFEE);
+    address public defaultValidator = address(0xDEFA07);
     address public validator = address(0xA11DA70);
     address public obligor = address(0x0B119012);
 
-    function _deployCollector(uint8 protocolSharePercent_) internal returns (FabricaFeeCollector) {
+    function _deployCollectorFor(address protocolContractAddress_, uint8 protocolSharePercent_)
+        internal
+        returns (FabricaFeeCollector)
+    {
         FabricaFeeCollector impl = new FabricaFeeCollector();
         bytes memory initData = abi.encodeCall(
-            FabricaFeeCollector.initialize, (address(protocolContract), protocolSharePercent_, protocolFeeRecipient)
+            FabricaFeeCollector.initialize, (protocolContractAddress_, protocolSharePercent_, protocolFeeRecipient)
         );
         FabricaProxy proxy = new FabricaProxy(address(impl), proxyAdmin, initData);
         return FabricaFeeCollector(address(proxy));
     }
 
+    function _deployCollector(uint8 protocolSharePercent_) internal returns (FabricaFeeCollector) {
+        return _deployCollectorFor(address(protocolContract), protocolSharePercent_);
+    }
+
     function setUp() public {
-        protocolContract = new MockFabricaToken(address(0xDEFA07), validator);
+        protocolContract = new MockFabricaToken(defaultValidator, validator);
         collector = _deployCollector(10);
     }
 
@@ -260,6 +268,37 @@ contract FabricaFeeCollectorTest is Test {
         assertEq(token.balanceOf(validator), 900);
         assertEq(token.balanceOf(obligor), 0);
         assertEq(token.balanceOf(address(collector)), 0);
+    }
+
+    // ENG-3450: when the per-token validator is zero, collectFee must fall
+    // back to the token contract's non-zero default validator.
+    function test_collectFee_usesDefaultValidatorWhenTokenValidatorZero() public {
+        MockFabricaToken tokenContract = new MockFabricaToken(defaultValidator, address(0));
+        FabricaFeeCollector c = _deployCollectorFor(address(tokenContract), 10);
+        MockERC20Compliant token = new MockERC20Compliant();
+        token.mint(obligor, 1_000);
+        vm.prank(obligor);
+        token.approve(address(c), 1_000);
+        c.collectFee(1, "onramp", obligor, address(token), 1_000);
+        assertEq(token.balanceOf(protocolFeeRecipient), 100);
+        assertEq(token.balanceOf(defaultValidator), 900);
+        assertEq(token.balanceOf(address(0)), 0);
+    }
+
+    // ENG-3450: if both the per-token validator and default validator resolve
+    // to zero, collectFee must revert before the validator share can burn.
+    function test_collectFee_revertsWhenResolvedValidatorZero() public {
+        MockFabricaToken tokenContract = new MockFabricaToken(address(0), address(0));
+        FabricaFeeCollector c = _deployCollectorFor(address(tokenContract), 10);
+        MockERC20Compliant token = new MockERC20Compliant();
+        token.mint(obligor, 1_000);
+        vm.prank(obligor);
+        token.approve(address(c), 1_000);
+        vm.expectRevert(FabricaFeeCollector.ValidatorAddressZero.selector);
+        c.collectFee(1, "onramp", obligor, address(token), 1_000);
+        assertEq(token.balanceOf(protocolFeeRecipient), 0);
+        assertEq(token.balanceOf(address(0)), 0);
+        assertEq(token.balanceOf(obligor), 1_000);
     }
 
     // ENG-2547: a token that returns `false` instead of reverting on failure
