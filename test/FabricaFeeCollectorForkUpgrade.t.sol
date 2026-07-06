@@ -24,6 +24,12 @@ contract FabricaFeeCollectorForkUpgradeTest is ForkTestBase {
         bool originalPaused;
     }
 
+    struct ForkPreset {
+        string rpcEnvVar;
+        string rpcAlias;
+        uint256 blockNumber;
+    }
+
     address internal constant MAINNET_PROD = 0x4432CFaF8BD8d55A07D938BbC43c91DDa7672bD4;
     address internal constant MAINNET_DEVELOP = 0xF9Aa471711560F64b0813Ad46392d4D66532c74B;
     address internal constant MAINNET_STAGING = 0xD983F633B0aaE06F52C0C48cd35967f097dC2B5C;
@@ -117,17 +123,17 @@ contract FabricaFeeCollectorForkUpgradeTest is ForkTestBase {
     }
 
     function _sepoliaFork() internal pure returns (ForkConfig memory) {
-        return
-            ForkConfig({
-                rpcEnvVar: "SEPOLIA_RPC_URL", rpcAlias: "sepolia", blockNumber: SEPOLIA_BLOCK, requiredEnvVar: ""
-            });
+        return _forkConfig(ForkPreset({rpcEnvVar: "SEPOLIA_RPC_URL", rpcAlias: "sepolia", blockNumber: SEPOLIA_BLOCK}));
     }
 
     function _mainnetFork() internal pure returns (ForkConfig memory) {
-        return
-            ForkConfig({
-                rpcEnvVar: "MAINNET_RPC_URL", rpcAlias: "mainnet", blockNumber: MAINNET_BLOCK, requiredEnvVar: ""
-            });
+        return _forkConfig(ForkPreset({rpcEnvVar: "MAINNET_RPC_URL", rpcAlias: "mainnet", blockNumber: MAINNET_BLOCK}));
+    }
+
+    function _forkConfig(ForkPreset memory preset) internal pure returns (ForkConfig memory) {
+        return ForkConfig({
+            rpcEnvVar: preset.rpcEnvVar, rpcAlias: preset.rpcAlias, blockNumber: preset.blockNumber, requiredEnvVar: ""
+        });
     }
 
     function test_fork_sepolia_prod() public {

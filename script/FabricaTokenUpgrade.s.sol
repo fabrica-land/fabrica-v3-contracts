@@ -4,6 +4,9 @@ pragma solidity ^0.8.13;
 import {Script, console} from "forge-std/Script.sol";
 import {FabricaToken} from "../src/FabricaToken.sol";
 
+type TokenProxy is address;
+type TokenImplementation is address;
+
 contract FabricaTokenUpgradeScript is Script {
     bytes32 internal constant INITIALIZABLE_SLOT = 0xf0c57e16840df040f15088dc2f81fe391c3923bec73e23a9662efc9c229c6a00;
     bytes32 internal constant ERC1967_IMPLEMENTATION_SLOT =
@@ -19,31 +22,31 @@ contract FabricaTokenUpgradeScript is Script {
     function setUp() public {}
 
     // Sepolia-like environments still at _initialized = 5: upgrade impl + run V6 (no-op, 5 -> 6).
-    function run(address tokenProxy, address newImplementation) public {
+    function run(TokenProxy tokenProxy, TokenImplementation newImplementation) public {
         _upgradeWithInitializer(tokenProxy, newImplementation, abi.encodeCall(FabricaToken.initializeV6, ()), 5);
     }
 
     // Current Sepolia: already at _initialized = 6. Upgrade impl only.
-    function runNoInit(address tokenProxy, address newImplementation) public {
+    function runNoInit(TokenProxy tokenProxy, TokenImplementation newImplementation) public {
         _upgradeWithInitializer(tokenProxy, newImplementation, "", 6);
     }
 
     // Mainnet / Base Sepolia (ENG-3145): V4 not yet consumed. Step 1 of the V4 -> V5 -> V6
     // ceremony — upgrade impl + run V4 (owner migration). Follow with runV5Only then runV6Only.
-    function runWithV4(address tokenProxy, address newImplementation) public {
-        _upgradeWithInitializer(tokenProxy, newImplementation, abi.encodeCall(FabricaToken.initializeV4, ()), 3);
+    function runWithV4(TokenProxy tokenProxy, TokenImplementation newImplementation) public {
+        _upgradeWithInitializer(tokenProxy, newImplementation, abi.encodeCall(FabricaToken.initializeV4, ()), 0);
     }
 
     function _upgradeWithInitializer(
-        address tokenProxy,
-        address newImplementation,
+        TokenProxy tokenProxy,
+        TokenImplementation newImplementation,
         bytes memory initializerData,
         uint256 requiredInitializedVersion
     ) internal {
         _upgrade(
             UpgradeConfig({
-                tokenProxy: tokenProxy,
-                newImplementation: newImplementation,
+                tokenProxy: TokenProxy.unwrap(tokenProxy),
+                newImplementation: TokenImplementation.unwrap(newImplementation),
                 initializerData: initializerData,
                 requiredInitializedVersion: requiredInitializedVersion
             })
@@ -53,12 +56,10 @@ contract FabricaTokenUpgradeScript is Script {
     function _upgrade(UpgradeConfig memory config) internal {
         _validateTargets(config.tokenProxy, config.newImplementation);
         FabricaToken proxy = FabricaToken(config.tokenProxy);
-        if (config.requiredInitializedVersion != 0) {
-            require(
-                _initializedVersion(config.tokenProxy) == config.requiredInitializedVersion,
-                "unexpected initialized version"
-            );
-        }
+        require(
+            _initializedVersion(config.tokenProxy) == config.requiredInitializedVersion,
+            "unexpected initialized version"
+        );
         console.log("Proxy address:", config.tokenProxy);
         console.log("Current implementation:", proxy.implementation());
         console.log("Upgrading to:", config.newImplementation);
@@ -128,7 +129,7 @@ contract FabricaTokenUpgradeScript is Script {
     }
 
     function _initializedVersion(address tokenProxy) internal view returns (uint256) {
-        return uint256(vm.load(tokenProxy, INITIALIZABLE_SLOT)) & 0xff;
+        return uint256(vm.load(tokenProxy, INITIALIZABLE_SLOT)) & type(uint64).max;
     }
 
     function _proxyImplementation(address tokenProxy) internal view returns (address) {
