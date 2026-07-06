@@ -28,34 +28,40 @@ contract FabricaTokenUpgradeScript is Script {
         address currentImplementation;
     }
 
+    struct ExpectedUpgradeContextInput {
+        uint256 chainId;
+        address tokenProxy;
+        address tokenImplementation;
+        address currentImplementation;
+    }
+
+    struct ExpectedInitializerContextInput {
+        uint256 chainId;
+        address tokenProxy;
+        address currentImplementation;
+    }
+
     ExpectedContext internal expectedContext;
 
     function setUp() public {}
 
-    function configureExpectedUpgradeContext(
-        uint256 chainId,
-        address tokenProxy,
-        address tokenImplementation,
-        address currentImplementation
-    ) public {
+    function configureExpectedUpgradeContext(ExpectedUpgradeContextInput memory input) public {
         expectedContext = ExpectedContext({
             configured: true,
-            chainId: chainId,
-            tokenProxy: tokenProxy,
-            tokenImplementation: tokenImplementation,
-            currentImplementation: currentImplementation
+            chainId: input.chainId,
+            tokenProxy: input.tokenProxy,
+            tokenImplementation: input.tokenImplementation,
+            currentImplementation: input.currentImplementation
         });
     }
 
-    function configureExpectedInitializerContext(uint256 chainId, address tokenProxy, address currentImplementation)
-        public
-    {
+    function configureExpectedInitializerContext(ExpectedInitializerContextInput memory input) public {
         expectedContext = ExpectedContext({
             configured: true,
-            chainId: chainId,
-            tokenProxy: tokenProxy,
+            chainId: input.chainId,
+            tokenProxy: input.tokenProxy,
             tokenImplementation: address(0),
-            currentImplementation: currentImplementation
+            currentImplementation: input.currentImplementation
         });
     }
 

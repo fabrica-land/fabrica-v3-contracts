@@ -493,7 +493,12 @@ contract FabricaTokenStorageLayoutTest is Test {
         address expectedCurrentImplementation
     ) internal {
         script.configureExpectedUpgradeContext(
-            block.chainid, tokenProxy, newImplementation, expectedCurrentImplementation
+            FabricaTokenUpgradeScript.ExpectedUpgradeContextInput({
+                chainId: block.chainid,
+                tokenProxy: tokenProxy,
+                tokenImplementation: newImplementation,
+                currentImplementation: expectedCurrentImplementation
+            })
         );
     }
 
@@ -506,14 +511,19 @@ contract FabricaTokenStorageLayoutTest is Test {
         address tokenProxy,
         address expectedCurrentImplementation
     ) internal {
-        script.configureExpectedInitializerContext(block.chainid, tokenProxy, expectedCurrentImplementation);
+        script.configureExpectedInitializerContext(
+            FabricaTokenUpgradeScript.ExpectedInitializerContextInput({
+                chainId: block.chainid, tokenProxy: tokenProxy, currentImplementation: expectedCurrentImplementation
+            })
+        );
     }
 
     function _currentImplementationOrZero(address tokenProxy) internal view returns (address) {
         if (tokenProxy.code.length == 0) return address(0);
-        (bool ok, bytes memory data) = tokenProxy.staticcall(abi.encodeWithSignature("implementation()"));
-        if (!ok || data.length < 32) return address(0);
-        return abi.decode(data, (address));
+        (bool ok, bytes memory implementationReturnData) =
+            tokenProxy.staticcall(abi.encodeWithSignature("implementation()"));
+        if (!ok || implementationReturnData.length < 32) return address(0);
+        return abi.decode(implementationReturnData, (address));
     }
 
     function _assertInitializerCannotBeCalledTwice(bool v6) internal {
