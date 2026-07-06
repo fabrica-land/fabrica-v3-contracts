@@ -2,53 +2,8 @@
 pragma solidity ^0.8.28;
 
 import {FabricaFeeCollector} from "../src/FabricaFeeCollector.sol";
+import {MockERC20ReturnsFalse} from "./FabricaFeeCollector.t.sol";
 import {ForkTestBase} from "./ForkTestBase.sol";
-
-// Minimal view/mutation surface of the deployed FabricaFeeCollector proxies,
-// enough to read state, upgrade, and exercise both audit fixes on a fork.
-interface IFeeCollectorProxy {
-    function implementation() external view returns (address);
-    function proxyAdmin() external view returns (address);
-    function owner() external view returns (address);
-    function paused() external view returns (bool);
-    function protocolSharePercent() external view returns (uint8);
-    function protocolContractAddress() external view returns (address);
-    function protocolFeeRecipient() external view returns (address);
-    function upgradeToAndCall(address newImplementation, bytes calldata data) external payable;
-    function setProtocolSharePercent(uint8 newProtocolSharePercent) external;
-    function collectFee(
-        uint256 tokenId,
-        string calldata feeType,
-        address obligor,
-        address erc20CurrencyAddress,
-        uint256 amount
-    ) external;
-}
-
-// A token whose transferFrom returns `false` without reverting (legacy-BNB
-// style). The pre-fix collector used a raw transfer and would silently treat
-// this as success; the SafeERC20 fix must make collectFee revert.
-contract MockERC20ReturnsFalse {
-    mapping(address => uint256) public balanceOf;
-    mapping(address => mapping(address => uint256)) public allowance;
-
-    function mint(address to, uint256 amount) external {
-        balanceOf[to] += amount;
-    }
-
-    function approve(address spender, uint256 amount) external returns (bool) {
-        allowance[msg.sender][spender] = amount;
-        return true;
-    }
-
-    function transfer(address, uint256) external pure returns (bool) {
-        return false;
-    }
-
-    function transferFrom(address, address, uint256) external pure returns (bool) {
-        return false;
-    }
-}
 
 // Fork-based verification of the ENG-2547/ENG-2548 upgrade against the REAL
 // deployed proxies. For each proxy this test: reproduces the vulnerability on
@@ -59,10 +14,6 @@ contract MockERC20ReturnsFalse {
 contract FabricaFeeCollectorForkUpgradeTest is ForkTestBase {
     address internal constant OBLIGOR = address(0x0B119012);
 
-    // ENG-2547/2548 verified on-chain proxy addresses (see ticket topology comment).
-    address internal constant SEPOLIA_PROD = 0x404f53869aD67e167a8C89035f55572e653d7B22;
-    address internal constant SEPOLIA_STAGING = 0x98e819BF78081f4343E71Ed4096C59d74948C166;
-    address internal constant SEPOLIA_DEVELOP = 0x24888646723ae14C83E5354431753675A3d12D3c;
     address internal constant MAINNET_PROD = 0x4432CFaF8BD8d55A07D938BbC43c91DDa7672bD4;
     address internal constant MAINNET_DEVELOP = 0xF9Aa471711560F64b0813Ad46392d4D66532c74B;
     address internal constant MAINNET_STAGING = 0xD983F633B0aaE06F52C0C48cd35967f097dC2B5C;
@@ -77,7 +28,7 @@ contract FabricaFeeCollectorForkUpgradeTest is ForkTestBase {
 
     // Full before/after upgrade verification for one live proxy.
     function _verifyUpgrade(address proxyAddr) internal {
-        IFeeCollectorProxy proxy = IFeeCollectorProxy(proxyAddr);
+        FabricaFeeCollector proxy = FabricaFeeCollector(proxyAddr);
         address admin = proxy.proxyAdmin();
         address ownerAddr = proxy.owner();
         // Capture persistent state to prove the upgrade does not regress storage.
@@ -135,32 +86,56 @@ contract FabricaFeeCollectorForkUpgradeTest is ForkTestBase {
     }
 
     function test_fork_sepolia_prod() public {
-        if (!_forkOrSkip(ForkConfig("SEPOLIA_RPC_URL", "sepolia", SEPOLIA_BLOCK, ""))) return;
-        _verifyUpgrade(SEPOLIA_PROD);
+        if (!_forkOrSkip(
+                ForkConfig({
+                    rpcEnvVar: "SEPOLIA_RPC_URL", rpcAlias: "sepolia", blockNumber: SEPOLIA_BLOCK, requiredEnvVar: ""
+                })
+            )) return;
+        _verifyUpgrade(SEPOLIA_FEE_PROXY_PROD);
     }
 
     function test_fork_sepolia_staging() public {
-        if (!_forkOrSkip(ForkConfig("SEPOLIA_RPC_URL", "sepolia", SEPOLIA_BLOCK, ""))) return;
-        _verifyUpgrade(SEPOLIA_STAGING);
+        if (!_forkOrSkip(
+                ForkConfig({
+                    rpcEnvVar: "SEPOLIA_RPC_URL", rpcAlias: "sepolia", blockNumber: SEPOLIA_BLOCK, requiredEnvVar: ""
+                })
+            )) return;
+        _verifyUpgrade(SEPOLIA_FEE_PROXY_STAGING);
     }
 
     function test_fork_sepolia_develop() public {
-        if (!_forkOrSkip(ForkConfig("SEPOLIA_RPC_URL", "sepolia", SEPOLIA_BLOCK, ""))) return;
-        _verifyUpgrade(SEPOLIA_DEVELOP);
+        if (!_forkOrSkip(
+                ForkConfig({
+                    rpcEnvVar: "SEPOLIA_RPC_URL", rpcAlias: "sepolia", blockNumber: SEPOLIA_BLOCK, requiredEnvVar: ""
+                })
+            )) return;
+        _verifyUpgrade(SEPOLIA_FEE_PROXY_DEVELOP);
     }
 
     function test_fork_mainnet_prod() public {
-        if (!_forkOrSkip(ForkConfig("MAINNET_RPC_URL", "mainnet", MAINNET_BLOCK, ""))) return;
+        if (!_forkOrSkip(
+                ForkConfig({
+                    rpcEnvVar: "MAINNET_RPC_URL", rpcAlias: "mainnet", blockNumber: MAINNET_BLOCK, requiredEnvVar: ""
+                })
+            )) return;
         _verifyUpgrade(MAINNET_PROD);
     }
 
     function test_fork_mainnet_develop() public {
-        if (!_forkOrSkip(ForkConfig("MAINNET_RPC_URL", "mainnet", MAINNET_BLOCK, ""))) return;
+        if (!_forkOrSkip(
+                ForkConfig({
+                    rpcEnvVar: "MAINNET_RPC_URL", rpcAlias: "mainnet", blockNumber: MAINNET_BLOCK, requiredEnvVar: ""
+                })
+            )) return;
         _verifyUpgrade(MAINNET_DEVELOP);
     }
 
     function test_fork_mainnet_staging() public {
-        if (!_forkOrSkip(ForkConfig("MAINNET_RPC_URL", "mainnet", MAINNET_BLOCK, ""))) return;
+        if (!_forkOrSkip(
+                ForkConfig({
+                    rpcEnvVar: "MAINNET_RPC_URL", rpcAlias: "mainnet", blockNumber: MAINNET_BLOCK, requiredEnvVar: ""
+                })
+            )) return;
         _verifyUpgrade(MAINNET_STAGING);
     }
 }

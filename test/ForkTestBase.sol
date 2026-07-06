@@ -4,6 +4,10 @@ pragma solidity ^0.8.28;
 import {Test} from "forge-std/Test.sol";
 
 abstract contract ForkTestBase is Test {
+    address internal constant SEPOLIA_FEE_PROXY_PROD = 0x404f53869aD67e167a8C89035f55572e653d7B22;
+    address internal constant SEPOLIA_FEE_PROXY_STAGING = 0x98e819BF78081f4343E71Ed4096C59d74948C166;
+    address internal constant SEPOLIA_FEE_PROXY_DEVELOP = 0x24888646723ae14C83E5354431753675A3d12D3c;
+
     struct ForkConfig {
         string rpcEnvVar;
         string rpcAlias;
