@@ -5,6 +5,7 @@ import "forge-std/Test.sol";
 import {FabricaToken} from "../src/FabricaToken.sol";
 import {FabricaProxy} from "../src/FabricaProxy.sol";
 import {IFabricaValidator} from "../src/IFabricaValidator.sol";
+import {IFabricaValidatorRegistry} from "../src/IFabricaValidatorRegistry.sol";
 
 // Minimal mock validator that satisfies IFabricaValidator
 contract MockValidator is IFabricaValidator {
@@ -18,6 +19,12 @@ contract MockValidator is IFabricaValidator {
 
     function uri(uint256) external pure override returns (string memory) {
         return "https://example.com/uri";
+    }
+}
+
+contract MockValidatorRegistry is IFabricaValidatorRegistry {
+    function name(address addr) external pure override returns (string memory) {
+        return addr == address(0) ? "" : "Known";
     }
 }
 
@@ -56,6 +63,33 @@ contract FabricaTokenGovernanceTest is Test {
         uint256[] memory amounts = new uint256[](1);
         amounts[0] = 100;
         return token.mint(recipients, 42, amounts, "https://example.com/definition", "", "config", address(0));
+    }
+
+    // --- owner setter validation ---
+
+    function test_setDefaultValidator_revertsOnZero() public {
+        vm.expectRevert(FabricaToken.DefaultValidatorZero.selector);
+        token.setDefaultValidator(address(0));
+    }
+
+    function test_setDefaultValidator_succeedsOnNonZero() public {
+        MockValidator newValidator = new MockValidator();
+        token.setDefaultValidator(address(newValidator));
+        assertEq(token.defaultValidator(), address(newValidator));
+    }
+
+    function test_setValidatorRegistry_allowsZeroToDisableRegistry() public {
+        MockValidatorRegistry registry = new MockValidatorRegistry();
+        token.setValidatorRegistry(address(registry));
+        assertEq(token.validatorRegistry(), address(registry));
+
+        uint256 id = _mintSoleOwner();
+        assertEq(token.getTraitValue(id, keccak256("validator")), bytes32(bytes("Known")));
+
+        token.setValidatorRegistry(address(0));
+
+        assertEq(token.validatorRegistry(), address(0));
+        assertEq(token.getTraitValue(id, keccak256("validator")), bytes32(bytes("Custom")));
     }
 
     // --- updateOperatingAgreement (70% threshold) ---
