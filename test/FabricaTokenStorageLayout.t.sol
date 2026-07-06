@@ -4,6 +4,7 @@ pragma solidity ^0.8.28;
 import {Test} from "forge-std/Test.sol";
 import {FabricaToken} from "../src/FabricaToken.sol";
 import {FabricaProxy} from "../src/FabricaProxy.sol";
+import {FabricaFeeCollector} from "../src/FabricaFeeCollector.sol";
 import {FabricaValidator} from "../src/FabricaValidator.sol";
 import {FabricaValidatorRegistry} from "../src/FabricaValidatorRegistry.sol";
 import {FabricaTokenUpgradeScript} from "../script/FabricaTokenUpgrade.s.sol";
@@ -188,14 +189,7 @@ contract FabricaTokenStorageLayoutTest is Test {
     }
 
     function test_initializeV5_cannotBeCalledTwice() public {
-        (FabricaToken freshToken,) = _freshToken(proxyAdmin);
-        // First call should succeed
-        vm.prank(proxyAdmin);
-        freshToken.initializeV5();
-        // Second call should revert
-        vm.prank(proxyAdmin);
-        vm.expectRevert(abi.encodeWithSignature("InvalidInitialization()"));
-        freshToken.initializeV5();
+        _assertInitializerCannotBeCalledTwice(false);
     }
 
     function test_initializeV6_isNoOp() public {
@@ -215,14 +209,7 @@ contract FabricaTokenStorageLayoutTest is Test {
     }
 
     function test_initializeV6_cannotBeCalledTwice() public {
-        (FabricaToken freshToken,) = _freshToken(proxyAdmin);
-        // First call bumps _initialized to 6.
-        vm.prank(proxyAdmin);
-        freshToken.initializeV6();
-        // A replay reverts — this is the one-shot upgrade-ceremony guard.
-        vm.prank(proxyAdmin);
-        vm.expectRevert(abi.encodeWithSignature("InvalidInitialization()"));
-        freshToken.initializeV6();
+        _assertInitializerCannotBeCalledTwice(true);
     }
 
     function test_mainnetUpgradePath_V4thenV5thenV6() public {
@@ -339,19 +326,32 @@ contract FabricaTokenStorageLayoutTest is Test {
         script.runNoInit(address(newImpl), freshProxyAddr);
     }
 
-    function test_runV5Only_scriptHelper_succeedsAfterV4() public {
+    function test_runNoInit_scriptHelper_revertsOnInvalidUpgradeTargets() public {
         FabricaTokenUpgradeScript script = new FabricaTokenUpgradeScript();
         (, address freshProxyAddr) = _freshToken(FORGE_DEFAULT_BROADCASTER);
-        vm.store(freshProxyAddr, OZ_V5_INITIALIZABLE_SLOT, bytes32(uint256(4)));
-        script.runV5Only(freshProxyAddr);
-        assertEq(uint256(vm.load(freshProxyAddr, OZ_V5_INITIALIZABLE_SLOT)) & 0xff, 5, "version bumped");
+        FabricaToken newImpl = new FabricaToken();
+        _expectRunNoInitTargetRevert(script, address(0), address(newImpl), "token proxy zero");
+        _expectRunNoInitTargetRevert(script, freshProxyAddr, address(0), "new implementation zero");
+        _expectRunNoInitTargetRevert(script, freshProxyAddr, freshProxyAddr, "proxy and implementation match");
+        _expectRunNoInitTargetRevert(script, freshProxyAddr, makeAddr("notImpl"), "new implementation has no code");
+    }
+
+    function test_runNoInit_scriptHelper_revertsOnWrongImplementationType() public {
+        FabricaTokenUpgradeScript script = new FabricaTokenUpgradeScript();
+        (FabricaToken freshToken, address freshProxyAddr) = _freshToken(FORGE_DEFAULT_BROADCASTER);
+        vm.prank(FORGE_DEFAULT_BROADCASTER);
+        freshToken.initializeV6();
+        FabricaFeeCollector wrongImpl = new FabricaFeeCollector();
+        vm.expectRevert("new implementation is not FabricaToken");
+        script.runNoInit(freshProxyAddr, address(wrongImpl));
+    }
+
+    function test_runV5Only_scriptHelper_succeedsAfterV4() public {
+        _assertInitializerScriptSuccess(false);
     }
 
     function test_runV5Only_scriptHelper_revertsBeforeV4() public {
-        FabricaTokenUpgradeScript script = new FabricaTokenUpgradeScript();
-        (, address freshProxyAddr) = _freshToken(FORGE_DEFAULT_BROADCASTER);
-        vm.expectRevert("unexpected initialized version");
-        script.runV5Only(freshProxyAddr);
+        _assertInitializerScriptVersionRevert(false);
     }
 
     function test_runV5Only_scriptHelper_preservesInitializerRevertData() public {
@@ -369,18 +369,11 @@ contract FabricaTokenStorageLayoutTest is Test {
     }
 
     function test_runV6Only_scriptHelper_succeedsAfterV5() public {
-        FabricaTokenUpgradeScript script = new FabricaTokenUpgradeScript();
-        (, address freshProxyAddr) = _freshToken(FORGE_DEFAULT_BROADCASTER);
-        vm.store(freshProxyAddr, OZ_V5_INITIALIZABLE_SLOT, bytes32(uint256(5)));
-        script.runV6Only(freshProxyAddr);
-        assertEq(uint256(vm.load(freshProxyAddr, OZ_V5_INITIALIZABLE_SLOT)) & 0xff, 6, "version bumped");
+        _assertInitializerScriptSuccess(true);
     }
 
     function test_runV6Only_scriptHelper_revertsBeforeV5() public {
-        FabricaTokenUpgradeScript script = new FabricaTokenUpgradeScript();
-        (, address freshProxyAddr) = _freshToken(FORGE_DEFAULT_BROADCASTER);
-        vm.expectRevert("unexpected initialized version");
-        script.runV6Only(freshProxyAddr);
+        _assertInitializerScriptVersionRevert(true);
     }
 
     function _freshToken(address admin) internal returns (FabricaToken freshToken, address freshProxyAddr) {
@@ -399,6 +392,56 @@ contract FabricaTokenStorageLayoutTest is Test {
             script.runNoInit(freshProxyAddr, address(newImpl));
         } else {
             script.run(freshProxyAddr, address(newImpl));
+        }
+    }
+
+    function _expectRunNoInitTargetRevert(
+        FabricaTokenUpgradeScript script,
+        address tokenProxy,
+        address newImplementation,
+        string memory reason
+    ) internal {
+        vm.expectRevert(bytes(reason));
+        script.runNoInit(tokenProxy, newImplementation);
+    }
+
+    function _assertInitializerCannotBeCalledTwice(bool v6) internal {
+        (FabricaToken freshToken,) = _freshToken(proxyAdmin);
+        vm.prank(proxyAdmin);
+        if (v6) {
+            freshToken.initializeV6();
+        } else {
+            freshToken.initializeV5();
+        }
+        vm.prank(proxyAdmin);
+        vm.expectRevert(abi.encodeWithSignature("InvalidInitialization()"));
+        if (v6) {
+            freshToken.initializeV6();
+        } else {
+            freshToken.initializeV5();
+        }
+    }
+
+    function _assertInitializerScriptSuccess(bool v6) internal {
+        FabricaTokenUpgradeScript script = new FabricaTokenUpgradeScript();
+        (, address freshProxyAddr) = _freshToken(FORGE_DEFAULT_BROADCASTER);
+        vm.store(freshProxyAddr, OZ_V5_INITIALIZABLE_SLOT, bytes32(uint256(v6 ? 5 : 4)));
+        if (v6) {
+            script.runV6Only(freshProxyAddr);
+        } else {
+            script.runV5Only(freshProxyAddr);
+        }
+        assertEq(uint256(vm.load(freshProxyAddr, OZ_V5_INITIALIZABLE_SLOT)) & 0xff, v6 ? 6 : 5, "version bumped");
+    }
+
+    function _assertInitializerScriptVersionRevert(bool v6) internal {
+        FabricaTokenUpgradeScript script = new FabricaTokenUpgradeScript();
+        (, address freshProxyAddr) = _freshToken(FORGE_DEFAULT_BROADCASTER);
+        vm.expectRevert("unexpected initialized version");
+        if (v6) {
+            script.runV6Only(freshProxyAddr);
+        } else {
+            script.runV5Only(freshProxyAddr);
         }
     }
 

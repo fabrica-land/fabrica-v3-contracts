@@ -20,37 +20,32 @@ contract FabricaTokenUpgradeScript is Script {
 
     // Sepolia-like environments still at _initialized = 5: upgrade impl + run V6 (no-op, 5 -> 6).
     function run(address tokenProxy, address newImplementation) public {
-        _upgrade(
-            UpgradeConfig({
-                tokenProxy: tokenProxy,
-                newImplementation: newImplementation,
-                initializerData: abi.encodeCall(FabricaToken.initializeV6, ()),
-                requiredInitializedVersion: 5
-            })
-        );
+        _upgradeWithInitializer(tokenProxy, newImplementation, abi.encodeCall(FabricaToken.initializeV6, ()), 5);
     }
 
     // Current Sepolia: already at _initialized = 6. Upgrade impl only.
     function runNoInit(address tokenProxy, address newImplementation) public {
-        _upgrade(
-            UpgradeConfig({
-                tokenProxy: tokenProxy,
-                newImplementation: newImplementation,
-                initializerData: "",
-                requiredInitializedVersion: 6
-            })
-        );
+        _upgradeWithInitializer(tokenProxy, newImplementation, "", 6);
     }
 
     // Mainnet / Base Sepolia (ENG-3145): V4 not yet consumed. Step 1 of the V4 -> V5 -> V6
     // ceremony — upgrade impl + run V4 (owner migration). Follow with runV5Only then runV6Only.
     function runWithV4(address tokenProxy, address newImplementation) public {
+        _upgradeWithInitializer(tokenProxy, newImplementation, abi.encodeCall(FabricaToken.initializeV4, ()), 3);
+    }
+
+    function _upgradeWithInitializer(
+        address tokenProxy,
+        address newImplementation,
+        bytes memory initializerData,
+        uint256 requiredInitializedVersion
+    ) internal {
         _upgrade(
             UpgradeConfig({
                 tokenProxy: tokenProxy,
                 newImplementation: newImplementation,
-                initializerData: abi.encodeCall(FabricaToken.initializeV4, ()),
-                requiredInitializedVersion: 3
+                initializerData: initializerData,
+                requiredInitializedVersion: requiredInitializedVersion
             })
         );
     }
@@ -79,6 +74,7 @@ contract FabricaTokenUpgradeScript is Script {
         require(tokenProxy != newImplementation, "proxy and implementation match");
         require(newImplementation.code.length != 0, "new implementation has no code");
         _validateProxyTarget(tokenProxy);
+        _validateTokenImplementation(newImplementation);
     }
 
     function _validateProxyTarget(address tokenProxy) internal view {
@@ -86,6 +82,13 @@ contract FabricaTokenUpgradeScript is Script {
         address currentImplementation = _proxyImplementation(tokenProxy);
         require(currentImplementation != address(0), "token proxy missing implementation");
         require(currentImplementation.code.length != 0, "current implementation has no code");
+    }
+
+    function _validateTokenImplementation(address newImplementation) internal view {
+        (bool okDefaultValidator,) = newImplementation.staticcall(abi.encodeCall(FabricaToken.defaultValidator, ()));
+        require(okDefaultValidator, "new implementation is not FabricaToken");
+        (bool okValidatorRegistry,) = newImplementation.staticcall(abi.encodeCall(FabricaToken.validatorRegistry, ()));
+        require(okValidatorRegistry, "new implementation is not FabricaToken");
     }
 
     // Mainnet step 2 (after runWithV4): run V5 (no-op, version bump 4 -> 5).

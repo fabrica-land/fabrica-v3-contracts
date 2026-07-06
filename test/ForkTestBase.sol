@@ -19,23 +19,21 @@ abstract contract ForkTestBase is Test {
     // Skip when an optional fork RPC is absent, so ordinary `forge test` runs
     // stay green in environments without archive endpoints.
     function _forkOrSkip(ForkConfig memory config) internal returns (bool) {
-        if (bytes(vm.envOr(config.rpcEnvVar, string(""))).length == 0) {
-            emit log_named_string(RPC_ENV_ABSENT_SKIP, config.rpcEnvVar);
-            vm.skip(true);
-            return false;
-        }
-        vm.createSelectFork(config.rpcAlias, config.blockNumber);
-        return true;
+        return _fork(config, false);
     }
 
     // For manual FV, set requiredEnvVar to a nonempty value so a missing fork
     // RPC fails loudly instead of reporting a skipped proof.
     function _forkOrRequire(ForkConfig memory config) internal returns (bool) {
+        return _fork(config, true);
+    }
+
+    function _fork(ForkConfig memory config, bool honorRequiredFlag) private returns (bool) {
         if (bytes(vm.envOr(config.rpcEnvVar, string(""))).length != 0) {
             vm.createSelectFork(config.rpcAlias, config.blockNumber);
             return true;
         }
-        if (bytes(vm.envOr(config.requiredEnvVar, string(""))).length != 0) {
+        if (honorRequiredFlag && bytes(vm.envOr(config.requiredEnvVar, string(""))).length != 0) {
             revert(string.concat(config.rpcEnvVar, " is required when ", config.requiredEnvVar, " is set"));
         }
         emit log_named_string(RPC_ENV_ABSENT_SKIP, config.rpcEnvVar);
