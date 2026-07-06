@@ -11,6 +11,17 @@ the base commit in the broadcast JSON while that local script helper was still
 uncommitted. This PR commits and reviews the `runNoInit` helper that produced
 the empty-data token upgrade transaction.
 
+The token proxy upgrade calldata is reproducible from the checked-in helper's
+empty-data `upgradeToAndCall(address,bytes)` path:
+
+```text
+cast calldata 'upgradeToAndCall(address,bytes)' 0x632eB7A76041B33b070213Cf11d518e84E556391 0x
+0x4f1ef286000000000000000000000000632eb7a76041b33b070213cf11d518e84e55639100000000000000000000000000000000000000000000000000000000000000400000000000000000000000000000000000000000000000000000000000000000
+
+jq -r '.transactions[0].transaction.input' broadcast/FabricaTokenUpgrade.s.sol/11155111/run-1783375681406.json
+0x4f1ef286000000000000000000000000632eb7a76041b33b070213cf11d518e84e55639100000000000000000000000000000000000000000000000000000000000000400000000000000000000000000000000000000000000000000000000000000000
+```
+
 ## Deployment Summary
 
 | Step | Address | Tx | Block | Status |
