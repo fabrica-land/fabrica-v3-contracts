@@ -117,17 +117,19 @@ contract FabricaFeeCollectorForkUpgradeTest is ForkTestBase {
     }
 
     function _sepoliaFork() internal pure returns (ForkConfig memory) {
-        return
-            ForkConfig({
-                rpcEnvVar: "SEPOLIA_RPC_URL", rpcAlias: "sepolia", blockNumber: SEPOLIA_BLOCK, requiredEnvVar: ""
-            });
+        return _forkConfig("SEPOLIA_RPC_URL", "sepolia", SEPOLIA_BLOCK);
     }
 
     function _mainnetFork() internal pure returns (ForkConfig memory) {
-        return
-            ForkConfig({
-                rpcEnvVar: "MAINNET_RPC_URL", rpcAlias: "mainnet", blockNumber: MAINNET_BLOCK, requiredEnvVar: ""
-            });
+        return _forkConfig("MAINNET_RPC_URL", "mainnet", MAINNET_BLOCK);
+    }
+
+    function _forkConfig(string memory rpcEnvVar, string memory rpcAlias, uint256 blockNumber)
+        internal
+        pure
+        returns (ForkConfig memory)
+    {
+        return ForkConfig({rpcEnvVar: rpcEnvVar, rpcAlias: rpcAlias, blockNumber: blockNumber, requiredEnvVar: ""});
     }
 
     function test_fork_sepolia_prod() public {
