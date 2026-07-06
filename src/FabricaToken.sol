@@ -141,6 +141,8 @@ contract FabricaToken is
     event TraitUpdated(bytes32 indexed traitKey, uint256 tokenId, bytes32 traitValue);
     event ContractURIUpdated();
 
+    error DefaultValidatorZero();
+
     /**
      * @dev See {IERC165-supportsInterface}.
      */
@@ -164,7 +166,12 @@ contract FabricaToken is
         _unpause();
     }
 
+    /// @notice Sets the fallback validator used when a token has no explicit validator.
+    /// @param newDefaultValidator Non-zero validator contract address.
     function setDefaultValidator(address newDefaultValidator) public onlyOwner {
+        if (newDefaultValidator == address(0)) {
+            revert DefaultValidatorZero();
+        }
         _defaultValidator = newDefaultValidator;
     }
 
@@ -172,6 +179,9 @@ contract FabricaToken is
         return _defaultValidator;
     }
 
+    /// @notice Sets the optional validator-name registry.
+    /// @dev Passing address(0) intentionally disables registry lookups and falls back to "Custom".
+    /// @param newValidatorRegistry Registry address, or address(0) to disable registry lookups.
     function setValidatorRegistry(address newValidatorRegistry) public onlyOwner {
         _validatorRegistry = newValidatorRegistry;
     }
