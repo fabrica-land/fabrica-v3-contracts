@@ -82,12 +82,9 @@ contract FabricaTokenGovernanceTest is Test {
         MockValidatorRegistry registry = new MockValidatorRegistry();
         token.setValidatorRegistry(address(registry));
         assertEq(token.validatorRegistry(), address(registry));
-
         uint256 id = _mintSoleOwner();
         assertEq(token.getTraitValue(id, keccak256("validator")), bytes32(bytes("Known")));
-
         token.setValidatorRegistry(address(0));
-
         assertEq(token.validatorRegistry(), address(0));
         assertEq(token.getTraitValue(id, keccak256("validator")), bytes32(bytes("Custom")));
     }
