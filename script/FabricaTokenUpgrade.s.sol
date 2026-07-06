@@ -13,13 +13,51 @@ contract FabricaTokenUpgradeScript is Script {
         0x360894a13ba1a3210667c828492db98dca3e2076cc3735a920a3ca505d382bbc;
 
     struct UpgradeConfig {
-        address tokenProxy;
-        address newImplementation;
+        TokenProxy tokenProxy;
+        TokenImplementation newImplementation;
         bytes initializerData;
         uint256 requiredInitializedVersion;
+        address expectedCurrentImplementation;
     }
 
+    struct ExpectedContext {
+        bool configured;
+        uint256 chainId;
+        address tokenProxy;
+        address tokenImplementation;
+        address currentImplementation;
+    }
+
+    ExpectedContext internal expectedContext;
+
     function setUp() public {}
+
+    function configureExpectedUpgradeContext(
+        uint256 chainId,
+        address tokenProxy,
+        address tokenImplementation,
+        address currentImplementation
+    ) public {
+        expectedContext = ExpectedContext({
+            configured: true,
+            chainId: chainId,
+            tokenProxy: tokenProxy,
+            tokenImplementation: tokenImplementation,
+            currentImplementation: currentImplementation
+        });
+    }
+
+    function configureExpectedInitializerContext(uint256 chainId, address tokenProxy, address currentImplementation)
+        public
+    {
+        expectedContext = ExpectedContext({
+            configured: true,
+            chainId: chainId,
+            tokenProxy: tokenProxy,
+            tokenImplementation: address(0),
+            currentImplementation: currentImplementation
+        });
+    }
 
     // Sepolia-like environments still at _initialized = 5: upgrade impl + run V6 (no-op, 5 -> 6).
     function run(TokenProxy tokenProxy, TokenImplementation newImplementation) public {
@@ -43,53 +81,82 @@ contract FabricaTokenUpgradeScript is Script {
         bytes memory initializerData,
         uint256 requiredInitializedVersion
     ) internal {
+        address expectedCurrentImplementation = _requireExpectedUpgradeContext(tokenProxy, newImplementation);
         _upgrade(
             UpgradeConfig({
-                tokenProxy: TokenProxy.unwrap(tokenProxy),
-                newImplementation: TokenImplementation.unwrap(newImplementation),
+                tokenProxy: tokenProxy,
+                newImplementation: newImplementation,
                 initializerData: initializerData,
-                requiredInitializedVersion: requiredInitializedVersion
+                requiredInitializedVersion: requiredInitializedVersion,
+                expectedCurrentImplementation: expectedCurrentImplementation
             })
         );
     }
 
     function _upgrade(UpgradeConfig memory config) internal {
-        _validateTargets(config.tokenProxy, config.newImplementation);
-        FabricaToken proxy = FabricaToken(config.tokenProxy);
+        _validateTargets(config.tokenProxy, config.newImplementation, config.expectedCurrentImplementation);
+        address tokenProxy = TokenProxy.unwrap(config.tokenProxy);
+        address newImplementation = TokenImplementation.unwrap(config.newImplementation);
+        FabricaToken proxy = FabricaToken(tokenProxy);
         require(
             _initializedVersion(config.tokenProxy) == config.requiredInitializedVersion,
             "unexpected initialized version"
         );
-        console.log("Proxy address:", config.tokenProxy);
+        console.log("Proxy address:", tokenProxy);
         console.log("Current implementation:", proxy.implementation());
-        console.log("Upgrading to:", config.newImplementation);
+        console.log("Upgrading to:", newImplementation);
         vm.startBroadcast();
-        proxy.upgradeToAndCall(config.newImplementation, config.initializerData);
+        proxy.upgradeToAndCall(newImplementation, config.initializerData);
         vm.stopBroadcast();
         _logState(proxy);
     }
 
-    function _validateTargets(address tokenProxy, address newImplementation) internal view {
-        require(tokenProxy != address(0), "token proxy zero");
-        require(newImplementation != address(0), "new implementation zero");
-        require(tokenProxy != newImplementation, "proxy and implementation match");
-        require(newImplementation.code.length != 0, "new implementation has no code");
-        _validateProxyTarget(tokenProxy);
+    function _validateTargets(
+        TokenProxy tokenProxy,
+        TokenImplementation newImplementation,
+        address expectedCurrentImplementation
+    ) internal view {
+        address tokenProxyAddress = TokenProxy.unwrap(tokenProxy);
+        address newImplementationAddress = TokenImplementation.unwrap(newImplementation);
+        require(tokenProxyAddress != address(0), "token proxy zero");
+        require(newImplementationAddress != address(0), "new implementation zero");
+        require(tokenProxyAddress != newImplementationAddress, "proxy and implementation match");
+        require(newImplementationAddress.code.length != 0, "new implementation has no code");
+        _validateProxyTarget(tokenProxy, expectedCurrentImplementation);
         _validateTokenImplementation(newImplementation);
     }
 
-    function _validateProxyTarget(address tokenProxy) internal view {
-        require(tokenProxy.code.length != 0, "token proxy has no code");
+    function _validateProxyTarget(TokenProxy tokenProxy, address expectedCurrentImplementation) internal view {
+        address tokenProxyAddress = TokenProxy.unwrap(tokenProxy);
+        require(tokenProxyAddress.code.length != 0, "token proxy has no code");
         address currentImplementation = _proxyImplementation(tokenProxy);
         require(currentImplementation != address(0), "token proxy missing implementation");
         require(currentImplementation.code.length != 0, "current implementation has no code");
+        require(currentImplementation == expectedCurrentImplementation, "unexpected current implementation");
     }
 
-    function _validateTokenImplementation(address newImplementation) internal view {
-        (bool okDefaultValidator,) = newImplementation.staticcall(abi.encodeCall(FabricaToken.defaultValidator, ()));
+    function _validateTokenImplementation(TokenImplementation newImplementation) internal view {
+        address newImplementationAddress = TokenImplementation.unwrap(newImplementation);
+        (bool okDefaultValidator,) =
+            newImplementationAddress.staticcall(abi.encodeCall(FabricaToken.defaultValidator, ()));
         require(okDefaultValidator, "new implementation is not FabricaToken");
-        (bool okValidatorRegistry,) = newImplementation.staticcall(abi.encodeCall(FabricaToken.validatorRegistry, ()));
+        (bool okValidatorRegistry,) =
+            newImplementationAddress.staticcall(abi.encodeCall(FabricaToken.validatorRegistry, ()));
         require(okValidatorRegistry, "new implementation is not FabricaToken");
+    }
+
+    function _requireExpectedUpgradeContext(TokenProxy tokenProxy, TokenImplementation newImplementation)
+        internal
+        view
+        returns (address)
+    {
+        _requireExpectedChain();
+        require(TokenProxy.unwrap(tokenProxy) == _expectedTokenProxy(), "unexpected token proxy");
+        require(
+            TokenImplementation.unwrap(newImplementation) == _expectedTokenImplementation(),
+            "unexpected token implementation"
+        );
+        return _expectedCurrentImplementation();
     }
 
     // Mainnet step 2 (after runWithV4): run V5 (no-op, version bump 4 -> 5).
@@ -112,8 +179,10 @@ contract FabricaTokenUpgradeScript is Script {
         bytes memory initializerData,
         uint256 requiredInitializedVersion
     ) internal {
-        _validateProxyTarget(tokenProxy);
-        require(_initializedVersion(tokenProxy) == requiredInitializedVersion, "unexpected initialized version");
+        TokenProxy typedTokenProxy = TokenProxy.wrap(tokenProxy);
+        address expectedCurrentImplementation = _requireExpectedInitializerContext(typedTokenProxy);
+        _validateProxyTarget(typedTokenProxy, expectedCurrentImplementation);
+        require(_initializedVersion(typedTokenProxy) == requiredInitializedVersion, "unexpected initialized version");
         FabricaToken proxy = FabricaToken(tokenProxy);
         console.log("Proxy address:", tokenProxy);
         console.log(label);
@@ -128,12 +197,42 @@ contract FabricaTokenUpgradeScript is Script {
         _logState(proxy);
     }
 
-    function _initializedVersion(address tokenProxy) internal view returns (uint256) {
-        return uint256(vm.load(tokenProxy, INITIALIZABLE_SLOT)) & type(uint64).max;
+    function _requireExpectedInitializerContext(TokenProxy tokenProxy) internal view returns (address) {
+        _requireExpectedChain();
+        require(TokenProxy.unwrap(tokenProxy) == _expectedTokenProxy(), "unexpected token proxy");
+        return _expectedCurrentImplementation();
     }
 
-    function _proxyImplementation(address tokenProxy) internal view returns (address) {
-        return address(uint160(uint256(vm.load(tokenProxy, ERC1967_IMPLEMENTATION_SLOT))));
+    function _requireExpectedChain() internal view {
+        require(block.chainid == _expectedChainId(), "unexpected chain id");
+    }
+
+    function _expectedChainId() internal view returns (uint256) {
+        return expectedContext.configured ? expectedContext.chainId : vm.envUint("EXPECTED_CHAIN_ID");
+    }
+
+    function _expectedTokenProxy() internal view returns (address) {
+        return expectedContext.configured ? expectedContext.tokenProxy : vm.envAddress("EXPECTED_TOKEN_PROXY");
+    }
+
+    function _expectedTokenImplementation() internal view returns (address) {
+        return expectedContext.configured
+            ? expectedContext.tokenImplementation
+            : vm.envAddress("EXPECTED_TOKEN_IMPLEMENTATION");
+    }
+
+    function _expectedCurrentImplementation() internal view returns (address) {
+        return expectedContext.configured
+            ? expectedContext.currentImplementation
+            : vm.envAddress("EXPECTED_CURRENT_IMPLEMENTATION");
+    }
+
+    function _initializedVersion(TokenProxy tokenProxy) internal view returns (uint256) {
+        return uint256(vm.load(TokenProxy.unwrap(tokenProxy), INITIALIZABLE_SLOT)) & type(uint64).max;
+    }
+
+    function _proxyImplementation(TokenProxy tokenProxy) internal view returns (address) {
+        return address(uint160(uint256(vm.load(TokenProxy.unwrap(tokenProxy), ERC1967_IMPLEMENTATION_SLOT))));
     }
 
     function _logState(FabricaToken proxy) internal view {
