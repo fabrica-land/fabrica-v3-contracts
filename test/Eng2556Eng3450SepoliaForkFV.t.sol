@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.28;
 
-import {Test} from "forge-std/Test.sol";
 import {FabricaFeeCollector} from "../src/FabricaFeeCollector.sol";
+import {ForkTestBase} from "./ForkTestBase.sol";
 import {MockERC20Compliant} from "./FabricaFeeCollector.t.sol";
 
 interface IFVTokenProxy {
@@ -23,7 +23,7 @@ interface IFVFeeCollectorProxy {
     ) external;
 }
 
-contract Eng2556Eng3450SepoliaForkFVTest is Test {
+contract Eng2556Eng3450SepoliaForkFVTest is ForkTestBase {
     address internal constant TOKEN_PROXY = 0xb52ED2Dc8EBD49877De57De3f454Fd71b75bc1fD;
     address internal constant TOKEN_IMPL = 0x632eB7A76041B33b070213Cf11d518e84E556391;
     address internal constant FEE_PROXY = 0x404f53869aD67e167a8C89035f55572e653d7B22;
@@ -34,12 +34,7 @@ contract Eng2556Eng3450SepoliaForkFVTest is Test {
     uint256 internal constant DEFAULT_VALIDATOR_SLOT = 304;
 
     function setUp() public {
-        if (bytes(vm.envOr("SEPOLIA_RPC_URL", string(""))).length == 0) {
-            emit log_named_string("SKIP (RPC env absent)", "SEPOLIA_RPC_URL");
-            vm.skip(true);
-            return;
-        }
-        vm.createSelectFork("sepolia", FORK_BLOCK);
+        _forkOrRequire("SEPOLIA_RPC_URL", "sepolia", FORK_BLOCK, "FABRICA_REQUIRE_SEPOLIA_FV");
     }
 
     function test_fork_collectFee_revertsWhenResolvedValidatorZeroAfterSepoliaUpgrade() public {
