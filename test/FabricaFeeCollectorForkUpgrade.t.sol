@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.28;
 
-import "forge-std/Test.sol";
 import {FabricaFeeCollector} from "../src/FabricaFeeCollector.sol";
+import {ForkTestBase} from "./ForkTestBase.sol";
 
 // Minimal view/mutation surface of the deployed FabricaFeeCollector proxies,
 // enough to read state, upgrade, and exercise both audit fixes on a fork.
@@ -56,7 +56,7 @@ contract MockERC20ReturnsFalse {
 // freshly-compiled implementation, asserts persistent state is not regressed,
 // and asserts both audit fixes are now live. The mainnet cases double as the
 // spec-only Safe/EOA upgrade simulation required by the shipping playbook.
-contract FabricaFeeCollectorForkUpgradeTest is Test {
+contract FabricaFeeCollectorForkUpgradeTest is ForkTestBase {
     address internal constant OBLIGOR = address(0x0B119012);
 
     // ENG-2547/2548 verified on-chain proxy addresses (see ticket topology comment).
@@ -74,20 +74,6 @@ contract FabricaFeeCollectorForkUpgradeTest is Test {
     // holds while each proxy still runs its OLD implementation at this block.
     uint256 internal constant SEPOLIA_BLOCK = 11187000;
     uint256 internal constant MAINNET_BLOCK = 25445000;
-
-    // Skip (rather than fail) when the RPC env var for a network is absent, so
-    // `forge test` degrades gracefully in environments without that endpoint.
-    // vm.skip(true) marks the test skipped in the run summary, so a green run
-    // can never be mistaken for fork coverage that silently did not execute.
-    function _forkOrSkip(string memory rpcEnvVar, string memory rpcAlias, uint256 blockNumber) internal returns (bool) {
-        if (bytes(vm.envOr(rpcEnvVar, string(""))).length == 0) {
-            emit log_named_string("SKIP (RPC env absent)", rpcEnvVar);
-            vm.skip(true);
-            return false;
-        }
-        vm.createSelectFork(rpcAlias, blockNumber);
-        return true;
-    }
 
     // Full before/after upgrade verification for one live proxy.
     function _verifyUpgrade(address proxyAddr) internal {

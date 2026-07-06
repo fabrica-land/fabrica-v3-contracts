@@ -178,7 +178,7 @@ If a future Sepolia-like environment is still at `_initialized = 5`, use
 `run(address,address)` to upgrade and call `initializeV6()`.
 
 **Mainnet / Base Sepolia** (V4 not yet consumed — call V4 for owner migration,
-then V5 to bump version):
+then V5 and V6 to match the current initialized version):
 
 ```bash
 # First upgrade: deploy new impl + run V4 (owner migration)
@@ -188,9 +188,16 @@ source .env && forge script script/FabricaTokenUpgrade.s.sol \
   --broadcast \
   --private-key "$PROXY_ADMIN_PRIVATE_KEY"
 
-# Then run V5 (no-op, bumps version to match Sepolia state)
+# Then run V5 (no-op, bumps version from 4 to 5)
 source .env && forge script script/FabricaTokenUpgrade.s.sol \
   --sig "runV5Only(address)" <PROXY_ADDRESS> \
+  --rpc-url <RPC_URL> \
+  --broadcast \
+  --private-key "$PROXY_ADMIN_PRIVATE_KEY"
+
+# Finally run V6 (no-op, bumps version from 5 to 6)
+source .env && forge script script/FabricaTokenUpgrade.s.sol \
+  --sig "runV6Only(address)" <PROXY_ADDRESS> \
   --rpc-url <RPC_URL> \
   --broadcast \
   --private-key "$PROXY_ADMIN_PRIVATE_KEY"
@@ -231,9 +238,9 @@ forge verify-contract <NEW_IMPL_ADDRESS> src/FabricaToken.sol:FabricaToken \
 
 ## Adding Future Reinitializers
 
-When adding a new reinitializer (e.g., `initializeV6`):
+When adding a new reinitializer after the existing V6 stamp (e.g., `initializeV7`):
 
-1. Add the function to `FabricaToken.sol` with `onlyProxyAdmin reinitializer(6)`
+1. Add the function to `FabricaToken.sol` with `onlyProxyAdmin reinitializer(7)`
 2. Update `FabricaTokenUpgrade.s.sol` to call the new initializer
 3. Update this runbook's reinitializer chain table
 

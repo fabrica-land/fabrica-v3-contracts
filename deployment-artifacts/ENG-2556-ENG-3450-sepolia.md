@@ -15,7 +15,15 @@ Signer address: `0xBF03076547a99857b796717faF4034dea94569dF`
 | Upgrade fee collector staging proxy | `0x98e819BF78081f4343E71Ed4096C59d74948C166` | `0xa2ce7d46d4964a2bfd51fdd74622ae7e71b3025f3e8a5ca493d02973a1ee24b6` | `11218214` | success |
 | Upgrade fee collector develop proxy | `0x24888646723ae14C83E5354431753675A3d12D3c` | `0xf5729f088e7915734d078f1566a886b120113db97a9582be0b216f219fad34c0` | `11218215` | success |
 
-Both implementations were verified on Sepolia Etherscan by `forge script --verify`.
+Implementation source verification:
+
+- `FabricaToken`: https://sepolia.etherscan.io/address/0x632eB7A76041B33b070213Cf11d518e84E556391#code
+- `FabricaFeeCollector`: https://sepolia.etherscan.io/address/0x38EA0c1c84E51ce5dA0a266c0E33DDDb91fFc296#code
+
+The implementation deployment receipts are checked in at:
+
+- `broadcast/FabricaTokenDeployImpl.s.sol/11155111/run-1783375614404.json`
+- `broadcast/FabricaFeeCollectorDeployImpl.s.sol/11155111/run-1783375738184.json`
 
 ## Broadcast Artifacts
 
@@ -83,9 +91,11 @@ ENG-3450 live discriminator:
 FabricaToken.defaultValidator() = 0xAAA7FDc1A573965a2eD47Ab154332b6b55098008
 ```
 
-The live default validator is nonzero, so the zero-resolved-validator burn path cannot be triggered on shared Sepolia without mutating live token validator/default state. The mutation-free proof is a fork-of-Sepolia simulation pinned after the upgrades:
+The live default validator is nonzero, so the zero-resolved-validator burn path cannot be triggered on shared Sepolia without mutating live token validator/default state. The mutation-free proof is a fork-of-Sepolia simulation pinned after the upgrades. Required manual FV sets `FABRICA_REQUIRE_SEPOLIA_FV=1`, which makes the test fail loudly if `SEPOLIA_RPC_URL` is absent; ordinary CI runs without that flag skip the fork test when the RPC env is absent.
 
 ```text
+FABRICA_REQUIRE_SEPOLIA_FV=1 forge test --match-path test/Eng2556Eng3450SepoliaForkFV.t.sol -vvv
+
 fork block: 11218223
 token implementation: 0x632eB7A76041B33b070213Cf11d518e84E556391
 fee collector implementation: 0x38EA0c1c84E51ce5dA0a266c0E33DDDb91fFc296
