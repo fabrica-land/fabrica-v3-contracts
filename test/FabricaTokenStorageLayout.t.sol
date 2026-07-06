@@ -270,7 +270,7 @@ contract FabricaTokenStorageLayoutTest is Test {
     }
 
     function test_sepoliaUpgradePath_V6only() public {
-        // Sepolia (ENG-3145) path: already at _initialized = 5, only V6 needed.
+        // Sepolia-like pre-2026-07-06 path: already at _initialized = 5, only V6 needed.
         FabricaToken impl = new FabricaToken();
         FabricaProxy freshProxy =
             new FabricaProxy(address(impl), proxyAdmin, abi.encodeCall(FabricaToken.initialize, ()));
@@ -286,6 +286,25 @@ contract FabricaTokenStorageLayoutTest is Test {
         assertEq(freshToken.owner(), expectedOwner, "Owner should remain set after V6-only upgrade");
         assertEq(freshToken.implementation(), address(newImpl), "Implementation should be updated");
         assertEq(uint256(vm.load(address(freshProxy), OZ_V5_INITIALIZABLE_SLOT)) & 0xff, 6, "_initialized should be 6");
+    }
+
+    function test_runNoInit_emptyDataUpgradePreservesV6State() public {
+        FabricaToken impl = new FabricaToken();
+        FabricaProxy freshProxy =
+            new FabricaProxy(address(impl), proxyAdmin, abi.encodeCall(FabricaToken.initialize, ()));
+        FabricaToken freshToken = FabricaToken(address(freshProxy));
+        vm.prank(proxyAdmin);
+        freshToken.initializeV6();
+        address ownerBefore = freshToken.owner();
+        uint256 versionBefore = uint256(vm.load(address(freshProxy), OZ_V5_INITIALIZABLE_SLOT)) & 0xff;
+        FabricaToken newImpl = new FabricaToken();
+        vm.prank(proxyAdmin);
+        freshToken.upgradeToAndCall(address(newImpl), "");
+        assertEq(freshToken.implementation(), address(newImpl), "empty-data upgrade should set impl");
+        assertEq(freshToken.owner(), ownerBefore, "empty-data upgrade should preserve owner");
+        assertEq(
+            uint256(vm.load(address(freshProxy), OZ_V5_INITIALIZABLE_SLOT)) & 0xff, versionBefore, "version unchanged"
+        );
     }
 
     function test_allSlots_endToEnd() public {

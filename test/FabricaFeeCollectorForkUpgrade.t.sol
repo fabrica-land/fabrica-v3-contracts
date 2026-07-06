@@ -135,32 +135,32 @@ contract FabricaFeeCollectorForkUpgradeTest is ForkTestBase {
     }
 
     function test_fork_sepolia_prod() public {
-        if (!_forkOrSkip("SEPOLIA_RPC_URL", "sepolia", SEPOLIA_BLOCK)) return;
+        if (!_forkOrSkip(ForkConfig("SEPOLIA_RPC_URL", "sepolia", SEPOLIA_BLOCK, ""))) return;
         _verifyUpgrade(SEPOLIA_PROD);
     }
 
     function test_fork_sepolia_staging() public {
-        if (!_forkOrSkip("SEPOLIA_RPC_URL", "sepolia", SEPOLIA_BLOCK)) return;
+        if (!_forkOrSkip(ForkConfig("SEPOLIA_RPC_URL", "sepolia", SEPOLIA_BLOCK, ""))) return;
         _verifyUpgrade(SEPOLIA_STAGING);
     }
 
     function test_fork_sepolia_develop() public {
-        if (!_forkOrSkip("SEPOLIA_RPC_URL", "sepolia", SEPOLIA_BLOCK)) return;
+        if (!_forkOrSkip(ForkConfig("SEPOLIA_RPC_URL", "sepolia", SEPOLIA_BLOCK, ""))) return;
         _verifyUpgrade(SEPOLIA_DEVELOP);
     }
 
     function test_fork_mainnet_prod() public {
-        if (!_forkOrSkip("MAINNET_RPC_URL", "mainnet", MAINNET_BLOCK)) return;
+        if (!_forkOrSkip(ForkConfig("MAINNET_RPC_URL", "mainnet", MAINNET_BLOCK, ""))) return;
         _verifyUpgrade(MAINNET_PROD);
     }
 
     function test_fork_mainnet_develop() public {
-        if (!_forkOrSkip("MAINNET_RPC_URL", "mainnet", MAINNET_BLOCK)) return;
+        if (!_forkOrSkip(ForkConfig("MAINNET_RPC_URL", "mainnet", MAINNET_BLOCK, ""))) return;
         _verifyUpgrade(MAINNET_DEVELOP);
     }
 
     function test_fork_mainnet_staging() public {
-        if (!_forkOrSkip("MAINNET_RPC_URL", "mainnet", MAINNET_BLOCK)) return;
+        if (!_forkOrSkip(ForkConfig("MAINNET_RPC_URL", "mainnet", MAINNET_BLOCK, ""))) return;
         _verifyUpgrade(MAINNET_STAGING);
     }
 }
