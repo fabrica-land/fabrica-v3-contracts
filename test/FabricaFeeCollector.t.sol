@@ -176,6 +176,18 @@ contract FabricaFeeCollectorTest is Test {
         return _deployCollectorFor(address(protocolContract), protocolSharePercent_);
     }
 
+    function _setupApprovedCollection(address defaultValidator_, address validator_)
+        internal
+        returns (FabricaFeeCollector configuredCollector, MockERC20Compliant currency)
+    {
+        MockFabricaToken tokenContract = new MockFabricaToken(defaultValidator_, validator_);
+        configuredCollector = _deployCollectorFor(address(tokenContract), 10);
+        currency = new MockERC20Compliant();
+        currency.mint(obligor, 1_000);
+        vm.prank(obligor);
+        currency.approve(address(configuredCollector), 1_000);
+    }
+
     function setUp() public {
         protocolContract = new MockFabricaToken(defaultValidator, validator);
         collector = _deployCollector(10);
@@ -273,13 +285,9 @@ contract FabricaFeeCollectorTest is Test {
     // ENG-3450: when the per-token validator is zero, collectFee must fall
     // back to the token contract's non-zero default validator.
     function test_collectFee_usesDefaultValidatorWhenTokenValidatorZero() public {
-        MockFabricaToken tokenContract = new MockFabricaToken(defaultValidator, address(0));
-        FabricaFeeCollector c = _deployCollectorFor(address(tokenContract), 10);
-        MockERC20Compliant token = new MockERC20Compliant();
-        token.mint(obligor, 1_000);
-        vm.prank(obligor);
-        token.approve(address(c), 1_000);
-        c.collectFee(1, "onramp", obligor, address(token), 1_000);
+        (FabricaFeeCollector configuredCollector, MockERC20Compliant token) =
+            _setupApprovedCollection(defaultValidator, address(0));
+        configuredCollector.collectFee(1, "onramp", obligor, address(token), 1_000);
         assertEq(token.balanceOf(protocolFeeRecipient), 100);
         assertEq(token.balanceOf(defaultValidator), 900);
         assertEq(token.balanceOf(address(0)), 0);
@@ -288,14 +296,10 @@ contract FabricaFeeCollectorTest is Test {
     // ENG-3450: if both the per-token validator and default validator resolve
     // to zero, collectFee must revert before the validator share can burn.
     function test_collectFee_revertsWhenResolvedValidatorZero() public {
-        MockFabricaToken tokenContract = new MockFabricaToken(address(0), address(0));
-        FabricaFeeCollector c = _deployCollectorFor(address(tokenContract), 10);
-        MockERC20Compliant token = new MockERC20Compliant();
-        token.mint(obligor, 1_000);
-        vm.prank(obligor);
-        token.approve(address(c), 1_000);
+        (FabricaFeeCollector configuredCollector, MockERC20Compliant token) =
+            _setupApprovedCollection(address(0), address(0));
         vm.expectRevert(FabricaFeeCollector.ValidatorAddressZero.selector);
-        c.collectFee(1, "onramp", obligor, address(token), 1_000);
+        configuredCollector.collectFee(1, "onramp", obligor, address(token), 1_000);
         assertEq(token.balanceOf(protocolFeeRecipient), 0);
         assertEq(token.balanceOf(address(0)), 0);
         assertEq(token.balanceOf(obligor), 1_000);
