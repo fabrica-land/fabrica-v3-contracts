@@ -22,7 +22,6 @@ Both implementations were verified on Sepolia Etherscan by `forge script --verif
 - `broadcast/FabricaTokenDeployImpl.s.sol/11155111/run-1783375614404.json`
 - `broadcast/FabricaTokenDeployImpl.s.sol/11155111/run-latest.json`
 - `broadcast/FabricaTokenUpgrade.s.sol/11155111/run-1783375681406.json`
-- `broadcast/FabricaTokenUpgrade.s.sol/11155111/run-latest.json`
 - `broadcast/FabricaTokenUpgrade.s.sol/11155111/runNoInit-latest.json`
 - `broadcast/FabricaFeeCollectorDeployImpl.s.sol/11155111/run-1783375738184.json`
 - `broadcast/FabricaFeeCollectorDeployImpl.s.sol/11155111/run-latest.json`

@@ -3,6 +3,7 @@ pragma solidity ^0.8.28;
 
 import {Test} from "forge-std/Test.sol";
 import {FabricaFeeCollector} from "../src/FabricaFeeCollector.sol";
+import {MockERC20Compliant} from "./FabricaFeeCollector.t.sol";
 
 interface IFVTokenProxy {
     function implementation() external view returns (address);
@@ -22,33 +23,6 @@ interface IFVFeeCollectorProxy {
     ) external;
 }
 
-contract FVMockERC20 {
-    mapping(address => uint256) public balanceOf;
-    mapping(address => mapping(address => uint256)) public allowance;
-
-    function mint(address to, uint256 amount) external {
-        balanceOf[to] += amount;
-    }
-
-    function approve(address spender, uint256 amount) external returns (bool) {
-        allowance[msg.sender][spender] = amount;
-        return true;
-    }
-
-    function transfer(address to, uint256 amount) external returns (bool) {
-        balanceOf[msg.sender] -= amount;
-        balanceOf[to] += amount;
-        return true;
-    }
-
-    function transferFrom(address from, address to, uint256 amount) external returns (bool) {
-        allowance[from][msg.sender] -= amount;
-        balanceOf[from] -= amount;
-        balanceOf[to] += amount;
-        return true;
-    }
-}
-
 contract Eng2556Eng3450SepoliaForkFVTest is Test {
     address internal constant TOKEN_PROXY = 0xb52ED2Dc8EBD49877De57De3f454Fd71b75bc1fD;
     address internal constant TOKEN_IMPL = 0x632eB7A76041B33b070213Cf11d518e84E556391;
@@ -60,6 +34,11 @@ contract Eng2556Eng3450SepoliaForkFVTest is Test {
     uint256 internal constant DEFAULT_VALIDATOR_SLOT = 304;
 
     function setUp() public {
+        if (bytes(vm.envOr("SEPOLIA_RPC_URL", string(""))).length == 0) {
+            emit log_named_string("SKIP (RPC env absent)", "SEPOLIA_RPC_URL");
+            vm.skip(true);
+            return;
+        }
         vm.createSelectFork("sepolia", FORK_BLOCK);
     }
 
@@ -74,7 +53,7 @@ contract Eng2556Eng3450SepoliaForkFVTest is Test {
         vm.store(TOKEN_PROXY, bytes32(DEFAULT_VALIDATOR_SLOT), bytes32(0));
         assertEq(token.defaultValidator(), address(0), "fork setup must zero default validator");
 
-        FVMockERC20 currency = new FVMockERC20();
+        MockERC20Compliant currency = new MockERC20Compliant();
         currency.mint(OBLIGOR, 1_000);
         vm.prank(OBLIGOR);
         currency.approve(FEE_PROXY, 1_000);

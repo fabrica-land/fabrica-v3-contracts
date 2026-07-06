@@ -163,15 +163,19 @@ Run with the **proxy admin** wallet. The `__legacy_gap` storage fix is structura
 and takes effect as soon as the new implementation is active. The initializer
 called during upgrade depends on the network:
 
-**Sepolia** (V4 already consumed on 2025-02-12 — call V5 only):
+**Sepolia currently at `_initialized = 6`** (post ENG-3145 / 2026-07-06
+rollout — use empty upgrade data):
 
 ```bash
 source .env && forge script script/FabricaTokenUpgrade.s.sol \
-  --sig "run(address,address)" <PROXY_ADDRESS> <NEW_IMPL_ADDRESS> \
+  --sig "runNoInit(address,address)" <PROXY_ADDRESS> <NEW_IMPL_ADDRESS> \
   --rpc-url sepolia \
   --broadcast \
   --private-key "$TESTNET_PROXY_ADMIN_PRIVATE_KEY"
 ```
+
+If a future Sepolia-like environment is still at `_initialized = 5`, use
+`run(address,address)` to upgrade and call `initializeV6()`.
 
 **Mainnet / Base Sepolia** (V4 not yet consumed — call V4 for owner migration,
 then V5 to bump version):

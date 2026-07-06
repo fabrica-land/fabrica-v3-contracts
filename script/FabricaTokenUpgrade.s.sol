@@ -9,37 +9,27 @@ contract FabricaTokenUpgradeScript is Script {
 
     // Sepolia (ENG-3145): already at _initialized = 5. Upgrade impl + run V6 (no-op, 5 -> 6).
     function run(address tokenProxy, address newImplementation) public {
-        FabricaToken proxy = FabricaToken(tokenProxy);
-        console.log("Proxy address:", tokenProxy);
-        console.log("Current implementation:", proxy.implementation());
-        console.log("Upgrading to:", newImplementation);
-        vm.startBroadcast();
-        proxy.upgradeToAndCall(newImplementation, abi.encodeCall(FabricaToken.initializeV6, ()));
-        vm.stopBroadcast();
-        _logState(proxy);
+        _upgrade(tokenProxy, newImplementation, abi.encodeCall(FabricaToken.initializeV6, ()));
     }
 
     // Sepolia after ENG-3145: already at _initialized = 6. Upgrade impl only.
     function runNoInit(address tokenProxy, address newImplementation) public {
-        FabricaToken proxy = FabricaToken(tokenProxy);
-        console.log("Proxy address:", tokenProxy);
-        console.log("Current implementation:", proxy.implementation());
-        console.log("Upgrading to:", newImplementation);
-        vm.startBroadcast();
-        proxy.upgradeToAndCall(newImplementation, "");
-        vm.stopBroadcast();
-        _logState(proxy);
+        _upgrade(tokenProxy, newImplementation, "");
     }
 
     // Mainnet / Base Sepolia (ENG-3145): V4 not yet consumed. Step 1 of the V4 -> V5 -> V6
     // ceremony — upgrade impl + run V4 (owner migration). Follow with runV5Only then runV6Only.
     function runWithV4(address tokenProxy, address newImplementation) public {
+        _upgrade(tokenProxy, newImplementation, abi.encodeCall(FabricaToken.initializeV4, ()));
+    }
+
+    function _upgrade(address tokenProxy, address newImplementation, bytes memory data) internal {
         FabricaToken proxy = FabricaToken(tokenProxy);
         console.log("Proxy address:", tokenProxy);
         console.log("Current implementation:", proxy.implementation());
         console.log("Upgrading to:", newImplementation);
         vm.startBroadcast();
-        proxy.upgradeToAndCall(newImplementation, abi.encodeCall(FabricaToken.initializeV4, ()));
+        proxy.upgradeToAndCall(newImplementation, data);
         vm.stopBroadcast();
         _logState(proxy);
     }
