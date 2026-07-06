@@ -235,6 +235,17 @@ When adding a new reinitializer (e.g., `initializeV6`):
 
 ## Deployment History
 
+### Sepolia — 2026-07-06
+
+1. Deployed ENG-2556 `FabricaToken` implementation at
+   `0x632eB7A76041B33b070213Cf11d518e84E556391`
+   (tx `0x1a2c8cd3ccf8009bb1d39b59f7fa9e847baae8ee7c10aca28d1198081a2f2b3f`).
+2. Upgraded Sepolia token proxy `0xb52ED2Dc8EBD49877De57De3f454Fd71b75bc1fD`
+   with empty upgrade data because `_initialized` was already `6`
+   (tx `0x31926b4329da6de191647792575de7f98f048d38f0a3d4cbfd64808e2146c31a`).
+   Post-upgrade `defaultValidator` remained
+   `0xAAA7FDc1A573965a2eD47Ab154332b6b55098008`.
+
 ### Sepolia — 2025-02-12
 
 1. Deployed new impl at `0xd4aeCe23bf3D0987A6a5AAaeCD90f0f02b074C55`

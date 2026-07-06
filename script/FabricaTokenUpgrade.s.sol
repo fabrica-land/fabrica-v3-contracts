@@ -19,6 +19,18 @@ contract FabricaTokenUpgradeScript is Script {
         _logState(proxy);
     }
 
+    // Sepolia after ENG-3145: already at _initialized = 6. Upgrade impl only.
+    function runNoInit(address tokenProxy, address newImplementation) public {
+        FabricaToken proxy = FabricaToken(tokenProxy);
+        console.log("Proxy address:", tokenProxy);
+        console.log("Current implementation:", proxy.implementation());
+        console.log("Upgrading to:", newImplementation);
+        vm.startBroadcast();
+        proxy.upgradeToAndCall(newImplementation, "");
+        vm.stopBroadcast();
+        _logState(proxy);
+    }
+
     // Mainnet / Base Sepolia (ENG-3145): V4 not yet consumed. Step 1 of the V4 -> V5 -> V6
     // ceremony — upgrade impl + run V4 (owner migration). Follow with runV5Only then runV6Only.
     function runWithV4(address tokenProxy, address newImplementation) public {
