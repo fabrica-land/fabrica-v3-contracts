@@ -36,6 +36,7 @@ contract FabricaFeeCollector is Initializable, OwnableUpgradeable, PausableUpgra
     error ProtocolContractAddressZero();
     error ProtocolFeeRecipientZero();
     error ProtocolSharePercentExceedsMaximum(uint8 protocolSharePercent);
+    error ValidatorAddressZero();
 
     constructor() {
         _disableInitializers();
@@ -122,6 +123,9 @@ contract FabricaFeeCollector is Initializable, OwnableUpgradeable, PausableUpgra
         }
         uint256 protocolShare = amount * _protocolSharePercent / 100;
         uint256 validatorShare = amount - protocolShare;
+        if (validatorAddress == address(0)) {
+            revert ValidatorAddressZero();
+        }
         if (protocolShare > 0) {
             currency.safeTransfer(_protocolFeeRecipient, protocolShare);
         }

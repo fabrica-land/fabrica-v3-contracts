@@ -151,25 +151,77 @@ contract MockFabricaToken is IFabricaToken {
 }
 
 contract FabricaFeeCollectorTest is Test {
+    event FeeCollected(
+        uint256 indexed tokenId,
+        string indexed feeType,
+        address indexed obligor,
+        address erc20Currency,
+        uint256 protocolReceived,
+        address validatorAddress,
+        uint256 validatorReceived
+    );
+
+    struct CollectionSetup {
+        address defaultValidatorAddress;
+        address tokenValidatorAddress;
+        uint8 protocolSharePercent;
+    }
+
     FabricaFeeCollector public collector;
     MockFabricaToken public protocolContract;
     address public proxyAdmin = address(0xAD);
     address public owner = address(this);
     address public protocolFeeRecipient = address(0xFEE);
+    address public defaultValidator = address(0xDEFA07);
     address public validator = address(0xA11DA70);
     address public obligor = address(0x0B119012);
 
-    function _deployCollector(uint8 protocolSharePercent_) internal returns (FabricaFeeCollector) {
+    function _deployCollectorFor(address protocolContractAddress_, uint8 protocolSharePercent_)
+        internal
+        returns (FabricaFeeCollector)
+    {
         FabricaFeeCollector impl = new FabricaFeeCollector();
         bytes memory initData = abi.encodeCall(
-            FabricaFeeCollector.initialize, (address(protocolContract), protocolSharePercent_, protocolFeeRecipient)
+            FabricaFeeCollector.initialize, (protocolContractAddress_, protocolSharePercent_, protocolFeeRecipient)
         );
         FabricaProxy proxy = new FabricaProxy(address(impl), proxyAdmin, initData);
         return FabricaFeeCollector(address(proxy));
     }
 
+    function _deployCollector(uint8 protocolSharePercent_) internal returns (FabricaFeeCollector) {
+        return _deployCollectorFor(address(protocolContract), protocolSharePercent_);
+    }
+
+    function _setupApprovedCollection(CollectionSetup memory setup)
+        internal
+        returns (FabricaFeeCollector configuredCollector, MockERC20Compliant currency)
+    {
+        MockFabricaToken tokenContract =
+            new MockFabricaToken(setup.defaultValidatorAddress, setup.tokenValidatorAddress);
+        configuredCollector = _deployCollectorFor(address(tokenContract), setup.protocolSharePercent);
+        currency = new MockERC20Compliant();
+        currency.mint(obligor, 1_000);
+        vm.prank(obligor);
+        currency.approve(address(configuredCollector), 1_000);
+    }
+
+    function _assertCollectFeeRevertsWhenResolvedValidatorZero(uint8 protocolSharePercent_) internal {
+        (FabricaFeeCollector configuredCollector, MockERC20Compliant token) = _setupApprovedCollection(
+            CollectionSetup({
+                defaultValidatorAddress: address(0),
+                tokenValidatorAddress: address(0),
+                protocolSharePercent: protocolSharePercent_
+            })
+        );
+        vm.expectRevert(FabricaFeeCollector.ValidatorAddressZero.selector);
+        configuredCollector.collectFee(1, "onramp", obligor, address(token), 1_000);
+        assertEq(token.balanceOf(protocolFeeRecipient), 0);
+        assertEq(token.balanceOf(address(0)), 0);
+        assertEq(token.balanceOf(obligor), 1_000);
+    }
+
     function setUp() public {
-        protocolContract = new MockFabricaToken(address(0xDEFA07), validator);
+        protocolContract = new MockFabricaToken(defaultValidator, validator);
         collector = _deployCollector(10);
     }
 
@@ -260,6 +312,34 @@ contract FabricaFeeCollectorTest is Test {
         assertEq(token.balanceOf(validator), 900);
         assertEq(token.balanceOf(obligor), 0);
         assertEq(token.balanceOf(address(collector)), 0);
+    }
+
+    // ENG-3450: when the per-token validator is zero, collectFee must fall
+    // back to the token contract's non-zero default validator.
+    function test_collectFee_usesDefaultValidatorWhenTokenValidatorZero() public {
+        (FabricaFeeCollector configuredCollector, MockERC20Compliant token) = _setupApprovedCollection(
+            CollectionSetup({
+                defaultValidatorAddress: defaultValidator, tokenValidatorAddress: address(0), protocolSharePercent: 10
+            })
+        );
+        vm.expectEmit(true, true, true, true, address(configuredCollector));
+        emit FeeCollected(1, "onramp", obligor, address(token), 100, defaultValidator, 900);
+        configuredCollector.collectFee(1, "onramp", obligor, address(token), 1_000);
+        assertEq(token.balanceOf(protocolFeeRecipient), 100);
+        assertEq(token.balanceOf(defaultValidator), 900);
+        assertEq(token.balanceOf(address(0)), 0);
+    }
+
+    // ENG-3450: if both the per-token validator and default validator resolve
+    // to zero, collectFee must revert before the validator share can burn.
+    function test_collectFee_revertsWhenResolvedValidatorZero() public {
+        _assertCollectFeeRevertsWhenResolvedValidatorZero(10);
+    }
+
+    // ENG-3450: resolved validator validation is unconditional, even when a
+    // 100% protocol share would leave no validator transfer to execute.
+    function test_collectFee_revertsWhenResolvedValidatorZeroAtFullProtocolShare() public {
+        _assertCollectFeeRevertsWhenResolvedValidatorZero(100);
     }
 
     // ENG-2547: a token that returns `false` instead of reverting on failure
