@@ -9,10 +9,19 @@ base commit. The token proxy upgrade required `runNoInit(address,address)`
 because the live proxy was already initialized to version 6; Foundry recorded
 the base commit in the broadcast JSON while that local script helper was still
 uncommitted. This PR commits and reviews the `runNoInit` helper that produced
-the empty-data token upgrade transaction.
+the empty-data token upgrade transaction. That provenance limitation is not
+retroactively removable; the binding evidence below is the committed-source
+reproduction for the already-broadcast calldata and receipt.
 
-The token proxy upgrade calldata is reproducible from the checked-in helper's
-empty-data `upgradeToAndCall(address,bytes)` path:
+The token proxy upgrade transaction receipt is checked in at
+`broadcast/FabricaTokenUpgrade.s.sol/11155111/run-1783375681406.json`, and the
+live receipt is `0x31926b4329da6de191647792575de7f98f048d38f0a3d4cbfd64808e2146c31a`
+at block `11218207`. The helper now requires named expected-context checks
+before broadcast (`EXPECTED_CHAIN_ID`, `EXPECTED_TOKEN_PROXY`,
+`EXPECTED_TOKEN_IMPLEMENTATION`, and `EXPECTED_CURRENT_IMPLEMENTATION`) so a
+future positional-argument transposition fails before sending a transaction.
+Once those checks pass, the Sepolia V6 path still emits the same empty-data
+`upgradeToAndCall(address,bytes)` calldata that was broadcast:
 
 ```text
 cast calldata 'upgradeToAndCall(address,bytes)' 0x632eB7A76041B33b070213Cf11d518e84E556391 0x

@@ -130,8 +130,19 @@ cast call <PROXY_ADDRESS> "balanceOf(address,uint256)(uint256)" <HOLDER_ADDRESS>
 ```bash
 # Ensure .env has the required variables:
 # SEPOLIA_RPC_URL, ETHERSCAN_API_KEY
-# TESTNET_DEPLOYER_PRIVATE_KEY, TESTNET_PROXY_ADMIN_PRIVATE_KEY
+# TESTNET_DEPLOYER_ACCOUNT, TESTNET_PROXY_ADMIN_ACCOUNT
+# EXPECTED_CHAIN_ID, EXPECTED_TOKEN_PROXY, EXPECTED_TOKEN_IMPLEMENTATION,
+# EXPECTED_CURRENT_IMPLEMENTATION
 source .env
+```
+
+Use Foundry keystore accounts, hardware wallets, or a Safe flow for signing.
+Do not pass raw private keys with `--private-key`; command-line arguments can
+leak through shell history and process inspection. If a key must be imported
+for a testnet run, import it into the local Foundry keystore first:
+
+```bash
+cast wallet import <ACCOUNT_NAME> --interactive
 ```
 
 ### Step 1: Deploy New Implementation
@@ -144,7 +155,7 @@ source .env && forge script script/FabricaTokenDeployImpl.s.sol \
   --rpc-url sepolia \
   --broadcast \
   --verify \
-  --private-key "$TESTNET_DEPLOYER_PRIVATE_KEY"
+  --account "$TESTNET_DEPLOYER_ACCOUNT"
 ```
 
 Example for Sepolia:
@@ -154,7 +165,7 @@ source .env && forge script script/FabricaTokenDeployImpl.s.sol \
   --rpc-url sepolia \
   --broadcast \
   --verify \
-  --private-key "$TESTNET_DEPLOYER_PRIVATE_KEY"
+  --account "$TESTNET_DEPLOYER_ACCOUNT"
 ```
 
 Note the new implementation address from the output.
@@ -169,11 +180,16 @@ called during upgrade depends on the network:
 rollout — use empty upgrade data):
 
 ```bash
-source .env && forge script script/FabricaTokenUpgrade.s.sol \
+source .env
+export EXPECTED_CHAIN_ID=11155111
+export EXPECTED_TOKEN_PROXY=0xb52ED2Dc8EBD49877De57De3f454Fd71b75bc1fD
+export EXPECTED_TOKEN_IMPLEMENTATION=<NEW_IMPL_ADDRESS>
+export EXPECTED_CURRENT_IMPLEMENTATION=<CURRENT_IMPL_ADDRESS>
+forge script script/FabricaTokenUpgrade.s.sol \
   --sig "runNoInit(address,address)" <PROXY_ADDRESS> <NEW_IMPL_ADDRESS> \
   --rpc-url sepolia \
   --broadcast \
-  --private-key "$TESTNET_PROXY_ADMIN_PRIVATE_KEY"
+  --account "$TESTNET_PROXY_ADMIN_ACCOUNT"
 ```
 
 If a future Sepolia-like environment is still at `_initialized = 5`, use
@@ -183,26 +199,32 @@ If a future Sepolia-like environment is still at `_initialized = 5`, use
 then V5 and V6 to match the current initialized version):
 
 ```bash
+source .env
+export EXPECTED_CHAIN_ID=<CHAIN_ID>
+export EXPECTED_TOKEN_PROXY=<PROXY_ADDRESS>
+export EXPECTED_TOKEN_IMPLEMENTATION=<NEW_IMPL_ADDRESS>
+export EXPECTED_CURRENT_IMPLEMENTATION=<CURRENT_IMPL_ADDRESS>
+
 # First upgrade: deploy new impl + run V4 (owner migration)
-source .env && forge script script/FabricaTokenUpgrade.s.sol \
+forge script script/FabricaTokenUpgrade.s.sol \
   --sig "runWithV4(address,address)" <PROXY_ADDRESS> <NEW_IMPL_ADDRESS> \
   --rpc-url <RPC_URL> \
   --broadcast \
-  --private-key "$PROXY_ADMIN_PRIVATE_KEY"
+  --account "$PROXY_ADMIN_ACCOUNT"
 
 # Then run V5 (no-op, bumps version from 4 to 5)
-source .env && forge script script/FabricaTokenUpgrade.s.sol \
+forge script script/FabricaTokenUpgrade.s.sol \
   --sig "runV5Only(address)" <PROXY_ADDRESS> \
   --rpc-url <RPC_URL> \
   --broadcast \
-  --private-key "$PROXY_ADMIN_PRIVATE_KEY"
+  --account "$PROXY_ADMIN_ACCOUNT"
 
 # Finally run V6 (no-op, bumps version from 5 to 6)
-source .env && forge script script/FabricaTokenUpgrade.s.sol \
+forge script script/FabricaTokenUpgrade.s.sol \
   --sig "runV6Only(address)" <PROXY_ADDRESS> \
   --rpc-url <RPC_URL> \
   --broadcast \
-  --private-key "$PROXY_ADMIN_PRIVATE_KEY"
+  --account "$PROXY_ADMIN_ACCOUNT"
 ```
 
 ### Step 3: Verify
