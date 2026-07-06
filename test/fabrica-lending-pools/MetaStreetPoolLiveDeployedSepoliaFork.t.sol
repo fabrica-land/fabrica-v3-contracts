@@ -103,6 +103,16 @@ contract MetaStreetPoolLiveDeployedSepoliaForkTest is Test {
         _;
     }
 
+    /* Fund + approve the common payer once per test. Guarded so it is inert on
+       the clean 31337 chain (no Sepolia USDC bytecode to `deal` against); the
+       funding-free tests (identity, auction, transfer, unknown-redemption) are
+       unaffected by the extra balance. */
+    function setUp() public {
+        if (USDC.code.length == 0 || POOL.code.length == 0) return;
+        deal(USDC, payer, 10_000e6);
+        _approveMax(payer);
+    }
+
     function _approveMax(address who) internal {
         vm.prank(who);
         (bool ok,) = USDC.call(abi.encodeWithSignature("approve(address,uint256)", POOL, type(uint256).max));
@@ -133,12 +143,25 @@ contract MetaStreetPoolLiveDeployedSepoliaForkTest is Test {
         assertEq(pool.currencyToken(), USDC, "currency token is Sepolia USDC");
         assertEq(pool.collateralLiquidator(), LIQUIDATOR, "collateral liquidator immutable");
         assertEq(pool.getERC20DepositTokenImplementation(), DEPOSIT_TOKEN_IMPL, "deposit-token impl immutable");
+        _assertTierSnapshot();
+    }
+
+    /* Full duration + rate tier snapshot (all 16 values), mirroring the deploy
+       script (script/FabricaLendingPoolCreate.s.sol) so drift in ANY tier — not
+       just the extremes — trips this codified as-shipped assertion. */
+    function _assertTierSnapshot() internal view {
+        uint64[8] memory expectedDurations =
+            [uint64(62208000), 31104000, 23328000, 15552000, 10368000, 7776000, 5184000, 2592000];
+        uint64[8] memory expectedRates =
+            [uint64(1585489599), 2219685438, 3170979198, 4122272957, 4756468797, 5390664637, 6341958396, 7927447995];
         uint64[] memory durs = pool.durations();
         uint64[] memory rts = pool.rates();
         assertEq(durs.length, 8, "8 duration tiers");
         assertEq(rts.length, 8, "8 rate tiers");
-        assertEq(durs[7], 2592000, "shortest duration 30d");
-        assertEq(rts[0], 1585489599, "lowest rate tier ~5% APR");
+        for (uint256 i; i < 8; i++) {
+            assertEq(durs[i], expectedDurations[i], "duration tier drift");
+            assertEq(rts[i], expectedRates[i], "rate tier drift");
+        }
     }
 
     /* Records the deployed auction config. auctionDuration is 86400 (1 day) as
@@ -155,8 +178,6 @@ contract MetaStreetPoolLiveDeployedSepoliaForkTest is Test {
     /* ---- depositFor: recipient credit, payer pull (ENG-3101) ---- */
 
     function test_live_depositFor_creditsRecipient_debitsPayer() public onlyFork {
-        deal(USDC, payer, 10_000e6);
-        _approveMax(payer);
         uint256 payerBefore = _balance(payer);
         uint256 poolBefore = _balance(POOL);
         uint128 recipientSharesBefore = _shares(recipient);
@@ -196,8 +217,6 @@ contract MetaStreetPoolLiveDeployedSepoliaForkTest is Test {
        reverts InvalidRecipient on a zero recipient — there is no address(0)
        coalescing on this path.) */
     function test_live_deposit_creditsSelf() public onlyFork {
-        deal(USDC, payer, 10_000e6);
-        _approveMax(payer);
         uint128 before = _shares(payer);
         vm.prank(payer);
         uint256 shares = pool.deposit(TICK, DEPOSIT_AMOUNT, MIN_SHARES);
@@ -207,8 +226,6 @@ contract MetaStreetPoolLiveDeployedSepoliaForkTest is Test {
     /* depositFor(recipient == msg.sender) is equivalent to deposit(): the caller
        is credited (plan case B5). */
     function test_live_depositFor_self_creditsSelf() public onlyFork {
-        deal(USDC, payer, 10_000e6);
-        _approveMax(payer);
         uint128 before = _shares(payer);
         vm.prank(payer);
         uint256 shares = pool.depositFor(payer, TICK, DEPOSIT_AMOUNT, MIN_SHARES);
@@ -219,8 +236,6 @@ contract MetaStreetPoolLiveDeployedSepoliaForkTest is Test {
        test's own depositFor adds the available liquidity the redemption draws
        from, so the same-block withdraw settles in full. */
     function test_live_recipient_canRedeemAndWithdraw() public onlyFork {
-        deal(USDC, payer, 10_000e6);
-        _approveMax(payer);
         vm.prank(payer);
         uint256 shares = pool.depositFor(recipient, TICK, DEPOSIT_AMOUNT, MIN_SHARES);
 
@@ -239,8 +254,6 @@ contract MetaStreetPoolLiveDeployedSepoliaForkTest is Test {
        balance guard keyed on deposits[msg.sender][tick], not a distinct
        authorization check (any zero-balance caller reverts identically). */
     function test_live_payer_cannotRedeemSharesItFunded() public onlyFork {
-        deal(USDC, payer, 10_000e6);
-        _approveMax(payer);
         vm.prank(payer);
         uint256 shares = pool.depositFor(recipient, TICK, DEPOSIT_AMOUNT, MIN_SHARES);
         vm.expectRevert(IPool.InsufficientShares.selector);
@@ -251,8 +264,6 @@ contract MetaStreetPoolLiveDeployedSepoliaForkTest is Test {
     /* depositFor rejects a zero-address recipient (DepositLogic guard, which
        fires before any currency pull). */
     function test_live_depositFor_rejectsZeroRecipient() public onlyFork {
-        deal(USDC, payer, 10_000e6);
-        _approveMax(payer);
         vm.expectRevert(IPool.InvalidRecipient.selector);
         vm.prank(payer);
         pool.depositFor(address(0), TICK, DEPOSIT_AMOUNT, MIN_SHARES);
@@ -263,8 +274,6 @@ contract MetaStreetPoolLiveDeployedSepoliaForkTest is Test {
        yet fits uint128 so the deposit reaches the minShares check rather than
        tripping an earlier SafeCast on the bound itself. */
     function test_live_depositFor_respectsMinSharesSlippage() public onlyFork {
-        deal(USDC, payer, 10_000e6);
-        _approveMax(payer);
         vm.expectRevert(IPool.InsufficientShares.selector);
         vm.prank(payer);
         pool.depositFor(recipient, TICK, DEPOSIT_AMOUNT, uint256(type(uint128).max));
