@@ -156,7 +156,7 @@ contract FabricaTokenStorageLayoutTest is Test {
     function test_initializeV4_migratesOwner() public {
         // Set up a fresh proxy simulating the OZ v4→v5 state
         address expectedOwner = makeAddr("expectedOwner");
-        (FabricaToken freshToken, address freshProxyAddr) = _freshTokenWithLegacyOwner(expectedOwner);
+        (FabricaToken freshToken,) = _freshTokenWithLegacyOwner(expectedOwner);
         // Owner in legacy slot 101, zeroed in ERC-7201 slot
         assertEq(freshToken.owner(), address(0), "Owner should be zero before V4 migration");
         // Run initializeV4 (owner migration)
@@ -188,10 +188,7 @@ contract FabricaTokenStorageLayoutTest is Test {
     }
 
     function test_initializeV5_cannotBeCalledTwice() public {
-        FabricaToken impl = new FabricaToken();
-        FabricaProxy freshProxy =
-            new FabricaProxy(address(impl), proxyAdmin, abi.encodeCall(FabricaToken.initialize, ()));
-        FabricaToken freshToken = FabricaToken(address(freshProxy));
+        (FabricaToken freshToken,) = _freshToken(proxyAdmin);
         // First call should succeed
         vm.prank(proxyAdmin);
         freshToken.initializeV5();
@@ -203,10 +200,7 @@ contract FabricaTokenStorageLayoutTest is Test {
 
     function test_initializeV6_isNoOp() public {
         // V6 (ENG-3145) is a no-op version stamp — it must not change any state.
-        FabricaToken impl = new FabricaToken();
-        FabricaProxy freshProxy =
-            new FabricaProxy(address(impl), proxyAdmin, abi.encodeCall(FabricaToken.initialize, ()));
-        FabricaToken freshToken = FabricaToken(address(freshProxy));
+        (FabricaToken freshToken,) = _freshToken(proxyAdmin);
         address ownerBefore = freshToken.owner();
         vm.prank(proxyAdmin);
         freshToken.initializeV6();
@@ -221,10 +215,7 @@ contract FabricaTokenStorageLayoutTest is Test {
     }
 
     function test_initializeV6_cannotBeCalledTwice() public {
-        FabricaToken impl = new FabricaToken();
-        FabricaProxy freshProxy =
-            new FabricaProxy(address(impl), proxyAdmin, abi.encodeCall(FabricaToken.initialize, ()));
-        FabricaToken freshToken = FabricaToken(address(freshProxy));
+        (FabricaToken freshToken,) = _freshToken(proxyAdmin);
         // First call bumps _initialized to 6.
         vm.prank(proxyAdmin);
         freshToken.initializeV6();
@@ -257,78 +248,103 @@ contract FabricaTokenStorageLayoutTest is Test {
 
     function test_sepoliaUpgradePath_V6only() public {
         // Sepolia-like pre-2026-07-06 path: already at _initialized = 5, only V6 needed.
-        FabricaToken impl = new FabricaToken();
-        FabricaProxy freshProxy =
-            new FabricaProxy(address(impl), proxyAdmin, abi.encodeCall(FabricaToken.initialize, ()));
-        FabricaToken freshToken = FabricaToken(address(freshProxy));
+        (FabricaToken freshToken, address freshProxyAddr) = _freshToken(proxyAdmin);
         // Simulate Sepolia state: owner already in ERC-7201 slot, _initialized = 5.
         address expectedOwner = makeAddr("expectedOwner");
-        vm.store(address(freshProxy), OZ_V5_OWNER_SLOT, bytes32(uint256(uint160(expectedOwner))));
-        vm.store(address(freshProxy), OZ_V5_INITIALIZABLE_SLOT, bytes32(uint256(5)));
+        vm.store(freshProxyAddr, OZ_V5_OWNER_SLOT, bytes32(uint256(uint160(expectedOwner))));
+        vm.store(freshProxyAddr, OZ_V5_INITIALIZABLE_SLOT, bytes32(uint256(5)));
         // Deploy new implementation and upgrade with V6 only.
         FabricaToken newImpl = new FabricaToken();
         vm.prank(proxyAdmin);
         freshToken.upgradeToAndCall(address(newImpl), abi.encodeCall(FabricaToken.initializeV6, ()));
         assertEq(freshToken.owner(), expectedOwner, "Owner should remain set after V6-only upgrade");
         assertEq(freshToken.implementation(), address(newImpl), "Implementation should be updated");
-        assertEq(uint256(vm.load(address(freshProxy), OZ_V5_INITIALIZABLE_SLOT)) & 0xff, 6, "_initialized should be 6");
+        assertEq(uint256(vm.load(freshProxyAddr, OZ_V5_INITIALIZABLE_SLOT)) & 0xff, 6, "_initialized should be 6");
     }
 
     function test_runNoInit_emptyDataUpgradePreservesV6State() public {
-        FabricaToken impl = new FabricaToken();
-        FabricaProxy freshProxy =
-            new FabricaProxy(address(impl), proxyAdmin, abi.encodeCall(FabricaToken.initialize, ()));
-        FabricaToken freshToken = FabricaToken(address(freshProxy));
+        (FabricaToken freshToken, address freshProxyAddr) = _freshToken(proxyAdmin);
         vm.prank(proxyAdmin);
         freshToken.initializeV6();
         address ownerBefore = freshToken.owner();
-        uint256 versionBefore = uint256(vm.load(address(freshProxy), OZ_V5_INITIALIZABLE_SLOT)) & 0xff;
+        uint256 versionBefore = uint256(vm.load(freshProxyAddr, OZ_V5_INITIALIZABLE_SLOT)) & 0xff;
         FabricaToken newImpl = new FabricaToken();
         vm.prank(proxyAdmin);
         freshToken.upgradeToAndCall(address(newImpl), "");
         assertEq(freshToken.implementation(), address(newImpl), "empty-data upgrade should set impl");
         assertEq(freshToken.owner(), ownerBefore, "empty-data upgrade should preserve owner");
-        assertEq(
-            uint256(vm.load(address(freshProxy), OZ_V5_INITIALIZABLE_SLOT)) & 0xff, versionBefore, "version unchanged"
-        );
+        assertEq(uint256(vm.load(freshProxyAddr, OZ_V5_INITIALIZABLE_SLOT)) & 0xff, versionBefore, "version unchanged");
+    }
+
+    function test_run_scriptHelper_v6RequiresV5State() public {
+        FabricaTokenUpgradeScript script = new FabricaTokenUpgradeScript();
+        (FabricaToken freshToken, address freshProxyAddr) = _freshToken(FORGE_DEFAULT_BROADCASTER);
+        vm.store(freshProxyAddr, OZ_V5_INITIALIZABLE_SLOT, bytes32(uint256(5)));
+        FabricaToken newImpl = new FabricaToken();
+        script.run(freshProxyAddr, address(newImpl));
+        assertEq(freshToken.implementation(), address(newImpl), "script run should set impl");
+        assertEq(uint256(vm.load(freshProxyAddr, OZ_V5_INITIALIZABLE_SLOT)) & 0xff, 6, "version bumped");
+    }
+
+    function test_run_scriptHelper_revertsBeforeV5() public {
+        FabricaTokenUpgradeScript script = new FabricaTokenUpgradeScript();
+        (, address freshProxyAddr) = _freshToken(FORGE_DEFAULT_BROADCASTER);
+        FabricaToken newImpl = new FabricaToken();
+        vm.expectRevert("unexpected initialized version");
+        script.run(freshProxyAddr, address(newImpl));
     }
 
     function test_runNoInit_scriptHelper_emptyDataUpgradePreservesV6State() public {
         FabricaTokenUpgradeScript script = new FabricaTokenUpgradeScript();
-        FabricaToken impl = new FabricaToken();
-        FabricaProxy freshProxy =
-            new FabricaProxy(address(impl), FORGE_DEFAULT_BROADCASTER, abi.encodeCall(FabricaToken.initialize, ()));
-        FabricaToken freshToken = FabricaToken(address(freshProxy));
+        (FabricaToken freshToken, address freshProxyAddr) = _freshToken(FORGE_DEFAULT_BROADCASTER);
         vm.prank(FORGE_DEFAULT_BROADCASTER);
         freshToken.initializeV6();
-        uint256 versionBefore = uint256(vm.load(address(freshProxy), OZ_V5_INITIALIZABLE_SLOT)) & 0xff;
+        uint256 versionBefore = uint256(vm.load(freshProxyAddr, OZ_V5_INITIALIZABLE_SLOT)) & 0xff;
         FabricaToken newImpl = new FabricaToken();
-        script.runNoInit(address(freshProxy), address(newImpl));
+        script.runNoInit(freshProxyAddr, address(newImpl));
         assertEq(freshToken.implementation(), address(newImpl), "script runNoInit should set impl");
-        assertEq(
-            uint256(vm.load(address(freshProxy), OZ_V5_INITIALIZABLE_SLOT)) & 0xff, versionBefore, "version unchanged"
-        );
+        assertEq(uint256(vm.load(freshProxyAddr, OZ_V5_INITIALIZABLE_SLOT)) & 0xff, versionBefore, "version unchanged");
     }
 
     function test_runNoInit_scriptHelper_revertsBeforeV6() public {
-        FabricaToken impl = new FabricaToken();
-        FabricaProxy freshProxy =
-            new FabricaProxy(address(impl), proxyAdmin, abi.encodeCall(FabricaToken.initialize, ()));
+        (, address freshProxyAddr) = _freshToken(FORGE_DEFAULT_BROADCASTER);
         FabricaToken newImpl = new FabricaToken();
         FabricaTokenUpgradeScript script = new FabricaTokenUpgradeScript();
         vm.expectRevert("unexpected initialized version");
-        script.runNoInit(address(freshProxy), address(newImpl));
+        script.runNoInit(freshProxyAddr, address(newImpl));
+    }
+
+    function test_runNoInit_scriptHelper_revertsWhenProxyAndImplementationAreSwapped() public {
+        FabricaTokenUpgradeScript script = new FabricaTokenUpgradeScript();
+        (FabricaToken freshToken, address freshProxyAddr) = _freshToken(FORGE_DEFAULT_BROADCASTER);
+        vm.prank(FORGE_DEFAULT_BROADCASTER);
+        freshToken.initializeV6();
+        FabricaToken newImpl = new FabricaToken();
+        vm.expectRevert("token proxy missing implementation");
+        script.runNoInit(address(newImpl), freshProxyAddr);
+    }
+
+    function test_runV5Only_scriptHelper_preservesInitializerRevertData() public {
+        FabricaTokenUpgradeScript script = new FabricaTokenUpgradeScript();
+        (FabricaToken freshToken, address freshProxyAddr) = _freshToken(FORGE_DEFAULT_BROADCASTER);
+        vm.prank(FORGE_DEFAULT_BROADCASTER);
+        freshToken.initializeV6();
+        vm.expectRevert(abi.encodeWithSignature("InvalidInitialization()"));
+        script.runV5Only(freshProxyAddr);
+    }
+
+    function _freshToken(address admin) internal returns (FabricaToken freshToken, address freshProxyAddr) {
+        FabricaToken impl = new FabricaToken();
+        FabricaProxy freshProxy = new FabricaProxy(address(impl), admin, abi.encodeCall(FabricaToken.initialize, ()));
+        freshProxyAddr = address(freshProxy);
+        freshToken = FabricaToken(freshProxyAddr);
     }
 
     function _freshTokenWithLegacyOwner(address expectedOwner)
         internal
         returns (FabricaToken freshToken, address freshProxyAddr)
     {
-        FabricaToken impl = new FabricaToken();
-        FabricaProxy freshProxy =
-            new FabricaProxy(address(impl), proxyAdmin, abi.encodeCall(FabricaToken.initialize, ()));
-        freshProxyAddr = address(freshProxy);
-        freshToken = FabricaToken(freshProxyAddr);
+        (freshToken, freshProxyAddr) = _freshToken(proxyAdmin);
         vm.store(freshProxyAddr, bytes32(uint256(101)), bytes32(uint256(uint160(expectedOwner))));
         vm.store(freshProxyAddr, OZ_V5_OWNER_SLOT, bytes32(0));
     }

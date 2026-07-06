@@ -6,6 +6,8 @@ import {FabricaToken} from "../src/FabricaToken.sol";
 
 contract FabricaTokenUpgradeScript is Script {
     bytes32 internal constant INITIALIZABLE_SLOT = 0xf0c57e16840df040f15088dc2f81fe391c3923bec73e23a9662efc9c229c6a00;
+    bytes32 internal constant ERC1967_IMPLEMENTATION_SLOT =
+        0x360894a13ba1a3210667c828492db98dca3e2076cc3735a920a3ca505d382bbc;
 
     struct UpgradeConfig {
         address tokenProxy;
@@ -23,7 +25,7 @@ contract FabricaTokenUpgradeScript is Script {
                 tokenProxy: tokenProxy,
                 newImplementation: newImplementation,
                 initializerData: abi.encodeCall(FabricaToken.initializeV6, ()),
-                requiredInitializedVersion: 0
+                requiredInitializedVersion: 5
             })
         );
     }
@@ -54,6 +56,7 @@ contract FabricaTokenUpgradeScript is Script {
     }
 
     function _upgrade(UpgradeConfig memory config) internal {
+        _validateTargets(config.tokenProxy, config.newImplementation);
         FabricaToken proxy = FabricaToken(config.tokenProxy);
         if (config.requiredInitializedVersion != 0) {
             require(
@@ -68,6 +71,17 @@ contract FabricaTokenUpgradeScript is Script {
         proxy.upgradeToAndCall(config.newImplementation, config.initializerData);
         vm.stopBroadcast();
         _logState(proxy);
+    }
+
+    function _validateTargets(address tokenProxy, address newImplementation) internal view {
+        require(tokenProxy != address(0), "token proxy zero");
+        require(newImplementation != address(0), "new implementation zero");
+        require(tokenProxy != newImplementation, "proxy and implementation match");
+        require(tokenProxy.code.length != 0, "token proxy has no code");
+        require(newImplementation.code.length != 0, "new implementation has no code");
+        address currentImplementation = _proxyImplementation(tokenProxy);
+        require(currentImplementation != address(0), "token proxy missing implementation");
+        require(currentImplementation.code.length != 0, "current implementation has no code");
     }
 
     // Mainnet step 2 (after runWithV4): run V5 (no-op, version bump 4 -> 5).
@@ -101,6 +115,10 @@ contract FabricaTokenUpgradeScript is Script {
 
     function _initializedVersion(address tokenProxy) internal view returns (uint256) {
         return uint256(vm.load(tokenProxy, INITIALIZABLE_SLOT)) & 0xff;
+    }
+
+    function _proxyImplementation(address tokenProxy) internal view returns (address) {
+        return address(uint160(uint256(vm.load(tokenProxy, ERC1967_IMPLEMENTATION_SLOT))));
     }
 
     function _logState(FabricaToken proxy) internal view {
