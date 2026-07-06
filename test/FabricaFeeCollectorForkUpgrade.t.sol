@@ -30,6 +30,12 @@ contract FabricaFeeCollectorForkUpgradeTest is ForkTestBase {
         uint256 blockNumber;
     }
 
+    struct AuditFixAssertion {
+        address proxyAddr;
+        FabricaFeeCollector proxy;
+        address ownerAddr;
+    }
+
     address internal constant MAINNET_PROD = 0x4432CFaF8BD8d55A07D938BbC43c91DDa7672bD4;
     address internal constant MAINNET_DEVELOP = 0xF9Aa471711560F64b0813Ad46392d4D66532c74B;
     address internal constant MAINNET_STAGING = 0xD983F633B0aaE06F52C0C48cd35967f097dC2B5C;
@@ -52,7 +58,7 @@ contract FabricaFeeCollectorForkUpgradeTest is ForkTestBase {
         proxy.upgradeToAndCall(address(newImpl), "");
         assertEq(proxy.implementation(), address(newImpl), "impl not updated");
         _assertStatePreserved(proxy, state);
-        _assertAuditFixes(proxyAddr, proxy, state.ownerAddr);
+        _assertAuditFixes(AuditFixAssertion({proxyAddr: proxyAddr, proxy: proxy, ownerAddr: state.ownerAddr}));
     }
 
     function _captureState(address proxyAddr, FabricaFeeCollector proxy)
@@ -94,27 +100,27 @@ contract FabricaFeeCollectorForkUpgradeTest is ForkTestBase {
         assertEq(proxy.paused(), state.originalPaused, "paused regressed");
     }
 
-    function _assertAuditFixes(address proxyAddr, FabricaFeeCollector proxy, address ownerAddr) internal {
+    function _assertAuditFixes(AuditFixAssertion memory assertion) internal {
         // ENG-2548 fix is now live: the bound reverts with the custom error.
-        vm.prank(ownerAddr);
+        vm.prank(assertion.ownerAddr);
         vm.expectRevert(abi.encodeWithSelector(FabricaFeeCollector.ProtocolSharePercentExceedsMaximum.selector, 101));
-        proxy.setProtocolSharePercent(101);
+        assertion.proxy.setProtocolSharePercent(101);
         // ENG-2547 fix is now live: a returns-false token makes collectFee
         // revert via SafeERC20 instead of silently succeeding.
         MockERC20ReturnsFalse token = new MockERC20ReturnsFalse();
         token.mint(OBLIGOR, 1_000);
         vm.prank(OBLIGOR);
-        token.approve(proxyAddr, 1_000);
+        token.approve(assertion.proxyAddr, 1_000);
         // collectFee is whenNotPaused; unpause on the fork only if needed so the
         // SafeERC20 assertion is what actually trips.
-        if (proxy.paused()) {
-            vm.prank(ownerAddr);
-            (bool ok,) = proxyAddr.call(abi.encodeWithSignature("unpause()"));
+        if (assertion.proxy.paused()) {
+            vm.prank(assertion.ownerAddr);
+            (bool ok,) = assertion.proxyAddr.call(abi.encodeWithSignature("unpause()"));
             assertTrue(ok, "unpause failed on fork");
         }
-        vm.prank(ownerAddr);
+        vm.prank(assertion.ownerAddr);
         vm.expectRevert(abi.encodeWithSignature("SafeERC20FailedOperation(address)", address(token)));
-        proxy.collectFee(1, "onramp", OBLIGOR, address(token), 1_000);
+        assertion.proxy.collectFee(1, "onramp", OBLIGOR, address(token), 1_000);
     }
 
     function _verifyForkUpgrade(ForkConfig memory config, address proxyAddr) internal {
