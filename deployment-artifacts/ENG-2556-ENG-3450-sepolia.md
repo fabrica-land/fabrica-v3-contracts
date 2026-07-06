@@ -1,8 +1,15 @@
 # ENG-2556 / ENG-3450 Sepolia Deployment Evidence
 
-Contracts repo head: `a6eb23ff81958fb54d569e26d9af826424361610`
+Broadcast base commit: `a6eb23ff81958fb54d569e26d9af826424361610`
 Network: Sepolia (`11155111`)
 Signer address: `0xBF03076547a99857b796717faF4034dea94569dF`
+
+The implementation deployments use bytecode from merged source at the broadcast
+base commit. The token proxy upgrade required `runNoInit(address,address)`
+because the live proxy was already initialized to version 6; Foundry recorded
+the base commit in the broadcast JSON while that local script helper was still
+uncommitted. This PR commits and reviews the `runNoInit` helper that produced
+the empty-data token upgrade transaction.
 
 ## Deployment Summary
 
@@ -101,8 +108,8 @@ token implementation: 0x632eB7A76041B33b070213Cf11d518e84E556391
 fee collector implementation: 0x38EA0c1c84E51ce5dA0a266c0E33DDDb91fFc296
 
 Ran 1 test for test/Eng2556Eng3450SepoliaForkFV.t.sol:Eng2556Eng3450SepoliaForkFVTest
-[PASS] test_fork_collectFee_revertsWhenResolvedValidatorZeroAfterSepoliaUpgrade() (gas: 351315)
+[PASS] test_fork_collectFee_revertsWhenResolvedValidatorZeroAfterSepoliaUpgrade() (gas: 1013674)
 Suite result: ok. 1 passed; 0 failed; 0 skipped
 ```
 
-The fork test zeroes only the forked `defaultValidator` storage slot, calls the upgraded fee collector proxy, expects `ValidatorAddressZero()`, and asserts the ERC-20 transfer rolls back.
+The fork test zeroes only the forked `defaultValidator` storage slot, calls all three upgraded fee collector proxies, expects `ValidatorAddressZero()`, and asserts the ERC-20 transfer rolls back for each proxy.

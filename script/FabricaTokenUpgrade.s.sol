@@ -7,12 +7,12 @@ import {FabricaToken} from "../src/FabricaToken.sol";
 contract FabricaTokenUpgradeScript is Script {
     function setUp() public {}
 
-    // Sepolia (ENG-3145): already at _initialized = 5. Upgrade impl + run V6 (no-op, 5 -> 6).
+    // Sepolia-like environments still at _initialized = 5: upgrade impl + run V6 (no-op, 5 -> 6).
     function run(address tokenProxy, address newImplementation) public {
         _upgrade(tokenProxy, newImplementation, abi.encodeCall(FabricaToken.initializeV6, ()));
     }
 
-    // Sepolia after ENG-3145: already at _initialized = 6. Upgrade impl only.
+    // Current Sepolia: already at _initialized = 6. Upgrade impl only.
     function runNoInit(address tokenProxy, address newImplementation) public {
         _upgrade(tokenProxy, newImplementation, "");
     }
@@ -23,35 +23,38 @@ contract FabricaTokenUpgradeScript is Script {
         _upgrade(tokenProxy, newImplementation, abi.encodeCall(FabricaToken.initializeV4, ()));
     }
 
-    function _upgrade(address tokenProxy, address newImplementation, bytes memory data) internal {
+    function _upgrade(address tokenProxy, address newImplementation, bytes memory initializerData) internal {
         FabricaToken proxy = FabricaToken(tokenProxy);
         console.log("Proxy address:", tokenProxy);
         console.log("Current implementation:", proxy.implementation());
         console.log("Upgrading to:", newImplementation);
         vm.startBroadcast();
-        proxy.upgradeToAndCall(newImplementation, data);
+        proxy.upgradeToAndCall(newImplementation, initializerData);
         vm.stopBroadcast();
         _logState(proxy);
     }
 
     // Mainnet step 2 (after runWithV4): run V5 (no-op, version bump 4 -> 5).
     function runV5Only(address tokenProxy) public {
-        FabricaToken proxy = FabricaToken(tokenProxy);
-        console.log("Proxy address:", tokenProxy);
-        console.log("Running initializeV5 (no-op, version bump)");
-        vm.startBroadcast();
-        proxy.initializeV5();
-        vm.stopBroadcast();
-        _logState(proxy);
+        _runInitializer(
+            tokenProxy, "Running initializeV5 (no-op, version bump)", abi.encodeCall(FabricaToken.initializeV5, ())
+        );
     }
 
     // Mainnet step 3 (after runV5Only): run V6 (ENG-3145 no-op version stamp, 5 -> 6).
     function runV6Only(address tokenProxy) public {
+        _runInitializer(
+            tokenProxy, "Running initializeV6 (no-op, version bump)", abi.encodeCall(FabricaToken.initializeV6, ())
+        );
+    }
+
+    function _runInitializer(address tokenProxy, string memory label, bytes memory initializerData) internal {
         FabricaToken proxy = FabricaToken(tokenProxy);
         console.log("Proxy address:", tokenProxy);
-        console.log("Running initializeV6 (no-op, version bump)");
+        console.log(label);
         vm.startBroadcast();
-        proxy.initializeV6();
+        (bool ok,) = tokenProxy.call(initializerData);
+        require(ok, "initializer call failed");
         vm.stopBroadcast();
         _logState(proxy);
     }

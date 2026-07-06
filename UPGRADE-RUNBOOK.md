@@ -35,11 +35,13 @@ FabricaToken has versioned initializers:
 | 3 | `initializeV3()` | `onlyProxyAdmin reinitializer(3)` | Emits `TraitMetadataURIUpdated` |
 | 4 | `initializeV4()` | `onlyProxyAdmin reinitializer(4)` | **OZ v4→v5 owner migration** — reads slot 101, writes ERC-7201 slot. Deployed on Sepolia 2025-02-12. |
 | 5 | `initializeV5()` | `onlyProxyAdmin reinitializer(5)` | **No-op** — consumed during `__legacy_gap` storage fix upgrade. Bumps version only. |
+| 6 | `initializeV6()` | `onlyProxyAdmin reinitializer(6)` | **No-op** — consumed during the ENG-3145 version-stamp rollout. Bumps version only. |
 
 Reinitializers can be skipped — `reinitializer(N)` only requires the stored
-version to be < N. On Sepolia, V4 was already consumed (2025-02-12), so only V5
-is needed. On mainnet and Base Sepolia, V4 must run first (owner migration),
-then V5 bumps the version.
+version to be < N. Sepolia is already at V6 after the 2026-07-06 rollout, so
+future implementation-only Sepolia upgrades use empty upgrade data unless a new
+reinitializer is added. On mainnet and Base Sepolia, V4 must run first (owner
+migration), then V5 and V6 bump the version to match the current chain.
 
 ## OZ v4→v5 Storage Migration
 
@@ -269,4 +271,6 @@ When adding a new reinitializer after the existing V6 stamp (e.g., `initializeV7
    `defaultValidator`, and all other state reads. Owner migration (V4) succeeded
    but the slot shift broke everything else.
 4. Fix: `__legacy_gap[301]` added to restore original storage layout.
-   `initializeV5()` (no-op) pairs with the structural fix. Pending redeployment.
+   `initializeV5()` and `initializeV6()` are no-op version stamps. The Sepolia
+   redeployment completed on 2026-07-06 with empty upgrade data because V6 had
+   already been consumed.
