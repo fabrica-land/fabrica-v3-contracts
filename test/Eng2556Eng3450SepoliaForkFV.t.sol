@@ -45,6 +45,11 @@ contract Eng2556Eng3450SepoliaForkFVTest is ForkTestBase {
         currency.mint(OBLIGOR, 1_000);
         vm.prank(OBLIGOR);
         currency.approve(feeProxy, 1_000);
+        if (collector.paused()) {
+            vm.prank(collector.owner());
+            (bool ok,) = feeProxy.call(abi.encodeWithSignature("unpause()"));
+            assertTrue(ok, "unpause failed on fork");
+        }
         vm.prank(collector.owner());
         vm.expectRevert(FabricaFeeCollector.ValidatorAddressZero.selector);
         collector.collectFee(1, "onramp", OBLIGOR, address(currency), 1_000);
