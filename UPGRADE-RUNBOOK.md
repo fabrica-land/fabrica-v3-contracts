@@ -212,6 +212,8 @@ forge script script/FabricaTokenUpgrade.s.sol \
   --broadcast \
   --account "$PROXY_ADMIN_ACCOUNT"
 
+export EXPECTED_CURRENT_IMPLEMENTATION=<NEW_IMPL_ADDRESS>
+
 # Then run V5 (no-op, bumps version from 4 to 5)
 forge script script/FabricaTokenUpgrade.s.sol \
   --sig "runV5Only(address)" <PROXY_ADDRESS> \
