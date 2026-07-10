@@ -242,12 +242,13 @@ contract FabricaToken is
      * EIP-1155 defines no name/symbol metadata — only per-token `uri(id)`.
      * NFT tooling that needs a collection symbol therefore reads the EIP-721
      * Metadata extension getter `symbol()`, whose selector (0x95d89b41) is
-     * interface-agnostic. MetaStreet's lending-pool deposit token does exactly
+     * interface-agnostic. The Fabrica lending pool's deposit token does exactly
      * this: it reads the collateral collection's symbol via
-     * `IERC721Metadata(collateralToken).symbol()` (see
-     * src/fabrica-lending-pools/tokenization/ERC20DepositTokenImplementation.sol).
+     * `IERC721Metadata(collateralToken).symbol()` (see the
+     * fabrica-land/metastreet-contracts-v2 fork,
+     * contracts/tokenization/ERC20DepositTokenImplementation.sol).
      * Exposing the getter here lets the Fabrica 1155 collection report a symbol
-     * to MetaStreet and other NFT-metadata consumers. The symbol is a compiled
+     * to the lending pool and other NFT-metadata consumers. The symbol is a compiled
      * constant, so it requires no storage and survives proxy upgrades unchanged.
      *
      * @return The Fabrica collection symbol.
