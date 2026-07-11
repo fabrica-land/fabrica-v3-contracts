@@ -17,7 +17,7 @@ import {ISettlementPool} from "./interfaces/ISettlementPool.sol";
 import {ISettlementMorpho, ISettlementMorphoFlashLoanCallback} from "./interfaces/ISettlementMorpho.sol";
 import {SettlementLoanReceipt} from "./libraries/SettlementLoanReceipt.sol";
 
-/// @notice Atomically repays a MetaStreet v2 loan and fills its collateral's Seaport listing.
+/// @notice Fills a Fabrica Seaport listing, atomically repaying an active MetaStreet v2 loan when needed.
 contract FabricaSettlement is
     Ownable2Step,
     Pausable,
@@ -43,12 +43,12 @@ contract FabricaSettlement is
 
     event PoolAllowedSet(address indexed pool, bool allowed);
 
-    /// @notice Emitted after the loan payoff and Seaport purchase complete atomically.
+    /// @notice Emitted after the Seaport purchase and any required loan payoff complete atomically.
     /// @param orderHash Seaport hash of the original, tip-free order.
     /// @param tokenId Fabrica collateral token ID purchased by the buyer.
     /// @param buyer Recipient of the collateral; this may differ from the permissionless caller.
-    /// @param seller Borrower whose loan was repaid and whose order was filled.
-    /// @param pool Allowlisted lending pool repaid by the settlement.
+    /// @param seller Offerer whose order was filled and, on the payoff path, borrower whose loan was repaid.
+    /// @param pool Allowlisted lending pool associated with the collateral.
     /// @param price Full signed Seaport consideration total funded by the caller.
     /// @param payoffPaid Actual currency amount consumed by the pool repayment.
     /// @param sellerClawback Actual loan payoff pulled from the seller after the sale.
@@ -101,12 +101,13 @@ contract FabricaSettlement is
         }
     }
 
-    /// @notice Atomically repays a loan and buys its released collateral through Seaport.
-    /// @dev Calling is permissionless. The full signed consideration is pulled from `msg.sender`, the seller's
-    ///      actual payoff is clawed back after fulfillment, and collateral is sent directly to `buyer`.
+    /// @notice Buys collateral through Seaport, first repaying its loan when the pool still holds it.
+    /// @dev Calling is permissionless. The full signed consideration is pulled from `msg.sender`; when the pool
+    ///      still holds the collateral, the seller's actual payoff is clawed back after fulfillment. Collateral
+    ///      is sent directly to `buyer` on both paths.
     /// @param order Signed Seaport order with static ERC-20 consideration and no appended tips.
-    /// @param pool Allowlisted pool holding the collateral.
-    /// @param encodedLoanReceipt Pool-specific encoded receipt describing the loan.
+    /// @param pool Allowlisted pool associated with the collateral.
+    /// @param encodedLoanReceipt Pool-specific encoded receipt, used only while the pool holds the collateral.
     /// @param buyer Collateral recipient, which need not be `msg.sender`.
     function settleAndBuy(AdvancedOrder calldata order, address pool, bytes calldata encodedLoanReceipt, address buyer)
         external
@@ -116,13 +117,35 @@ contract FabricaSettlement is
         if (pool == address(0) || buyer == address(0)) revert InvalidAddress();
         if (!allowedPools[pool]) revert PoolNotAllowed(pool);
 
-        SettlementLoanReceipt.Details memory receipt = SettlementLoanReceipt.decode(encodedLoanReceipt);
-        (IERC20 currency, uint256 legsTotal, uint256 maxRepayment) = _validate(order, receipt, pool);
+        (IERC20 currency, uint256 legsTotal) = _validateOrder(order, pool);
         uint256 balanceBefore = currency.balanceOf(address(this));
-        if (maxRepayment > type(uint256).max - legsTotal) revert InvalidConsideration();
-        uint256 buyerFunding = legsTotal;
-        uint256 requiredFunding = legsTotal + maxRepayment;
-        uint256 flashAmount = requiredFunding - buyerFunding;
+        bool underLoan = IERC1155(order.parameters.offer[0].token)
+            .balanceOf(pool, order.parameters.offer[0].identifierOrCriteria) >= 1;
+
+        if (!underLoan) {
+            _executeDirect(order, pool, buyer, msg.sender, currency, legsTotal);
+            uint256 directBalance = currency.balanceOf(address(this));
+            if (directBalance != balanceBefore) revert SettlementBalanceNotZero(directBalance);
+            return;
+        }
+
+        _settleUnderLoan(order, pool, encodedLoanReceipt, buyer, currency, legsTotal);
+
+        uint256 balance = currency.balanceOf(address(this));
+        if (balance != balanceBefore) revert SettlementBalanceNotZero(balance);
+    }
+
+    function _settleUnderLoan(
+        AdvancedOrder calldata order,
+        address pool,
+        bytes calldata encodedLoanReceipt,
+        address buyer,
+        IERC20 currency,
+        uint256 legsTotal
+    ) private {
+        SettlementLoanReceipt.Details memory receipt = SettlementLoanReceipt.decode(encodedLoanReceipt);
+        uint256 flashAmount = _validateReceipt(order, receipt, currency);
+        if (flashAmount > type(uint256).max - legsTotal) revert InvalidConsideration();
         SettlementData memory settlementData = SettlementData({
             order: order,
             pool: pool,
@@ -130,7 +153,7 @@ contract FabricaSettlement is
             buyer: buyer,
             payer: msg.sender,
             legsTotal: legsTotal,
-            maxRepayment: maxRepayment,
+            maxRepayment: flashAmount,
             receipt: receipt,
             currency: address(currency)
         });
@@ -144,9 +167,6 @@ contract FabricaSettlement is
             _settlementInFlight = false;
             _callbackHash = bytes32(0);
         }
-
-        uint256 balance = currency.balanceOf(address(this));
-        if (balance != balanceBefore) revert SettlementBalanceNotZero(balance);
     }
 
     /// @notice Executes settlement during the authenticated Morpho flash-loan callback.
@@ -159,9 +179,7 @@ contract FabricaSettlement is
         SettlementData memory settlementData = abi.decode(data, (SettlementData));
         _settlementInFlight = false;
         _callbackHash = bytes32(0);
-        uint256 buyerFunding = settlementData.legsTotal;
-        uint256 requiredFunding = settlementData.legsTotal + settlementData.maxRepayment;
-        uint256 expected = requiredFunding - buyerFunding;
+        uint256 expected = settlementData.maxRepayment;
         if (assets != expected) revert FlashAmountMismatch(assets, expected);
 
         _execute(settlementData);
@@ -208,10 +226,10 @@ contract FabricaSettlement is
         IERC1155(token).safeTransferFrom(address(this), recipient, id, amount, data);
     }
 
-    function _validate(AdvancedOrder calldata order, SettlementLoanReceipt.Details memory receipt, address pool)
+    function _validateOrder(AdvancedOrder calldata order, address pool)
         private
         view
-        returns (IERC20 currency, uint256 legsTotal, uint256 maxRepayment)
+        returns (IERC20 currency, uint256 legsTotal)
     {
         if (
             order.numerator == 0 || order.numerator != order.denominator || order.parameters.offer.length != 1
@@ -219,25 +237,16 @@ contract FabricaSettlement is
         ) revert InvalidOrder();
 
         if (
-            order.parameters.offerer != receipt.borrower || order.parameters.offer[0].itemType != ItemType.ERC1155
-                || order.parameters.offer[0].token != receipt.collateralToken
-                || order.parameters.offer[0].identifierOrCriteria != receipt.collateralTokenId
-                || order.parameters.offer[0].startAmount != 1 || order.parameters.offer[0].endAmount != 1
-        ) revert ReceiptOrderMismatch();
+            order.parameters.offer[0].itemType != ItemType.ERC1155 || order.parameters.offer[0].startAmount != 1
+                || order.parameters.offer[0].endAmount != 1
+        ) revert InvalidOrder();
 
         address currencyAddress = ISettlementPool(pool).currencyToken();
         if (currencyAddress == address(0)) revert InvalidAddress();
         currency = IERC20(currencyAddress);
-        uint8 decimals = IERC20Metadata(currencyAddress).decimals();
-        if (decimals > 18) revert UnsupportedCurrencyDecimals(currencyAddress, decimals);
-        uint256 factor = 10 ** (18 - decimals);
-        maxRepayment = receipt.maxRepayment / factor;
-        if (receipt.maxRepayment % factor != 0) ++maxRepayment;
-
         uint256 length = order.parameters.consideration.length;
         if (length == 0) revert InvalidConsideration();
         if (order.parameters.totalOriginalConsiderationItems != length) revert UnexpectedConsiderationTip();
-        bool hasSellerProceedsLeg = false;
         for (uint256 i; i < length; ++i) {
             if (
                 order.parameters.consideration[i].itemType != ItemType.ERC20
@@ -246,9 +255,58 @@ contract FabricaSettlement is
                     || order.parameters.consideration[i].startAmount != order.parameters.consideration[i].endAmount
             ) revert InvalidConsideration();
             legsTotal += order.parameters.consideration[i].startAmount;
+        }
+    }
+
+    function _validateReceipt(
+        AdvancedOrder calldata order,
+        SettlementLoanReceipt.Details memory receipt,
+        IERC20 currency
+    ) private view returns (uint256 maxRepayment) {
+        if (
+            order.parameters.offerer != receipt.borrower || order.parameters.offer[0].token != receipt.collateralToken
+                || order.parameters.offer[0].identifierOrCriteria != receipt.collateralTokenId
+        ) revert ReceiptOrderMismatch();
+
+        bool hasSellerProceedsLeg = false;
+        for (uint256 i; i < order.parameters.consideration.length; ++i) {
             if (order.parameters.consideration[i].recipient == receipt.borrower) hasSellerProceedsLeg = true;
         }
         if (!hasSellerProceedsLeg) revert SellerRecipientMismatch();
+
+        uint8 decimals = IERC20Metadata(address(currency)).decimals();
+        if (decimals > 18) revert UnsupportedCurrencyDecimals(address(currency), decimals);
+        uint256 factor = 10 ** (18 - decimals);
+        maxRepayment = receipt.maxRepayment / factor;
+        if (receipt.maxRepayment % factor != 0) ++maxRepayment;
+    }
+
+    function _executeDirect(
+        AdvancedOrder calldata order,
+        address pool,
+        address buyer,
+        address payer,
+        IERC20 currency,
+        uint256 legsTotal
+    ) private {
+        currency.safeTransferFrom(payer, address(this), legsTotal);
+        currency.forceApprove(address(seaport), legsTotal);
+        CriteriaResolver[] memory resolvers = new CriteriaResolver[](0);
+        if (!seaport.fulfillAdvancedOrder(order, resolvers, bytes32(0), buyer)) {
+            revert SeaportFulfillmentFailed();
+        }
+        currency.forceApprove(address(seaport), 0);
+
+        emit SettlementExecuted(
+            _orderHash(order),
+            order.parameters.offer[0].identifierOrCriteria,
+            buyer,
+            order.parameters.offerer,
+            pool,
+            legsTotal,
+            0,
+            0
+        );
     }
 
     function _execute(SettlementData memory settlementData) private {

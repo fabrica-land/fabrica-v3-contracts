@@ -1,8 +1,10 @@
 # FabricaSettlement v1
 
-`FabricaSettlement` atomically pays off one active Fabrica/MetaStreet v2 loan and fills one full-price, static Seaport 1.6 ERC-1155 sale. It deliberately has no financing, downpayment, reduced-price, or caller-selected funding mode.
+`FabricaSettlement` fills one full-price, static Seaport 1.6 ERC-1155 sale. If an allowlisted Fabrica/MetaStreet v2 pool still holds the raw ERC-1155, settlement atomically pays off the active loan first. If the pool no longer holds it, settlement directly fills the order without a flash loan, repayment, or seller clawback. It deliberately has no financing, downpayment, reduced-price, or caller-selected funding mode.
 
-## Sequence
+## Under-loan payoff path
+
+Settlement detects an active loan by checking whether the supplied pool holds at least one unit of the order's raw ERC-1155 token ID. When it does, the existing payoff sequence is unchanged:
 
 ```text
 caller/buyer        settlement          Morpho              pool              Seaport          seller / buyer
@@ -20,6 +22,12 @@ caller/buyer        settlement          Morpho              pool              Se
 
 The caller is `msg.sender` and pays exactly the sum of the signed consideration legs. The caller need not be `buyer`, which supports relayed purchases. The zone and signed `extraData` pass through unchanged. Seaport sends the ERC-1155 directly to `buyer`, saving an intermediate transfer.
 
+## No-loan direct path
+
+If the allowlisted pool no longer holds the offered token, settlement pulls the full signed consideration total from the caller and calls `fulfillAdvancedOrder(..., recipient=buyer)` directly. It does not decode or validate the loan receipt, request a Morpho flash loan, call `pool.repay`, or pull a payoff from the seller. `SettlementExecuted` reports both `payoffPaid` and `sellerClawback` as zero.
+
+This path handles the Coinflow race where a buyer's relayed transaction is in flight but the seller repays the loan before `settleAndBuy` executes. Once repayment returns the raw token to the seller, the signed Seaport sale can still complete and deliver it to the buyer.
+
 ## Accounting
 
 Let `P = legsTotal`, `M = receipt.maxRepayment` after decimal scaling, and `L = actual payoff` measured from the settlement contract's balance delta.
@@ -31,7 +39,7 @@ Let `P = legsTotal`, `M = receipt.maxRepayment` after decimal scaling, and `L = 
 - Settlement pulls exactly `L` from the seller (`receipt.borrower`).
 - The unused `M - L` plus the clawed-back `L` repays the full flash principal `M`.
 
-The contract snapshots its currency balance at entry and requires the same balance after settlement. Pre-existing donations therefore remain untouched and do not block settlement; the owner can recover them with `rescueERC20`.
+The contract snapshots its currency balance at entry and requires the same balance after settlement on both paths. On the direct path, the caller's `P` enters settlement and Seaport consumes the same `P`, restoring the entry balance. Pre-existing donations therefore remain untouched and do not block settlement; the owner can recover them with `rescueERC20`.
 
 ## Worked example
 
@@ -45,9 +53,9 @@ A single-use EIP-2612 or Permit2 authorization can replace the standing allowanc
 
 ## Validation and trust model
 
-Only owner-allowlisted pools may be repaid. The allowlist is a security boundary: operations must validate pool implementations and addresses before adding them and remove pools that should no longer receive settlements.
+Only owner-allowlisted pools may be supplied, including on the no-loan path. The allowlist is a security boundary: operations must validate pool implementations and addresses before adding them and remove pools that should no longer receive settlements.
 
-The receipt borrower must be the Seaport offerer. The receipt collateral must match the order's single static ERC-1155 offer of amount one. As defense in depth, the borrower must be a recipient of at least one consideration leg. All consideration legs must be static ERC-20 amounts in the pool currency, and appended Seaport tips are rejected. Currency decimals must be at most 18.
+Every order must contain one static ERC-1155 offer of amount one, use no conduit, represent a full fill, and contain only static ERC-20 consideration in the pool currency with no appended tips. On the under-loan path, the receipt borrower must additionally be the Seaport offerer, the receipt collateral must match the offer, and the borrower must receive at least one consideration leg. The receipt is intentionally ignored on the no-loan path. Currency decimals must be at most 18 when scaling an active loan's maximum repayment.
 
 Only conventional, non-fee-on-transfer, non-rebasing ERC-20 currencies are supported. The owner pool allowlist implicitly constrains supported currencies because settlement reads the currency from `pool.currencyToken()`.
 
@@ -60,15 +68,16 @@ Only conventional, non-fee-on-transfer, non-rebasing ERC-20 currencies are suppo
 | Zero pool or buyer | `InvalidAddress`. |
 | Constructor Seaport, Morpho, or initial pool has no code | `NotAContract`. |
 | Pool is not owner-allowlisted | `PoolNotAllowed`. |
-| Bad receipt encoding/version | `InvalidReceiptEncoding`. |
+| Bad receipt encoding/version while pool holds the token | `InvalidReceiptEncoding`. The receipt is ignored otherwise. |
 | Partial/zero fraction, nonzero conduit key, or offer count other than one | `InvalidOrder`. |
-| Offer is not one static ERC-1155 unit, borrower is not offerer, or collateral differs | `ReceiptOrderMismatch`. |
+| Offer is not one static ERC-1155 unit | `InvalidOrder`. |
+| Active-loan receipt borrower is not offerer or receipt collateral differs | `ReceiptOrderMismatch`. |
 | Empty, non-ERC-20, non-static, identified, wrong-currency, or overflowing consideration | `InvalidConsideration`. |
 | Borrower/offerer receives no consideration leg | `SellerRecipientMismatch`. |
 | Appended consideration changes the original consideration count | `UnexpectedConsiderationTip`. |
 | Pool currency has more than 18 decimals | `UnsupportedCurrencyDecimals`. |
-| Loan already repaid/inactive or payoff exceeds the receipt maximum | Pool `repay` reverts; the transaction is atomic. |
-| Missing or insufficient seller allowance | Seller `safeTransferFrom` reverts. |
+| Pool holds the collateral but repayment is inactive or payoff exceeds the receipt maximum | Pool `repay` reverts; the transaction is atomic. |
+| Missing or insufficient seller allowance on the payoff path | Seller `safeTransferFrom` reverts. |
 | Invalid/expired zone permission or invalid Seaport signature/order | Seaport/zone reverts. |
 | Seaport returns false | `SeaportFulfillmentFailed`. |
 | Callback is not configured Morpho, not in flight, or data differs | `UnauthorizedFlashCallback`. |

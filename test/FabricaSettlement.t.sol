@@ -31,6 +31,7 @@ contract SettlementTestPool is ERC1155Holder {
     uint256 public immutable tokenId;
     uint256 public payoff;
     bool public active = true;
+    uint256 public repayCalls;
 
     constructor(
         IERC20 currency_,
@@ -48,6 +49,7 @@ contract SettlementTestPool is ERC1155Holder {
 
     function repay(bytes calldata) external {
         require(active, "inactive");
+        ++repayCalls;
         active = false;
         currencyToken.transferFrom(msg.sender, address(this), payoff);
         collateral.safeTransferFrom(address(this), borrower, tokenId, 1, "");
@@ -72,6 +74,7 @@ contract SettlementTestMorpho {
     IERC20 public immutable token;
     bool public underpull;
     bool public doubleCallback;
+    uint256 public flashLoanCalls;
 
     constructor(IERC20 token_) {
         token = token_;
@@ -86,6 +89,7 @@ contract SettlementTestMorpho {
     }
 
     function flashLoan(address tokenAddress, uint256 assets, bytes calldata data) external {
+        ++flashLoanCalls;
         require(tokenAddress == address(token), "token");
         token.transfer(msg.sender, assets);
         ISettlementMorphoFlashLoanCallback(msg.sender).onMorphoFlashLoan(assets, data);
@@ -239,14 +243,61 @@ contract FabricaSettlementTest is Test {
         assertEq(usdc.balanceOf(address(settlement)), donation);
     }
 
-    function test_revert_loanAlreadyRepaid() public {
+    function test_noLoan_directFulfillment() public {
+        SettlementTestPool directPool = new SettlementTestPool(IERC20(address(usdc)), nft, seller, TOKEN_ID, PAYOFF);
+        settlement.setPoolAllowed(address(directPool), true);
+        nft.mint(seller, TOKEN_ID);
         AdvancedOrder memory order = _order(PRICE - FEE, false);
+
+        vm.expectEmit(true, true, true, true, address(settlement));
+        emit FabricaSettlement.SettlementExecuted(
+            keccak256(abi.encode(seller, order.parameters.salt)),
+            TOKEN_ID,
+            buyer,
+            seller,
+            address(directPool),
+            PRICE,
+            0,
+            0
+        );
         vm.prank(payer);
-        settlement.settleAndBuy(order, address(pool), receipt, buyer);
-        usdc.mint(payer, PRICE);
+        settlement.settleAndBuy(order, address(directPool), hex"ff", buyer);
+
+        assertEq(nft.balanceOf(buyer, TOKEN_ID), 1);
+        assertEq(usdc.balanceOf(seller), PRICE - FEE);
+        assertEq(usdc.balanceOf(feeRecipient), FEE);
+        assertEq(usdc.balanceOf(address(settlement)), 0);
+        assertEq(usdc.balanceOf(payer), 0);
+        assertEq(morpho.flashLoanCalls(), 0);
+        assertEq(directPool.repayCalls(), 0);
+        assertEq(usdc.allowance(seller, address(settlement)), MAX_REPAYMENT);
+    }
+
+    function test_coinflowRace_repaidMidFlight() public {
+        usdc.mint(seller, PAYOFF);
+        vm.startPrank(seller);
+        usdc.approve(address(pool), PAYOFF);
+        pool.repay(receipt);
+        vm.stopPrank();
+
+        assertEq(nft.balanceOf(address(pool), TOKEN_ID), 0);
+        assertEq(nft.balanceOf(seller, TOKEN_ID), 1);
+
+        AdvancedOrder memory order = _order(PRICE - FEE, false);
+        vm.expectEmit(true, true, true, true, address(settlement));
+        emit FabricaSettlement.SettlementExecuted(
+            keccak256(abi.encode(seller, order.parameters.salt)), TOKEN_ID, buyer, seller, address(pool), PRICE, 0, 0
+        );
         vm.prank(payer);
-        vm.expectRevert("inactive");
-        settlement.settleAndBuy(order, address(pool), receipt, buyer);
+        settlement.settleAndBuy(order, address(pool), hex"ff", buyer);
+
+        assertEq(nft.balanceOf(buyer, TOKEN_ID), 1);
+        assertEq(usdc.balanceOf(seller), PRICE - FEE);
+        assertEq(usdc.balanceOf(feeRecipient), FEE);
+        assertEq(usdc.balanceOf(address(settlement)), 0);
+        assertEq(usdc.balanceOf(payer), 0);
+        assertEq(morpho.flashLoanCalls(), 0);
+        assertEq(pool.repayCalls(), 1);
     }
 
     function test_revert_underwaterAtExecution() public {
