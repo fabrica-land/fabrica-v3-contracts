@@ -28,6 +28,7 @@ contract FabricaSettlement is
     using SafeERC20 for IERC20;
 
     error InvalidAddress();
+    error NotAContract(address account);
     error InvalidOrder();
     error InvalidConsideration();
     error ReceiptOrderMismatch();
@@ -99,10 +100,13 @@ contract FabricaSettlement is
     /// @param initialPools Lending pools permitted at deployment.
     constructor(address seaport_, address morpho_, address owner_, address[] memory initialPools) Ownable(owner_) {
         if (seaport_ == address(0) || morpho_ == address(0) || owner_ == address(0)) revert InvalidAddress();
+        if (seaport_.code.length == 0) revert NotAContract(seaport_);
+        if (morpho_.code.length == 0) revert NotAContract(morpho_);
         seaport = ConsiderationInterface(seaport_);
         morpho = ISettlementMorpho(morpho_);
         for (uint256 i; i < initialPools.length; ++i) {
             if (initialPools[i] == address(0)) revert InvalidAddress();
+            if (initialPools[i].code.length == 0) revert NotAContract(initialPools[i]);
             allowedPools[initialPools[i]] = true;
             emit PoolAllowedSet(initialPools[i], true);
         }
@@ -294,7 +298,9 @@ contract FabricaSettlement is
             // The "arbitrary from" here is intentional and consent-gated: SellerAllowance (Shape B)
             // pulls the payoff shortfall from the borrower's own wallet using the allowance the borrower
             // granted to this contract. `receipt.borrower == order.offerer` is enforced in _validate, and
-            // the borrower is required to be a seller-proceeds recipient, so they receive funds in the same tx.
+            // the presence-only guard requires the borrower to be a proceeds recipient, but does not ensure that
+            // leg covers the clawback. The residual is a seller footgun because borrower == offerer signs the order;
+            // ENG-3507 closes it in practice by always routing all seller proceeds through the borrower leg.
             // slither-disable-next-line arbitrary-send-erc20
             currency.safeTransferFrom(settlementData.receipt.borrower, address(this), sellerClawback);
         } else if (headroom > payoff) {

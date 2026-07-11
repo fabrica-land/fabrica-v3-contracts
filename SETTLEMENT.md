@@ -55,6 +55,7 @@ Hybrids use exactly the same equations.
 | Paused entrypoint | OZ `EnforcedPause`; operations can stop new settlements. |
 | Reentrant `settle` | OZ `ReentrancyGuardReentrantCall`. |
 | Zero pool or buyer | `InvalidAddress`. |
+| Constructor Seaport, Morpho, or initial pool has no code | `NotAContract`. |
 | Pool is not owner-allowlisted | `PoolNotAllowed`. |
 | Bad receipt encoding/version | `InvalidReceiptEncoding`. |
 | Partial/zero fraction or offer count other than one | `InvalidOrder`. |
@@ -62,6 +63,8 @@ Hybrids use exactly the same equations.
 | Receipt borrower is not offerer | `ReceiptOrderMismatch`. |
 | Receipt collateral token/id differs from offer | `ReceiptOrderMismatch`. |
 | Empty, non-ERC-20, non-static, identified, or wrong-currency consideration | `InvalidConsideration`. |
+| `SellerAllowance` order has no borrower-recipient consideration leg | `SellerRecipientMismatch`. |
+| Appended consideration changes the original consideration count | `UnexpectedConsiderationTip`. |
 | Consideration total exceeds the declared full price | `PriceBelowConsideration`. |
 | `PriceHeadroom` price does not cover consideration plus maximum repayment | `PriceBelowHeadroom`. |
 | `PriceHeadroom` unexpectedly reaches a seller clawback | `UnexpectedClawback`. |
@@ -95,16 +98,16 @@ If the seller self-repays and then a third party directly fills a still-live Sha
 
 ## Deployment
 
-Morpho Blue is deployed on Sepolia at the canonical address `0xBBBBBbbBBb9cC5e90e3b3Af64bDAF62C37EEFFCb` (bytecode verified 2026-07-11), the same address as mainnet. The Sepolia Fabrica fork pool is `0x6C56d0953377D7AB479BBA85Da8d61050F774c0B`. If a network lacks a Morpho deployment, operations must supply or deploy a compatible zero-fee flash provider and set its address explicitly.
+Morpho Blue is deployed on Sepolia at the canonical address `0xBBBBBbbBBb9cC5e90e3b3Af64bdAF62C37EEFFCb` (bytecode verified 2026-07-11), the same address as mainnet. The Sepolia Fabrica fork pool is `0x6C56d0953377D7AB479BBA85Da8d61050F774c0B`. If a network lacks a Morpho deployment, operations must supply or deploy a compatible zero-fee flash provider, set its address explicitly, and export `SETTLEMENT_ALLOW_NON_CANONICAL_MORPHO=true`.
 
 Sepolia deployment runbook:
 
 1. Export the required constructor inputs and RPC/API credentials. `SETTLEMENT_INITIAL_POOLS` remains a comma-separated address list.
 
 ```sh
-export SEAPORT=0x0000000000000068F116a894984e2DB1123eB395
-export MORPHO=0xBBBBBbbBBb9cC5e90e3b3Af64bDAF62C37EEFFCb
-export OWNER=<Sepolia owner address>
+export SETTLEMENT_SEAPORT=0x0000000000000068F116a894984e2DB1123eB395
+export SETTLEMENT_MORPHO=0xBBBBBbbBBb9cC5e90e3b3Af64bdAF62C37EEFFCb
+export SETTLEMENT_OWNER=<Sepolia owner address>
 export SETTLEMENT_INITIAL_POOLS=0x6C56d0953377D7AB479BBA85Da8d61050F774c0B
 export SEPOLIA_RPC_URL=<Sepolia RPC URL>
 export ETHERSCAN_API_KEY=<Etherscan API key>

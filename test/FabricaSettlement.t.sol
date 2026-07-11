@@ -198,6 +198,18 @@ contract FabricaSettlementTest is Test {
         assertEq(usdc.balanceOf(address(settlement)), 0);
     }
 
+    function test_revert_constructorDependencyIsNotAContract() public {
+        address eoa = makeAddr("zero-code dependency");
+        address[] memory noPools = new address[](0);
+        vm.expectRevert(abi.encodeWithSelector(FabricaSettlement.NotAContract.selector, eoa));
+        new FabricaSettlement(eoa, address(morpho), address(this), noPools);
+
+        address[] memory invalidPools = new address[](1);
+        invalidPools[0] = eoa;
+        vm.expectRevert(abi.encodeWithSelector(FabricaSettlement.NotAContract.selector, eoa));
+        new FabricaSettlement(address(seaport), address(morpho), address(this), invalidPools);
+    }
+
     function test_shapeA_donatedCurrencyDoesNotBlockSettlement() public {
         uint256 donation = 1;
         usdc.mint(address(settlement), donation);
