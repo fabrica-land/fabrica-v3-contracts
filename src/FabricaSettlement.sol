@@ -252,7 +252,7 @@ contract FabricaSettlement is
         uint256 length = order.parameters.consideration.length;
         if (length == 0) revert InvalidConsideration();
         if (order.parameters.totalOriginalConsiderationItems != length) revert UnexpectedConsiderationTip();
-        bool hasSellerProceedsLeg;
+        bool hasSellerProceedsLeg = false;
         for (uint256 i; i < length; ++i) {
             if (
                 order.parameters.consideration[i].itemType != ItemType.ERC20
@@ -285,12 +285,17 @@ contract FabricaSettlement is
         currency.forceApprove(address(seaport), 0);
 
         uint256 headroom = settlementData.price - settlementData.legsTotal;
-        uint256 sellerClawback;
+        uint256 sellerClawback = 0;
         if (payoff > headroom) {
             if (settlementData.payoffFunding == PayoffFunding.PriceHeadroom) {
                 revert UnexpectedClawback(payoff, headroom);
             }
             sellerClawback = payoff - headroom;
+            // The "arbitrary from" here is intentional and consent-gated: SellerAllowance (Shape B)
+            // pulls the payoff shortfall from the borrower's own wallet using the allowance the borrower
+            // granted to this contract. `receipt.borrower == order.offerer` is enforced in _validate, and
+            // the borrower is required to be a seller-proceeds recipient, so they receive funds in the same tx.
+            // slither-disable-next-line arbitrary-send-erc20
             currency.safeTransferFrom(settlementData.receipt.borrower, address(this), sellerClawback);
         } else if (headroom > payoff) {
             currency.safeTransfer(settlementData.receipt.borrower, headroom - payoff);
