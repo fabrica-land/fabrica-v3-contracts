@@ -89,9 +89,13 @@ As an additional operational safeguard, soil should set the settlement contract'
 
 If the seller self-repays and then a third party directly fills a still-live Shape A Seaport order, that order can execute at its signed floor price without this contract's residual-headroom payment. V1 does not add an on-chain restriction. The mitigation is API cancel-on-repay plus a short oracle permission expiry.
 
+## Known limitation: caller-chosen buyer / front-running (deferred to pre-mainnet hardening)
+
+`settleAndBuy` is permissionless and takes `buyer` as an explicit argument (this is intentional: it lets Coinflow's relayer settle on a buyer's behalf, where `msg.sender != buyer`). A watcher can therefore copy a pending settlement transaction and substitute a different `buyer`. This is a griefing / queue-jump vector, not a theft vector: `price` is always pulled from `msg.sender`, so a front-runner must fund the full price from their own wallet to snipe a property, and no path can drain the original buyer's or the seller's funds (verified by adversarial review 2026-07-11). In the Coinflow path the relayer is `msg.sender`, so a front-runner pays their own USDC and the original buyer is simply refunded by Coinflow. Decision (Fede, 2026-07-11): ship v1 with this documented, rely on short oracle-permission expiry and private/relayer submission for Coinflow, and add signed buyer-binding (oracle signs `orderHash + buyer`) in the pre-mainnet hardening pass. Mainnet is separately gated by ENG-3115.
+
 ## Deployment
 
-There is no verified Morpho Blue deployment on Sepolia. Operations must supply or deploy a compatible zero-fee flash provider there and set its address explicitly.
+Morpho Blue is deployed on Sepolia at the canonical address `0xBBBBBbbBBb9cC5e90e3b3Af64bDAF62C37EEFFCb` (bytecode verified 2026-07-11), the same address as mainnet, so the `morpho_` constructor argument is identical across networks. If a network lacks a Morpho deployment, operations must supply or deploy a compatible zero-fee flash provider and set its address explicitly.
 
 ```sh
 export SEAPORT_ADDRESS=0x0000000000000068F116a894984e2DB1123eB395
