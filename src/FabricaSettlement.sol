@@ -157,16 +157,12 @@ contract FabricaSettlement is
             receipt: receipt,
             currency: address(currency)
         });
-        if (flashAmount == 0) {
-            _execute(settlementData);
-        } else {
-            bytes memory data = abi.encode(settlementData);
-            _settlementInFlight = true;
-            _callbackHash = keccak256(data);
-            morpho.flashLoan(address(currency), flashAmount, data);
-            _settlementInFlight = false;
-            _callbackHash = bytes32(0);
-        }
+        bytes memory data = abi.encode(settlementData);
+        _settlementInFlight = true;
+        _callbackHash = keccak256(data);
+        morpho.flashLoan(address(currency), flashAmount, data);
+        _settlementInFlight = false;
+        _callbackHash = bytes32(0);
     }
 
     /// @notice Executes settlement during the authenticated Morpho flash-loan callback.

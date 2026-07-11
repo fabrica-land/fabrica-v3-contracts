@@ -22,6 +22,8 @@ caller/buyer        settlement          Morpho              pool              Se
 
 The caller is `msg.sender` and pays exactly the sum of the signed consideration legs. The caller need not be `buyer`, which supports relayed purchases. The zone and signed `extraData` pass through unchanged. Seaport sends the ERC-1155 directly to `buyer`, saving an intermediate transfer.
 
+Morpho Blue liveness and sufficient flash liquidity are hard dependencies of every under-loan settlement, including a degenerate receipt whose scaled `maxRepayment` is zero. The contract always requests and repays a flash principal of exactly `maxRepayment` and approves Morpho for exactly that amount. This hard-assumes a zero-fee flash provider: `SETTLEMENT_ALLOW_NON_CANONICAL_MORPHO` must only ever authorize deployment against a compatible zero-fee provider.
+
 ## No-loan direct path
 
 If the allowlisted pool no longer holds the offered token, settlement pulls the full signed consideration total from the caller and calls `fulfillAdvancedOrder(..., recipient=buyer)` directly. It does not decode or validate the loan receipt, request a Morpho flash loan, call `pool.repay`, or pull a payoff from the seller. `SettlementExecuted` reports both `payoffPaid` and `sellerClawback` as zero.
@@ -43,11 +45,18 @@ The contract snapshots its currency balance at entry and requires the same balan
 
 ## Worked example
 
-For a full signed price `P = $100` and actual loan payoff `L = $20`, the buyer pays `$100`. Seaport pays the signed `$100` consideration, including the seller's proceeds and any fee legs. The seller receives their signed proceeds and is then charged `$20`, so ignoring any separately signed fee legs the seller nets `$80`. The loan is cleared, the flash loan is repaid, and settlement nets `$0`.
+For a full signed price `P = $100`, actual loan payoff `L = $20`, and signed fee leg of `$5`, the buyer pays `$100`. Seaport pays `$95` to the seller and `$5` to the fee recipient. Settlement then claws back `$20` from the seller, so the seller nets `$75`. The loan is cleared, the flash loan is repaid, and settlement nets `$0`.
 
 ## Seller allowance safety
 
 The seller's standing USDC allowance to settlement is safe in this full-price-only design. The prior fund-loss vector required a reduced-price order whose consideration legs were below the true price, allowing a buyer to underpay and turn loan headroom into a discount. Here the buyer always pays the complete signed consideration total, and the seller is charged only the balance-delta-measured payoff of their own loan during their own authorized sale. There is no caller-chosen price or payoff mode to abuse.
+
+The under-loan path has two explicit seller-side preconditions:
+
+1. The seller's live currency allowance to settlement must be at least `maxRepayment`.
+2. After Seaport pays the signed proceeds leg, that proceeds amount and/or the seller's existing wallet balance must cover the actual payoff `L`.
+
+If either precondition is not met, the transaction reverts atomically: no NFT is delivered, no consideration leg remains paid, and the loan cannot be left repaid but unfunded. The API is expected to gate the BUY by withholding settlement permission whenever `maxRepayment`, including accrual headroom, exceeds the seller's net proceeds. This `UNDERWATER` buy-gate is the primary guard; the on-chain revert is its backstop.
 
 A single-use EIP-2612 or Permit2 authorization can replace the standing allowance as optional future hardening, but it is not a security requirement.
 
@@ -68,16 +77,16 @@ Only conventional, non-fee-on-transfer, non-rebasing ERC-20 currencies are suppo
 | Zero pool or buyer | `InvalidAddress`. |
 | Constructor Seaport, Morpho, or initial pool has no code | `NotAContract`. |
 | Pool is not owner-allowlisted | `PoolNotAllowed`. |
-| Bad receipt encoding/version while pool holds the token | `InvalidReceiptEncoding`. The receipt is ignored otherwise. |
+| Bad receipt encoding/version | Under-loan: `InvalidReceiptEncoding`. No-loan: receipt is not decoded or validated. |
 | Partial/zero fraction, nonzero conduit key, or offer count other than one | `InvalidOrder`. |
 | Offer is not one static ERC-1155 unit | `InvalidOrder`. |
-| Active-loan receipt borrower is not offerer or receipt collateral differs | `ReceiptOrderMismatch`. |
+| Receipt borrower is not offerer or receipt collateral differs | Under-loan: `ReceiptOrderMismatch`. No-loan: receipt is ignored. |
 | Empty, non-ERC-20, non-static, identified, wrong-currency, or overflowing consideration | `InvalidConsideration`. |
-| Borrower/offerer receives no consideration leg | `SellerRecipientMismatch`. |
-| Appended consideration changes the original consideration count | `UnexpectedConsiderationTip`. |
+| Borrower/offerer receives no consideration leg | Under-loan: `SellerRecipientMismatch`. No-loan: no seller-recipient receipt check is needed. |
+| Appended consideration changes the original consideration count | Both paths: `UnexpectedConsiderationTip`. |
 | Pool currency has more than 18 decimals | `UnsupportedCurrencyDecimals`. |
 | Pool holds the collateral but repayment is inactive or payoff exceeds the receipt maximum | Pool `repay` reverts; the transaction is atomic. |
-| Missing or insufficient seller allowance on the payoff path | Seller `safeTransferFrom` reverts. |
+| Seller allowance is below `maxRepayment`, or seller funds after proceeds are below actual payoff | Under-loan transfer reverts atomically; no-loan performs no clawback. |
 | Invalid/expired zone permission or invalid Seaport signature/order | Seaport/zone reverts. |
 | Seaport returns false | `SeaportFulfillmentFailed`. |
 | Callback is not configured Morpho, not in flight, or data differs | `UnauthorizedFlashCallback`. |
@@ -93,7 +102,7 @@ Only conventional, non-fee-on-transfer, non-rebasing ERC-20 currencies are suppo
 
 ## Deployment
 
-Morpho Blue is deployed on Sepolia at `0xBBBBBbbBBb9cC5e90e3b3Af64bdAF62C37EEFFCb`, the same address as mainnet. The Sepolia Fabrica fork pool is `0x6C56d0953377D7AB479BBA85Da8d61050F774c0B`. If a network lacks Morpho, supply a compatible zero-fee flash provider and export `SETTLEMENT_ALLOW_NON_CANONICAL_MORPHO=true`.
+Morpho Blue is deployed on Sepolia at `0xBBBBBbbBBb9cC5e90e3b3Af64bdAF62C37EEFFCb`, the same address as mainnet. The Sepolia Fabrica fork pool is `0x6C56d0953377D7AB479BBA85Da8d61050F774c0B`. If a network lacks Morpho, supply a compatible zero-fee flash provider and export `SETTLEMENT_ALLOW_NON_CANONICAL_MORPHO=true`. That override must never point at a fee-charging provider because settlement approves repayment of exactly the requested principal.
 
 The runtime entrypoint is:
 

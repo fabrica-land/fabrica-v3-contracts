@@ -2,9 +2,12 @@
 pragma solidity ^0.8.24;
 
 import {Test} from "forge-std/Test.sol";
+import {stdError} from "forge-std/StdError.sol";
 import {ERC1155} from "@openzeppelin/contracts/token/ERC1155/ERC1155.sol";
 import {ERC1155Holder} from "@openzeppelin/contracts/token/ERC1155/utils/ERC1155Holder.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {Pausable} from "@openzeppelin/contracts/utils/Pausable.sol";
+import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import {FabricaSettlement} from "../src/FabricaSettlement.sol";
 import {ISettlementMorphoFlashLoanCallback} from "../src/interfaces/ISettlementMorpho.sol";
 import {TestERC20} from "./fabrica-lending-pools/concretes/TestERC20.sol";
@@ -108,6 +111,7 @@ contract SettlementTestSeaport {
     IERC20 public immutable currency;
     SettlementTest1155 public immutable collateral;
     bool public reenter;
+    bool public fulfillmentResult = true;
     FabricaSettlement public settlement;
 
     constructor(IERC20 currency_, SettlementTest1155 collateral_) {
@@ -118,6 +122,10 @@ contract SettlementTestSeaport {
     function configureReentry(FabricaSettlement settlement_) external {
         settlement = settlement_;
         reenter = true;
+    }
+
+    function setFulfillmentResult(bool value) external {
+        fulfillmentResult = value;
     }
 
     function getCounter(address) external pure returns (uint256) {
@@ -133,6 +141,7 @@ contract SettlementTestSeaport {
         returns (bool)
     {
         if (order.extraData.length == 1) revert("Oracle signature expired");
+        if (!fulfillmentResult) return false;
         if (reenter) {
             vmReenter(order, recipient);
         }
@@ -209,12 +218,28 @@ contract FabricaSettlementTest is Test {
         vm.prank(buyer);
         usdc.approve(address(settlement), PRICE);
 
+        AdvancedOrder memory order = _order(PRICE - FEE, false);
+        vm.expectEmit(true, true, true, true, address(settlement));
+        emit FabricaSettlement.SettlementExecuted(
+            keccak256(abi.encode(seller, order.parameters.salt)),
+            TOKEN_ID,
+            buyer,
+            seller,
+            address(pool),
+            PRICE,
+            PAYOFF,
+            PAYOFF
+        );
         vm.prank(buyer);
-        settlement.settleAndBuy(_order(PRICE - FEE, false), address(pool), receipt, buyer);
+        settlement.settleAndBuy(order, address(pool), receipt, buyer);
 
         assertEq(nft.balanceOf(buyer, TOKEN_ID), 1);
         assertEq(usdc.balanceOf(buyer), 0);
         assertEq(usdc.balanceOf(seller), PRICE - FEE - PAYOFF);
+        assertEq(usdc.balanceOf(feeRecipient), FEE);
+        assertEq(usdc.balanceOf(address(settlement)), 0);
+        assertEq(usdc.balanceOf(address(morpho)), MAX_REPAYMENT);
+        assertEq(morpho.flashLoanCalls(), 1);
     }
 
     function test_revert_constructorDependencyIsNotAContract() public {
@@ -306,15 +331,35 @@ contract FabricaSettlementTest is Test {
         settlement.setPoolAllowed(address(underwater), true);
         nft.mint(address(underwater), TOKEN_ID);
         vm.prank(payer);
-        vm.expectRevert();
+        vm.expectRevert(stdError.arithmeticError);
         settlement.settleAndBuy(_order(PRICE - FEE, false), address(underwater), receipt, buyer);
+    }
+
+    function test_revert_underwaterClawbackShortfall() public {
+        AdvancedOrder memory order = _order(PAYOFF - 1, false);
+        uint256 payerBefore = usdc.balanceOf(payer);
+        uint256 morphoBefore = usdc.balanceOf(address(morpho));
+
+        vm.prank(payer);
+        vm.expectRevert(stdError.arithmeticError);
+        settlement.settleAndBuy(order, address(pool), receipt, buyer);
+
+        assertEq(nft.balanceOf(buyer, TOKEN_ID), 0);
+        assertEq(nft.balanceOf(address(pool), TOKEN_ID), 1);
+        assertEq(usdc.balanceOf(seller), 0);
+        assertEq(usdc.balanceOf(feeRecipient), 0);
+        assertEq(usdc.balanceOf(payer), payerBefore);
+        assertEq(usdc.balanceOf(address(morpho)), morphoBefore);
+        assertEq(usdc.balanceOf(address(settlement)), 0);
+        assertTrue(pool.active());
+        assertEq(pool.repayCalls(), 0);
     }
 
     function test_revert_missingSellerAllowance() public {
         vm.prank(seller);
         usdc.approve(address(settlement), 0);
         vm.prank(payer);
-        vm.expectRevert();
+        vm.expectRevert(stdError.arithmeticError);
         settlement.settleAndBuy(_order(PRICE - FEE, false), address(pool), receipt, buyer);
     }
 
@@ -350,7 +395,7 @@ contract FabricaSettlementTest is Test {
     function test_revert_flashLoanRepayShortfall() public {
         morpho.setUnderpull(true);
         vm.prank(payer);
-        vm.expectRevert();
+        vm.expectRevert(stdError.arithmeticError);
         settlement.settleAndBuy(_order(PRICE - FEE, false), address(pool), receipt, buyer);
     }
 
@@ -365,7 +410,73 @@ contract FabricaSettlementTest is Test {
     function test_revert_reentrancyAttempt() public {
         seaport.configureReentry(settlement);
         vm.prank(payer);
-        vm.expectRevert();
+        vm.expectRevert(ReentrancyGuard.ReentrancyGuardReentrantCall.selector);
+        settlement.settleAndBuy(_order(PRICE - FEE, false), address(pool), receipt, buyer);
+    }
+
+    function test_boundary_payoffEqualsMaxRepayment() public {
+        SettlementTestPool exact = new SettlementTestPool(IERC20(address(usdc)), nft, seller, TOKEN_ID, MAX_REPAYMENT);
+        settlement.setPoolAllowed(address(exact), true);
+        nft.mint(address(exact), TOKEN_ID);
+
+        AdvancedOrder memory order = _order(PRICE - FEE, false);
+        vm.expectEmit(true, true, true, true, address(settlement));
+        emit FabricaSettlement.SettlementExecuted(
+            keccak256(abi.encode(seller, order.parameters.salt)),
+            TOKEN_ID,
+            buyer,
+            seller,
+            address(exact),
+            PRICE,
+            MAX_REPAYMENT,
+            MAX_REPAYMENT
+        );
+        vm.prank(payer);
+        settlement.settleAndBuy(order, address(exact), receipt, buyer);
+
+        assertEq(usdc.balanceOf(seller), PRICE - FEE - MAX_REPAYMENT);
+        assertEq(usdc.balanceOf(address(morpho)), MAX_REPAYMENT);
+        assertEq(nft.balanceOf(buyer, TOKEN_ID), 1);
+    }
+
+    function test_boundary_minimalPayoff() public {
+        SettlementTestPool minimal = new SettlementTestPool(IERC20(address(usdc)), nft, seller, TOKEN_ID, 1);
+        settlement.setPoolAllowed(address(minimal), true);
+        nft.mint(address(minimal), TOKEN_ID);
+
+        vm.prank(payer);
+        settlement.settleAndBuy(_order(PRICE - FEE, false), address(minimal), receipt, buyer);
+
+        assertEq(usdc.balanceOf(seller), PRICE - FEE - 1);
+        assertEq(usdc.balanceOf(address(morpho)), MAX_REPAYMENT);
+        assertEq(nft.balanceOf(buyer, TOKEN_ID), 1);
+    }
+
+    function test_boundary_zeroMaxRepaymentReceiptUsesFlashPath() public {
+        SettlementTestPool zero = new SettlementTestPool(IERC20(address(usdc)), nft, seller, TOKEN_ID, 0);
+        settlement.setPoolAllowed(address(zero), true);
+        nft.mint(address(zero), TOKEN_ID);
+
+        vm.prank(payer);
+        settlement.settleAndBuy(_order(PRICE - FEE, false), address(zero), _receiptWithMaxRepayment(0), buyer);
+
+        assertEq(morpho.flashLoanCalls(), 1);
+        assertEq(zero.repayCalls(), 1);
+        assertEq(usdc.balanceOf(seller), PRICE - FEE);
+        assertEq(nft.balanceOf(buyer, TOKEN_ID), 1);
+    }
+
+    function test_revert_pausedEntryPoint() public {
+        settlement.pause();
+        vm.prank(payer);
+        vm.expectRevert(Pausable.EnforcedPause.selector);
+        settlement.settleAndBuy(_order(PRICE - FEE, false), address(pool), receipt, buyer);
+    }
+
+    function test_revert_seaportFulfillmentFailed() public {
+        seaport.setFulfillmentResult(false);
+        vm.prank(payer);
+        vm.expectRevert(FabricaSettlement.SeaportFulfillmentFailed.selector);
         settlement.settleAndBuy(_order(PRICE - FEE, false), address(pool), receipt, buyer);
     }
 
@@ -411,10 +522,14 @@ contract FabricaSettlementTest is Test {
     }
 
     function _receipt() internal view returns (bytes memory) {
+        return _receiptWithMaxRepayment(MAX_REPAYMENT);
+    }
+
+    function _receiptWithMaxRepayment(uint256 maxRepayment) internal view returns (bytes memory) {
         return abi.encodePacked(
             uint8(2),
             uint256(1),
-            MAX_REPAYMENT * 1e12,
+            maxRepayment * 1e12,
             uint256(0),
             seller,
             uint64(block.timestamp + 1 days),
