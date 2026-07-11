@@ -1,7 +1,10 @@
 # Deploying contracts from this repo
 
-This repo holds all of Fabrica's Solidity contracts and their deployment
-scripts. We deploy via **Foundry's `forge script`** (Paradigm tooling), one
+This repo holds Fabrica's own Solidity contracts (FabricaToken, FabricaFeeCollector,
+FabricaValidator, FabricaMarketplaceZone, FabricaProxy, and friends) and their
+deployment scripts. The MetaStreet-derived lending-pool contracts live in the
+[`fabrica-land/metastreet-contracts-v2`](https://github.com/fabrica-land/metastreet-contracts-v2)
+fork, not here. We deploy via **Foundry's `forge script`** (Paradigm tooling), one
 script per logical operation, against the network's `--rpc-url`.
 
 For UUPS-proxy upgrades to existing FabricaToken / FabricaValidator
