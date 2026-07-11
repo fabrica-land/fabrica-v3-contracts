@@ -271,6 +271,28 @@ contract FabricaSettlementTest is Test {
         );
     }
 
+    function test_revert_shapeBSellerRecipientMismatch() public {
+        AdvancedOrder memory order = _order(PRICE - FEE, false);
+        order.parameters.consideration[0].recipient = payable(makeAddr("wrong seller recipient"));
+
+        vm.prank(payer);
+        vm.expectRevert(FabricaSettlement.SellerRecipientMismatch.selector);
+        settlement.settleAndBuy(
+            order, address(pool), receipt, buyer, PRICE, FabricaSettlement.PayoffFunding.SellerAllowance
+        );
+    }
+
+    function test_revert_unexpectedConsiderationTip() public {
+        AdvancedOrder memory order = _order(PRICE - FEE - MAX_REPAYMENT, false);
+        order.parameters.totalOriginalConsiderationItems = 1;
+
+        vm.prank(payer);
+        vm.expectRevert(FabricaSettlement.UnexpectedConsiderationTip.selector);
+        settlement.settleAndBuy(
+            order, address(pool), receipt, buyer, PRICE, FabricaSettlement.PayoffFunding.PriceHeadroom
+        );
+    }
+
     function test_revert_expiredZoneExtraData() public {
         vm.prank(payer);
         vm.expectRevert("Oracle signature expired");
@@ -348,7 +370,7 @@ contract FabricaSettlementTest is Test {
         AdvancedOrder memory order = _order(PRICE - FEE, false);
 
         vm.prank(payer);
-        vm.expectRevert(FabricaSettlement.PoolNotAllowed.selector);
+        vm.expectRevert(abi.encodeWithSelector(FabricaSettlement.PoolNotAllowed.selector, address(maliciousPool)));
         settlement.settleAndBuy(
             order, address(maliciousPool), receipt, buyer, PRICE, FabricaSettlement.PayoffFunding.SellerAllowance
         );
@@ -361,7 +383,7 @@ contract FabricaSettlementTest is Test {
         uint256 shavedPrice = legsTotal + PAYOFF;
 
         vm.prank(payer);
-        vm.expectRevert(FabricaSettlement.PriceBelowHeadroom.selector);
+        vm.expectRevert(abi.encodeWithSelector(FabricaSettlement.PriceBelowHeadroom.selector, shavedPrice, PRICE));
         settlement.settleAndBuy(
             _order(PRICE - FEE - MAX_REPAYMENT, false),
             address(pool),

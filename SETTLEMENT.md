@@ -95,15 +95,32 @@ If the seller self-repays and then a third party directly fills a still-live Sha
 
 ## Deployment
 
-Morpho Blue is deployed on Sepolia at the canonical address `0xBBBBBbbBBb9cC5e90e3b3Af64bDAF62C37EEFFCb` (bytecode verified 2026-07-11), the same address as mainnet, so the `morpho_` constructor argument is identical across networks. If a network lacks a Morpho deployment, operations must supply or deploy a compatible zero-fee flash provider and set its address explicitly.
+Morpho Blue is deployed on Sepolia at the canonical address `0xBBBBBbbBBb9cC5e90e3b3Af64bDAF62C37EEFFCb` (bytecode verified 2026-07-11), the same address as mainnet. The Sepolia Fabrica fork pool is `0x6C56d0953377D7AB479BBA85Da8d61050F774c0B`. If a network lacks a Morpho deployment, operations must supply or deploy a compatible zero-fee flash provider and set its address explicitly.
+
+Sepolia deployment runbook:
+
+1. Export the required constructor inputs and RPC/API credentials. `SETTLEMENT_INITIAL_POOLS` remains a comma-separated address list.
 
 ```sh
-export SEAPORT_ADDRESS=0x0000000000000068F116a894984e2DB1123eB395
-export MORPHO_ADDRESS=<chain flash provider>
-export SETTLEMENT_OWNER=<support multisig>
-export SETTLEMENT_INITIAL_POOLS=<pool address[,pool address...]>
-forge script script/FabricaSettlementDeploy.s.sol:FabricaSettlementDeployScript \
-  --rpc-url <rpc> --broadcast --verify
+export SEAPORT=0x0000000000000068F116a894984e2DB1123eB395
+export MORPHO=0xBBBBBbbBBb9cC5e90e3b3Af64bDAF62C37EEFFCb
+export OWNER=<Sepolia owner address>
+export SETTLEMENT_INITIAL_POOLS=0x6C56d0953377D7AB479BBA85Da8d61050F774c0B
+export SEPOLIA_RPC_URL=<Sepolia RPC URL>
+export ETHERSCAN_API_KEY=<Etherscan API key>
 ```
 
-The script performs one operation and reads all constructor arguments from environment variables. Dry-run without `--broadcast`; verification uses the repository's Etherscan configuration and `--verify`.
+2. Dry-run the script without `--broadcast`, check the constructor arguments echoed by the script, then deploy and verify with this exact invocation:
+
+```sh
+forge script script/FabricaSettlementDeploy.s.sol:FabricaSettlementDeployScript \
+  --rpc-url "$SEPOLIA_RPC_URL" --broadcast --verify
+```
+
+3. After deployment:
+   - Check `allowedPools(0x6C56d0953377D7AB479BBA85Da8d61050F774c0B) == true` for every configured pool.
+   - Check `owner()` equals the intended owner address.
+   - Add the deployed settlement address to the Coinflow merchant allowlist.
+   - Record the deployment and verification links in the release evidence.
+
+Mainnet deployment is gated by ENG-3115 and must be executed through the Safe; do not broadcast the deploy script directly from an EOA for mainnet.
