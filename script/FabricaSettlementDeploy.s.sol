@@ -9,9 +9,10 @@ contract FabricaSettlementDeployScript is Script {
         address seaport = vm.envAddress("SEAPORT_ADDRESS");
         address morpho = vm.envAddress("MORPHO_ADDRESS");
         address owner = vm.envAddress("SETTLEMENT_OWNER");
+        address[] memory initialPools = vm.envAddress("SETTLEMENT_INITIAL_POOLS", ",");
 
         vm.startBroadcast();
-        settlement = new FabricaSettlement(seaport, morpho, owner);
+        settlement = new FabricaSettlement(seaport, morpho, owner, initialPools);
         vm.stopBroadcast();
         console.log("FabricaSettlement deployed at:", address(settlement));
     }

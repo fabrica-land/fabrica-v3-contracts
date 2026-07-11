@@ -54,6 +54,20 @@ contract SettlementTestPool is ERC1155Holder {
     }
 }
 
+contract SettlementMaliciousPool {
+    IERC20 public immutable currencyToken;
+    uint256 public immutable payoff;
+
+    constructor(IERC20 currency_, uint256 payoff_) {
+        currencyToken = currency_;
+        payoff = payoff_;
+    }
+
+    function repay(bytes calldata) external {
+        currencyToken.transferFrom(msg.sender, address(this), payoff);
+    }
+}
+
 contract SettlementTestMorpho {
     IERC20 public immutable token;
     bool public underpull;
@@ -121,7 +135,7 @@ contract SettlementTestSeaport {
     }
 
     function vmReenter(AdvancedOrder calldata order, address recipient) private {
-        settlement.settleAndBuy(order, address(1), "", recipient, 0);
+        settlement.settleAndBuy(order, address(1), "", recipient, 0, FabricaSettlement.PayoffFunding.PriceHeadroom);
     }
 }
 
@@ -151,7 +165,9 @@ contract FabricaSettlementTest is Test {
         pool = new SettlementTestPool(currency, nft, seller, TOKEN_ID, PAYOFF);
         morpho = new SettlementTestMorpho(currency);
         seaport = new SettlementTestSeaport(currency, nft);
-        settlement = new FabricaSettlement(address(seaport), address(morpho), address(this));
+        address[] memory initialPools = new address[](1);
+        initialPools[0] = address(pool);
+        settlement = new FabricaSettlement(address(seaport), address(morpho), address(this), initialPools);
         nft.mint(address(pool), TOKEN_ID);
         usdc.mint(payer, PRICE);
         usdc.mint(address(morpho), MAX_REPAYMENT);
@@ -165,7 +181,9 @@ contract FabricaSettlementTest is Test {
     function test_shapeA_happyPath_relayerIsNotBuyer_andNoDust() public {
         AdvancedOrder memory order = _order(PRICE - FEE - MAX_REPAYMENT, false);
         vm.prank(payer);
-        settlement.settleAndBuy(order, address(pool), receipt, buyer, PRICE);
+        settlement.settleAndBuy(
+            order, address(pool), receipt, buyer, PRICE, FabricaSettlement.PayoffFunding.PriceHeadroom
+        );
         assertEq(nft.balanceOf(buyer, TOKEN_ID), 1);
         assertEq(usdc.balanceOf(seller), PRICE - FEE - PAYOFF);
         assertEq(usdc.balanceOf(feeRecipient), FEE);
@@ -177,7 +195,9 @@ contract FabricaSettlementTest is Test {
         vm.prank(seller);
         usdc.approve(address(settlement), MAX_REPAYMENT);
         vm.prank(payer);
-        settlement.settleAndBuy(order, address(pool), receipt, buyer, PRICE);
+        settlement.settleAndBuy(
+            order, address(pool), receipt, buyer, PRICE, FabricaSettlement.PayoffFunding.SellerAllowance
+        );
         assertEq(usdc.balanceOf(seller), PRICE - FEE - PAYOFF);
         assertEq(usdc.balanceOf(address(settlement)), 0);
         assertEq(usdc.balanceOf(address(morpho)), MAX_REPAYMENT);
@@ -186,32 +206,58 @@ contract FabricaSettlementTest is Test {
     function test_revert_loanAlreadyRepaid() public {
         AdvancedOrder memory order = _order(PRICE - FEE - MAX_REPAYMENT, false);
         vm.prank(payer);
-        settlement.settleAndBuy(order, address(pool), receipt, buyer, PRICE);
+        settlement.settleAndBuy(
+            order, address(pool), receipt, buyer, PRICE, FabricaSettlement.PayoffFunding.PriceHeadroom
+        );
         usdc.mint(payer, PRICE);
         vm.prank(payer);
         vm.expectRevert("inactive");
-        settlement.settleAndBuy(order, address(pool), receipt, buyer, PRICE);
+        settlement.settleAndBuy(
+            order, address(pool), receipt, buyer, PRICE, FabricaSettlement.PayoffFunding.PriceHeadroom
+        );
     }
 
     function test_revert_underwaterAtExecution() public {
         SettlementTestPool underwater =
             new SettlementTestPool(IERC20(address(usdc)), nft, seller, TOKEN_ID, MAX_REPAYMENT + 1);
+        settlement.setPoolAllowed(address(underwater), true);
         nft.mint(address(underwater), TOKEN_ID);
         vm.prank(payer);
         vm.expectRevert();
-        settlement.settleAndBuy(_order(PRICE - FEE - MAX_REPAYMENT, false), address(underwater), receipt, buyer, PRICE);
+        settlement.settleAndBuy(
+            _order(PRICE - FEE - MAX_REPAYMENT, false),
+            address(underwater),
+            receipt,
+            buyer,
+            PRICE,
+            FabricaSettlement.PayoffFunding.PriceHeadroom
+        );
     }
 
     function test_revert_missingSellerAllowance() public {
         vm.prank(payer);
         vm.expectRevert();
-        settlement.settleAndBuy(_order(PRICE - FEE, false), address(pool), receipt, buyer, PRICE);
+        settlement.settleAndBuy(
+            _order(PRICE - FEE, false),
+            address(pool),
+            receipt,
+            buyer,
+            PRICE,
+            FabricaSettlement.PayoffFunding.SellerAllowance
+        );
     }
 
     function test_revert_expiredZoneExtraData() public {
         vm.prank(payer);
         vm.expectRevert("Oracle signature expired");
-        settlement.settleAndBuy(_order(PRICE - FEE - MAX_REPAYMENT, true), address(pool), receipt, buyer, PRICE);
+        settlement.settleAndBuy(
+            _order(PRICE - FEE - MAX_REPAYMENT, true),
+            address(pool),
+            receipt,
+            buyer,
+            PRICE,
+            FabricaSettlement.PayoffFunding.PriceHeadroom
+        );
     }
 
     function test_revert_directFlashCallback() public {
@@ -225,14 +271,79 @@ contract FabricaSettlementTest is Test {
         morpho.setUnderpull(true);
         vm.prank(payer);
         vm.expectRevert();
-        settlement.settleAndBuy(_order(PRICE - FEE, false), address(pool), receipt, buyer, PRICE);
+        settlement.settleAndBuy(
+            _order(PRICE - FEE, false),
+            address(pool),
+            receipt,
+            buyer,
+            PRICE,
+            FabricaSettlement.PayoffFunding.SellerAllowance
+        );
     }
 
     function test_revert_reentrancyAttempt() public {
         seaport.configureReentry(settlement);
         vm.prank(payer);
         vm.expectRevert();
-        settlement.settleAndBuy(_order(PRICE - FEE - MAX_REPAYMENT, false), address(pool), receipt, buyer, PRICE);
+        settlement.settleAndBuy(
+            _order(PRICE - FEE - MAX_REPAYMENT, false),
+            address(pool),
+            receipt,
+            buyer,
+            PRICE,
+            FabricaSettlement.PayoffFunding.PriceHeadroom
+        );
+    }
+
+    function test_revert_fakePoolAgainstLingeringSellerAllowance() public {
+        vm.startPrank(seller);
+        usdc.mint(seller, PAYOFF);
+        usdc.approve(address(pool), PAYOFF);
+        pool.repay(receipt);
+        usdc.approve(address(settlement), MAX_REPAYMENT);
+        vm.stopPrank();
+
+        SettlementMaliciousPool maliciousPool = new SettlementMaliciousPool(IERC20(address(usdc)), PAYOFF);
+        AdvancedOrder memory order = _order(PRICE - FEE, false);
+
+        vm.prank(payer);
+        vm.expectRevert(FabricaSettlement.PoolNotAllowed.selector);
+        settlement.settleAndBuy(
+            order, address(maliciousPool), receipt, buyer, PRICE, FabricaSettlement.PayoffFunding.SellerAllowance
+        );
+        assertEq(usdc.balanceOf(address(maliciousPool)), 0);
+        assertEq(usdc.allowance(seller, address(settlement)), MAX_REPAYMENT);
+    }
+
+    function test_revert_shapeAPriceShaveInPriceHeadroomMode() public {
+        uint256 legsTotal = PRICE - MAX_REPAYMENT;
+        uint256 shavedPrice = legsTotal + PAYOFF;
+
+        vm.prank(payer);
+        vm.expectRevert(FabricaSettlement.PriceBelowHeadroom.selector);
+        settlement.settleAndBuy(
+            _order(PRICE - FEE - MAX_REPAYMENT, false),
+            address(pool),
+            receipt,
+            buyer,
+            shavedPrice,
+            FabricaSettlement.PayoffFunding.PriceHeadroom
+        );
+    }
+
+    function test_revert_shapeAInSellerAllowanceModeWithoutAllowance() public {
+        uint256 legsTotal = PRICE - MAX_REPAYMENT;
+
+        vm.prank(payer);
+        vm.expectRevert();
+        settlement.settleAndBuy(
+            _order(PRICE - FEE - MAX_REPAYMENT, false),
+            address(pool),
+            receipt,
+            buyer,
+            legsTotal,
+            FabricaSettlement.PayoffFunding.SellerAllowance
+        );
     }
 
     function _order(uint256 sellerLeg, bool expired) internal view returns (AdvancedOrder memory order) {

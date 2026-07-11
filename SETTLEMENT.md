@@ -20,6 +20,8 @@ payer          settlement          Morpho (if needed)       pool             Sea
 
 The payer is `msg.sender` and need not be the buyer. The zone and its signed `extraData` remain part of the seller's Seaport order; settlement passes them through unchanged. Seaport receives a zero fulfiller conduit key and sends the ERC-1155 directly to `buyer`.
 
+Each call explicitly selects its payoff funding mode. `PriceHeadroom` requires the payer's `price` to cover both all signed consideration legs and the receipt's rounded-up maximum repayment. It is the Shape A mode and never uses a seller allowance. `SellerAllowance` only requires `price` to cover the consideration legs and pulls any payoff shortfall from the seller; it is the Shape B mode.
+
 ## Unified math
 
 Let `P = price`, `C = legsTotal` (the sum of all static ERC-20 consideration legs), `M = receipt.repayment` (maximum payoff), and `L = actual payoff`, measured from the settlement contract's USDC balance delta.
@@ -49,6 +51,7 @@ Hybrids use exactly the same equations.
 | Paused entrypoint | OZ `EnforcedPause`; operations can stop new settlements. |
 | Reentrant `settle` | OZ `ReentrancyGuardReentrantCall`. |
 | Zero pool or buyer | `InvalidAddress`. |
+| Pool is not owner-allowlisted | `PoolNotAllowed`. |
 | Bad receipt encoding/version | `InvalidReceiptEncoding`. |
 | Partial/zero fraction or offer count other than one | `InvalidOrder`. |
 | Offer is not one static ERC-1155 unit | `ReceiptOrderMismatch`. |
@@ -56,6 +59,8 @@ Hybrids use exactly the same equations.
 | Receipt collateral token/id differs from offer | `ReceiptOrderMismatch`. |
 | Empty, non-ERC-20, non-static, identified, or wrong-currency consideration | `InvalidConsideration`. |
 | Consideration total exceeds the declared full price | `PriceBelowConsideration`. |
+| `PriceHeadroom` price does not cover consideration plus maximum repayment | `PriceBelowHeadroom`. |
+| `PriceHeadroom` unexpectedly reaches a seller clawback | `UnexpectedClawback`. |
 | Loan already repaid/inactive | Pool `repay` reverts; the transaction is atomic. |
 | Live payoff cannot be funded | Pool transfer or seller clawback reverts. |
 | Missing seller allowance in a clawback shape | Seller `safeTransferFrom` reverts. |
@@ -68,9 +73,13 @@ Hybrids use exactly the same equations.
 | Non-owner pause/unpause/rescue | OZ `OwnableUnauthorizedAccount`. |
 | Rescue recipient is zero | `InvalidAddress`. |
 
-## Trust and permissionlessness
+## Trust model
 
-The per-call pool is intentionally not checked against a factory or registry. This keeps settlement composable with Fabrica-forked pools and avoids coupling execution to registry availability or upgrades. The off-chain Fabrica API decides which pools it offers to users. A caller who supplies an untrusted pool is trusting that pool's `currencyToken` and `repay` behavior; approvals are reset after the call, and atomic balance checks limit persistent exposure.
+Settlement only calls pools explicitly approved by the owner. This allowlist is a security boundary, not merely discovery metadata: without it, an attacker could reuse a seller's still-valid signed Shape B order after the seller manually repaid, supply a fake pool and crafted receipt that mirror the order's borrower and collateral, have the fake `repay` consume settlement funds, and make the clawback branch pull real USDC through the seller's lingering settlement allowance. The fake pool would retain those funds. Operations must validate pool implementations and addresses before allowlisting them and remove pools that should no longer receive settlements.
+
+The caller must also choose the funding model explicitly. `PriceHeadroom` is for Shape A and enforces `price >= legsTotal + maxRepayment`, so payoff drift is refunded to the seller and seller clawback is treated as an invariant violation. `SellerAllowance` is for Shape B and retains the maximum-sized flash plus seller-clawback flow; the seller must approve settlement for the required shortfall. A Shape A order submitted as `SellerAllowance` does not gain price-headroom protection and will revert at clawback when the seller has not approved settlement.
+
+As an additional operational safeguard, soil should set the settlement contract's USDC allowance to zero as part of the manual payoff flow. Clearing that approval prevents stale Shape B allowances from remaining usable after the loan has been repaid.
 
 ## Residual race condition
 
@@ -84,6 +93,7 @@ There is no verified Morpho Blue deployment on Sepolia. Operations must supply o
 export SEAPORT_ADDRESS=0x0000000000000068F116a894984e2DB1123eB395
 export MORPHO_ADDRESS=<chain flash provider>
 export SETTLEMENT_OWNER=<support multisig>
+export SETTLEMENT_INITIAL_POOLS=<pool address[,pool address...]>
 forge script script/FabricaSettlementDeploy.s.sol:FabricaSettlementDeployScript \
   --rpc-url <rpc> --broadcast --verify
 ```
