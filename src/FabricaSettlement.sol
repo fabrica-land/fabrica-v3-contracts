@@ -32,10 +32,7 @@ contract FabricaSettlement is
     error InvalidOrder();
     error InvalidConsideration();
     error ReceiptOrderMismatch();
-    error PriceBelowConsideration(uint256 price, uint256 consideration);
-    error PriceBelowHeadroom(uint256 price, uint256 required);
     error PoolNotAllowed(address pool);
-    error UnexpectedClawback(uint256 payoff, uint256 headroom);
     error SellerRecipientMismatch();
     error UnexpectedConsiderationTip();
     error SeaportFulfillmentFailed();
@@ -43,13 +40,6 @@ contract FabricaSettlement is
     error FlashAmountMismatch(uint256 actual, uint256 expected);
     error UnsupportedCurrencyDecimals(address currency, uint8 decimals);
     error SettlementBalanceNotZero(uint256 balance);
-
-    /// @notice Selects whether the payoff is prepaid in the purchase price or clawed back from sale proceeds.
-    /// @dev `PriceHeadroom` never pulls from the seller. `SellerAllowance` may pull a shortfall from the borrower.
-    enum PayoffFunding {
-        PriceHeadroom,
-        SellerAllowance
-    }
 
     event PoolAllowedSet(address indexed pool, bool allowed);
 
@@ -59,9 +49,9 @@ contract FabricaSettlement is
     /// @param buyer Recipient of the collateral; this may differ from the permissionless caller.
     /// @param seller Borrower whose loan was repaid and whose order was filled.
     /// @param pool Allowlisted lending pool repaid by the settlement.
-    /// @param price Amount funded by the caller.
+    /// @param price Full signed Seaport consideration total funded by the caller.
     /// @param payoffPaid Actual currency amount consumed by the pool repayment.
-    /// @param sellerClawback Amount pulled from the seller in `SellerAllowance` mode.
+    /// @param sellerClawback Actual loan payoff pulled from the seller after the sale.
     event SettlementExecuted(
         bytes32 indexed orderHash,
         uint256 indexed tokenId,
@@ -85,8 +75,7 @@ contract FabricaSettlement is
         address pool;
         bytes encodedLoanReceipt;
         address buyer;
-        uint256 price;
-        PayoffFunding payoffFunding;
+        address payer;
         uint256 legsTotal;
         uint256 maxRepayment;
         SettlementLoanReceipt.Details receipt;
@@ -113,42 +102,33 @@ contract FabricaSettlement is
     }
 
     /// @notice Atomically repays a loan and buys its released collateral through Seaport.
-    /// @dev Calling is permissionless. Currency is pulled from `msg.sender`, while collateral is sent to `buyer`.
+    /// @dev Calling is permissionless. The full signed consideration is pulled from `msg.sender`, the seller's
+    ///      actual payoff is clawed back after fulfillment, and collateral is sent directly to `buyer`.
     /// @param order Signed Seaport order with static ERC-20 consideration and no appended tips.
     /// @param pool Allowlisted pool holding the collateral.
     /// @param encodedLoanReceipt Pool-specific encoded receipt describing the loan.
     /// @param buyer Collateral recipient, which need not be `msg.sender`.
-    /// @param price Currency amount supplied by `msg.sender`.
-    /// @param payoffFunding Funding mode: price headroom or seller allowance clawback.
-    function settleAndBuy(
-        AdvancedOrder calldata order,
-        address pool,
-        bytes calldata encodedLoanReceipt,
-        address buyer,
-        uint256 price,
-        PayoffFunding payoffFunding
-    ) external nonReentrant whenNotPaused {
+    function settleAndBuy(AdvancedOrder calldata order, address pool, bytes calldata encodedLoanReceipt, address buyer)
+        external
+        nonReentrant
+        whenNotPaused
+    {
         if (pool == address(0) || buyer == address(0)) revert InvalidAddress();
         if (!allowedPools[pool]) revert PoolNotAllowed(pool);
 
         SettlementLoanReceipt.Details memory receipt = SettlementLoanReceipt.decode(encodedLoanReceipt);
-        (IERC20 currency, uint256 legsTotal, uint256 maxRepayment) = _validate(order, receipt, pool, payoffFunding);
+        (IERC20 currency, uint256 legsTotal, uint256 maxRepayment) = _validate(order, receipt, pool);
         uint256 balanceBefore = currency.balanceOf(address(this));
-        if (legsTotal > price) revert PriceBelowConsideration(price, legsTotal);
         if (maxRepayment > type(uint256).max - legsTotal) revert InvalidConsideration();
-        if (payoffFunding == PayoffFunding.PriceHeadroom && price < legsTotal + maxRepayment) {
-            revert PriceBelowHeadroom(price, legsTotal + maxRepayment);
-        }
-        currency.safeTransferFrom(msg.sender, address(this), price);
-
-        uint256 flashAmount = legsTotal + maxRepayment > price ? legsTotal + maxRepayment - price : 0;
+        uint256 buyerFunding = legsTotal;
+        uint256 requiredFunding = legsTotal + maxRepayment;
+        uint256 flashAmount = requiredFunding - buyerFunding;
         SettlementData memory settlementData = SettlementData({
             order: order,
             pool: pool,
             encodedLoanReceipt: encodedLoanReceipt,
             buyer: buyer,
-            price: price,
-            payoffFunding: payoffFunding,
+            payer: msg.sender,
             legsTotal: legsTotal,
             maxRepayment: maxRepayment,
             receipt: receipt,
@@ -179,7 +159,9 @@ contract FabricaSettlement is
         SettlementData memory settlementData = abi.decode(data, (SettlementData));
         _settlementInFlight = false;
         _callbackHash = bytes32(0);
-        uint256 expected = settlementData.legsTotal + settlementData.maxRepayment - settlementData.price;
+        uint256 buyerFunding = settlementData.legsTotal;
+        uint256 requiredFunding = settlementData.legsTotal + settlementData.maxRepayment;
+        uint256 expected = requiredFunding - buyerFunding;
         if (assets != expected) revert FlashAmountMismatch(assets, expected);
 
         _execute(settlementData);
@@ -226,12 +208,11 @@ contract FabricaSettlement is
         IERC1155(token).safeTransferFrom(address(this), recipient, id, amount, data);
     }
 
-    function _validate(
-        AdvancedOrder calldata order,
-        SettlementLoanReceipt.Details memory receipt,
-        address pool,
-        PayoffFunding payoffFunding
-    ) private view returns (IERC20 currency, uint256 legsTotal, uint256 maxRepayment) {
+    function _validate(AdvancedOrder calldata order, SettlementLoanReceipt.Details memory receipt, address pool)
+        private
+        view
+        returns (IERC20 currency, uint256 legsTotal, uint256 maxRepayment)
+    {
         if (
             order.numerator == 0 || order.numerator != order.denominator || order.parameters.offer.length != 1
                 || order.parameters.conduitKey != bytes32(0)
@@ -267,9 +248,7 @@ contract FabricaSettlement is
             legsTotal += order.parameters.consideration[i].startAmount;
             if (order.parameters.consideration[i].recipient == receipt.borrower) hasSellerProceedsLeg = true;
         }
-        if (payoffFunding == PayoffFunding.SellerAllowance && !hasSellerProceedsLeg) {
-            revert SellerRecipientMismatch();
-        }
+        if (!hasSellerProceedsLeg) revert SellerRecipientMismatch();
     }
 
     function _execute(SettlementData memory settlementData) private {
@@ -281,6 +260,7 @@ contract FabricaSettlement is
         uint256 payoff = beforeRepay - currency.balanceOf(address(this));
         currency.forceApprove(settlementData.pool, 0);
 
+        currency.safeTransferFrom(settlementData.payer, address(this), settlementData.legsTotal);
         currency.forceApprove(address(seaport), settlementData.legsTotal);
         CriteriaResolver[] memory resolvers = new CriteriaResolver[](0);
         if (!seaport.fulfillAdvancedOrder(settlementData.order, resolvers, bytes32(0), settlementData.buyer)) {
@@ -288,24 +268,10 @@ contract FabricaSettlement is
         }
         currency.forceApprove(address(seaport), 0);
 
-        uint256 headroom = settlementData.price - settlementData.legsTotal;
-        uint256 sellerClawback = 0;
-        if (payoff > headroom) {
-            if (settlementData.payoffFunding == PayoffFunding.PriceHeadroom) {
-                revert UnexpectedClawback(payoff, headroom);
-            }
-            sellerClawback = payoff - headroom;
-            // The "arbitrary from" here is intentional and consent-gated: SellerAllowance (Shape B)
-            // pulls the payoff shortfall from the borrower's own wallet using the allowance the borrower
-            // granted to this contract. `receipt.borrower == order.offerer` is enforced in _validate, and
-            // the presence-only guard requires the borrower to be a proceeds recipient, but does not ensure that
-            // leg covers the clawback. The residual is a seller footgun because borrower == offerer signs the order;
-            // ENG-3507 closes it in practice by always routing all seller proceeds through the borrower leg.
-            // slither-disable-next-line arbitrary-send-erc20
-            currency.safeTransferFrom(settlementData.receipt.borrower, address(this), sellerClawback);
-        } else if (headroom > payoff) {
-            currency.safeTransfer(settlementData.receipt.borrower, headroom - payoff);
-        }
+        // The borrower is the order's offerer and is required to receive a consideration leg. The full signed
+        // price is paid before this measured loan payoff is pulled through the seller's standing allowance.
+        // slither-disable-next-line arbitrary-send-erc20
+        currency.safeTransferFrom(settlementData.receipt.borrower, address(this), payoff);
 
         emit SettlementExecuted(
             orderHash,
@@ -313,9 +279,9 @@ contract FabricaSettlement is
             settlementData.buyer,
             settlementData.receipt.borrower,
             settlementData.pool,
-            settlementData.price,
+            settlementData.legsTotal,
             payoff,
-            sellerClawback
+            payoff
         );
     }
 

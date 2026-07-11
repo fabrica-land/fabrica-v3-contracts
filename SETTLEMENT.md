@@ -1,108 +1,98 @@
 # FabricaSettlement v1
 
-`FabricaSettlement` atomically pays off one active Fabrica/MetaStreet v2 loan and fills one static Seaport 1.6 ERC-1155 sale. It deliberately has no financing or downpayment behavior.
+`FabricaSettlement` atomically pays off one active Fabrica/MetaStreet v2 loan and fills one full-price, static Seaport 1.6 ERC-1155 sale. It deliberately has no financing, downpayment, reduced-price, or caller-selected funding mode.
 
 ## Sequence
 
 ```text
-payer          settlement          Morpho (if needed)       pool             Seaport             seller/buyer
-  | price -------->|                       |                   |                  |                       |
-  |                 |-- flash(max gap) --->|                   |                  |                       |
-  |                 |<----- USDC ----------|                   |                  |                       |
-  |                 |-- repay(receipt) ----------------------->|                  |                       |
-  |                 |<-- raw ERC-1155 returned to seller -----|-------------------------------> seller  |
-  |                 |-- fulfillAdvancedOrder(recipient=buyer) ------------------>| seller NFT ----------> buyer
-  |                 |<---------------- order ERC-20 legs pulled by Seaport ------|                       |
-  |                 |<-- seller clawback, or --> seller residual headroom                                |
-  |                 |-- approve exact flash principal --> Morpho                                         |
-  |                 |<-- Morpho pulls principal; settlement returns to its starting USDC balance         |
+caller/buyer        settlement          Morpho              pool              Seaport          seller / buyer
+  | full price P ------>|                  |                   |                  |                    |
+  |                     |-- flash M ------>|                   |                  |                    |
+  |                     |<---- USDC -------|                   |                  |                    |
+  |                     |-- repay(receipt) ------------------->|                  |                    |
+  |                     |<-- collateral returned to seller ---|----------------------------> seller  |
+  |                     |-- fulfillAdvancedOrder(recipient=buyer) ------------->| NFT -------------> buyer
+  |                     |<----------- full signed consideration P pulled -------|----> recipients    |
+  |                     |<-- actual payoff L pulled from seller allowance ---------------- seller    |
+  |                     |-- approve flash principal M --> Morpho                                      |
+  |                     |<-- Morpho pulls M; settlement returns to its entry USDC balance             |
 ```
 
-The payer is `msg.sender` and need not be the buyer. The zone and its signed `extraData` remain part of the seller's Seaport order; settlement passes them through unchanged. Seaport receives a zero fulfiller conduit key and sends the ERC-1155 directly to `buyer`.
+The caller is `msg.sender` and pays exactly the sum of the signed consideration legs. The caller need not be `buyer`, which supports relayed purchases. The zone and signed `extraData` pass through unchanged. Seaport sends the ERC-1155 directly to `buyer`, saving an intermediate transfer.
 
-Each call explicitly selects its payoff funding mode. `PriceHeadroom` requires the payer's `price` to cover both all signed consideration legs and the receipt's rounded-up maximum repayment. It is the Shape A mode and never uses a seller allowance. `SellerAllowance` only requires `price` to cover the consideration legs and pulls any payoff shortfall from the seller; it is the Shape B mode.
+## Accounting
 
-## Unified math
+Let `P = legsTotal`, `M = receipt.maxRepayment` after decimal scaling, and `L = actual payoff` measured from the settlement contract's balance delta.
 
-Let `P = price`, `C = legsTotal` (the sum of all static ERC-20 consideration legs), `M = receipt.repayment` (maximum payoff), and `L = actual payoff`, measured from the settlement contract's USDC balance delta.
+- The caller funds exactly `P`.
+- The flash bridge is computed as `P + M - P = M`.
+- Pool repayment consumes `L`, where `L <= M` for a valid receipt.
+- Seaport consumes `P` and pays every signed consideration leg.
+- Settlement pulls exactly `L` from the seller (`receipt.borrower`).
+- The unused `M - L` plus the clawed-back `L` repays the full flash principal `M`.
 
-- Pre-funded flash principal: `F = max(0, C + M - P)`.
-- Sale headroom: `H = P - C`.
-- Seller clawback: `sellerOwes = max(0, L - H)`.
-- Seller residual: `sellerGets = max(0, H - L)`.
-- At most one of `sellerOwes` and `sellerGets` is nonzero.
+The contract snapshots its currency balance at entry and requires the same balance after settlement. Pre-existing donations therefore remain untouched and do not block settlement; the owner can recover them with `rescueERC20`.
 
-`M` is required before `repay`; if `L < M`, the larger pre-funded flash principal remains available for Morpho. After pool repayment, Seaport legs, and seller true-up, the settlement's balance increase equals `F`. Morpho pulls exactly `F`, and the contract asserts the currency balance has returned to its pre-settlement value after the flash call returns. Without a flash, the same path asserts the same net-zero invariant directly. Pre-existing currency donations remain untouched and can be recovered by the owner with `rescueERC20`.
+## Worked example
 
-## Supported currency behavior
+For a full signed price `P = $100` and actual loan payoff `L = $20`, the buyer pays `$100`. Seaport pays the signed `$100` consideration, including the seller's proceeds and any fee legs. The seller receives their signed proceeds and is then charged `$20`, so ignoring any separately signed fee legs the seller nets `$80`. The loan is cleared, the flash loan is repaid, and settlement nets `$0`.
 
-Only conventional, non-fee-on-transfer, non-rebasing ERC-20 currencies that return a boolean from `transfer` and `transferFrom` are supported (for example, USDC). Currencies with missing return values or ERC-777-style transfer callbacks are also unsupported. Although settlement uses `SafeERC20`, the pool repayment path uses a bare `transferFrom` and expects a returned boolean, and the settlement accounting assumes exact balance deltas. The owner pool allowlist implicitly constrains supported currencies because settlement reads the currency from `pool.currencyToken()`. Currency decimals must remain at most 18.
+## Seller allowance safety
 
-## Worked order shapes
+The seller's standing USDC allowance to settlement is safe in this full-price-only design. The prior fund-loss vector required a reduced-price order whose consideration legs were below the true price, allowing a buyer to underpay and turn loan headroom into a discount. Here the buyer always pays the complete signed consideration total, and the seller is charged only the balance-delta-measured payoff of their own loan during their own authorized sale. There is no caller-chosen price or payoff mode to abuse.
 
-Use `P = 100,000 USDC`, Fabrica fee `= 5,000 USDC`, `M = 22,000 USDC`, and `L = 21,000 USDC`.
+A single-use EIP-2612 or Permit2 authorization can replace the standing allowance as optional future hardening, but it is not a security requirement.
 
-Shape A, listed while under loan: seller floor leg is `100,000 - 5,000 - 22,000 = 73,000`; fee is `5,000`, so `C = 78,000`, `H = 22,000`, and `F = 0`. Repayment consumes `21,000`, Seaport pays the signed `73,000 + 5,000` legs, and the unused headroom `sellerGets = 22,000 - 21,000 = 1,000` goes to the seller. Total seller proceeds are `74,000`.
+## Validation and trust model
 
-Shape B, loan taken after listing: seller leg is `95,000`; fee is `5,000`, so `C = 100,000`, `H = 0`, and `F = 22,000`. The settlement repays `L = 21,000`, Seaport pays `95,000 + 5,000`, and `sellerOwes = 21,000` is pulled from the seller's just-received proceeds. The extra `1,000` in the maximum-sized flash remains in settlement; Morpho then pulls the full `22,000`. Total seller proceeds are `74,000`.
+Only owner-allowlisted pools may be repaid. The allowlist is a security boundary: operations must validate pool implementations and addresses before adding them and remove pools that should no longer receive settlements.
 
-Hybrids use exactly the same equations.
+The receipt borrower must be the Seaport offerer. The receipt collateral must match the order's single static ERC-1155 offer of amount one. As defense in depth, the borrower must be a recipient of at least one consideration leg. All consideration legs must be static ERC-20 amounts in the pool currency, and appended Seaport tips are rejected. Currency decimals must be at most 18.
+
+Only conventional, non-fee-on-transfer, non-rebasing ERC-20 currencies are supported. The owner pool allowlist implicitly constrains supported currencies because settlement reads the currency from `pool.currencyToken()`.
 
 ## Revert matrix
 
 | Condition | Result / reason |
 |---|---|
-| Paused entrypoint | OZ `EnforcedPause`; operations can stop new settlements. |
-| Reentrant `settle` | OZ `ReentrancyGuardReentrantCall`. |
+| Paused entrypoint | OZ `EnforcedPause`. |
+| Reentrant `settleAndBuy` | OZ `ReentrancyGuardReentrantCall`. |
 | Zero pool or buyer | `InvalidAddress`. |
 | Constructor Seaport, Morpho, or initial pool has no code | `NotAContract`. |
 | Pool is not owner-allowlisted | `PoolNotAllowed`. |
 | Bad receipt encoding/version | `InvalidReceiptEncoding`. |
-| Partial/zero fraction or offer count other than one | `InvalidOrder`. |
-| Offer is not one static ERC-1155 unit | `ReceiptOrderMismatch`. |
-| Receipt borrower is not offerer | `ReceiptOrderMismatch`. |
-| Receipt collateral token/id differs from offer | `ReceiptOrderMismatch`. |
-| Empty, non-ERC-20, non-static, identified, or wrong-currency consideration | `InvalidConsideration`. |
-| `SellerAllowance` order has no borrower-recipient consideration leg | `SellerRecipientMismatch`. |
+| Partial/zero fraction, nonzero conduit key, or offer count other than one | `InvalidOrder`. |
+| Offer is not one static ERC-1155 unit, borrower is not offerer, or collateral differs | `ReceiptOrderMismatch`. |
+| Empty, non-ERC-20, non-static, identified, wrong-currency, or overflowing consideration | `InvalidConsideration`. |
+| Borrower/offerer receives no consideration leg | `SellerRecipientMismatch`. |
 | Appended consideration changes the original consideration count | `UnexpectedConsiderationTip`. |
-| Consideration total exceeds the declared full price | `PriceBelowConsideration`. |
-| `PriceHeadroom` price does not cover consideration plus maximum repayment | `PriceBelowHeadroom`. |
-| `PriceHeadroom` unexpectedly reaches a seller clawback | `UnexpectedClawback`. |
-| Loan already repaid/inactive | Pool `repay` reverts; the transaction is atomic. |
-| Live payoff cannot be funded | Pool transfer or seller clawback reverts. |
-| Missing seller allowance in a clawback shape | Seller `safeTransferFrom` reverts. |
+| Pool currency has more than 18 decimals | `UnsupportedCurrencyDecimals`. |
+| Loan already repaid/inactive or payoff exceeds the receipt maximum | Pool `repay` reverts; the transaction is atomic. |
+| Missing or insufficient seller allowance | Seller `safeTransferFrom` reverts. |
 | Invalid/expired zone permission or invalid Seaport signature/order | Seaport/zone reverts. |
 | Seaport returns false | `SeaportFulfillmentFailed`. |
 | Callback is not configured Morpho, not in flight, or data differs | `UnauthorizedFlashCallback`. |
 | Morpho callback reports a different principal | `FlashAmountMismatch`. |
-| Flash provider underfunds or cannot pull repayment | Settlement balance check or token transfer reverts. |
+| Flash provider underfunds or cannot pull repayment | Token transfer or balance invariant reverts. |
 | Settlement changes its currency balance unexpectedly | `SettlementBalanceNotZero`; pre-existing donations remain untouched. |
-| Non-owner pause/unpause/rescue | OZ `OwnableUnauthorizedAccount`. |
-| Rescue recipient is zero | `InvalidAddress`. |
+| Non-owner pool management, pause/unpause, or rescue | OZ `OwnableUnauthorizedAccount`. |
+| Rescue token or recipient is zero | `InvalidAddress`. |
 
-## Trust model
+## Known limitation: caller-chosen buyer / front-running
 
-Settlement only calls pools explicitly approved by the owner. This allowlist is a security boundary, not merely discovery metadata: without it, an attacker could reuse a seller's still-valid signed Shape B order after the seller manually repaid, supply a fake pool and crafted receipt that mirror the order's borrower and collateral, have the fake `repay` consume settlement funds, and make the clawback branch pull real USDC through the seller's lingering settlement allowance. The fake pool would retain those funds. Operations must validate pool implementations and addresses before allowlisting them and remove pools that should no longer receive settlements.
-
-The caller must also choose the funding model explicitly. `PriceHeadroom` is for Shape A and enforces `price >= legsTotal + maxRepayment`, so payoff drift is refunded to the seller and seller clawback is treated as an invariant violation. `SellerAllowance` is for Shape B and retains the maximum-sized flash plus seller-clawback flow; the seller must approve settlement for the required shortfall. A Shape A order submitted as `SellerAllowance` does not gain price-headroom protection and will revert at clawback when the seller has not approved settlement.
-
-As an additional operational safeguard, soil should set the settlement contract's USDC allowance to zero as part of the manual payoff flow. Clearing that approval prevents stale Shape B allowances from remaining usable after the loan has been repaid.
-
-## Residual race condition
-
-If the seller self-repays and then a third party directly fills a still-live Shape A Seaport order, that order can execute at its signed floor price without this contract's residual-headroom payment. V1 does not add an on-chain restriction. The mitigation is API cancel-on-repay plus a short oracle permission expiry.
-
-## Known limitation: caller-chosen buyer / front-running (deferred to pre-mainnet hardening)
-
-`settleAndBuy` is permissionless and takes `buyer` as an explicit argument (this is intentional: it lets Coinflow's relayer settle on a buyer's behalf, where `msg.sender != buyer`). A watcher can therefore copy a pending settlement transaction and substitute a different `buyer`. This is a griefing / queue-jump vector, not a theft vector: `price` is always pulled from `msg.sender`, so a front-runner must fund the full price from their own wallet to snipe a property, and no path can drain the original buyer's or the seller's funds (verified by adversarial review 2026-07-11). In the Coinflow path the relayer is `msg.sender`, so a front-runner pays their own USDC and the original buyer is simply refunded by Coinflow. Decision (Fede, 2026-07-11): ship v1 with this documented, rely on short oracle-permission expiry and private/relayer submission for Coinflow, and add signed buyer-binding (oracle signs `orderHash + buyer`) in the pre-mainnet hardening pass. Mainnet is separately gated by ENG-3115.
+`settleAndBuy` is permissionless and takes `buyer` explicitly so a Coinflow relayer can settle on a buyer's behalf. A watcher can copy a pending transaction and substitute another buyer, but must fund the full signed price from their own wallet. This is a queue-jump/griefing vector rather than a drain of the original buyer or seller. Short oracle-permission expiry and private/relayer submission mitigate it; signed buyer-binding remains a possible pre-mainnet hardening.
 
 ## Deployment
 
-Morpho Blue is deployed on Sepolia at the canonical address `0xBBBBBbbBBb9cC5e90e3b3Af64bdAF62C37EEFFCb` (bytecode verified 2026-07-11), the same address as mainnet. The Sepolia Fabrica fork pool is `0x6C56d0953377D7AB479BBA85Da8d61050F774c0B`. If a network lacks a Morpho deployment, operations must supply or deploy a compatible zero-fee flash provider, set its address explicitly, and export `SETTLEMENT_ALLOW_NON_CANONICAL_MORPHO=true`.
+Morpho Blue is deployed on Sepolia at `0xBBBBBbbBBb9cC5e90e3b3Af64bdAF62C37EEFFCb`, the same address as mainnet. The Sepolia Fabrica fork pool is `0x6C56d0953377D7AB479BBA85Da8d61050F774c0B`. If a network lacks Morpho, supply a compatible zero-fee flash provider and export `SETTLEMENT_ALLOW_NON_CANONICAL_MORPHO=true`.
 
-Sepolia deployment runbook:
+The runtime entrypoint is:
 
-1. Export the required constructor inputs and RPC/API credentials. `SETTLEMENT_INITIAL_POOLS` remains a comma-separated address list.
+```solidity
+settleAndBuy(AdvancedOrder order, address pool, bytes encodedLoanReceipt, address buyer)
+```
+
+Sepolia deployment:
 
 ```sh
 export SETTLEMENT_SEAPORT=0x0000000000000068F116a894984e2DB1123eB395
@@ -111,19 +101,9 @@ export SETTLEMENT_OWNER=<Sepolia owner address>
 export SETTLEMENT_INITIAL_POOLS=0x6C56d0953377D7AB479BBA85Da8d61050F774c0B
 export SEPOLIA_RPC_URL=<Sepolia RPC URL>
 export ETHERSCAN_API_KEY=<Etherscan API key>
-```
 
-2. Dry-run the script without `--broadcast`, check the constructor arguments echoed by the script, then deploy and verify with this exact invocation:
-
-```sh
 forge script script/FabricaSettlementDeploy.s.sol:FabricaSettlementDeployScript \
   --rpc-url "$SEPOLIA_RPC_URL" --broadcast --verify
 ```
 
-3. After deployment:
-   - Check `allowedPools(0x6C56d0953377D7AB479BBA85Da8d61050F774c0B) == true` for every configured pool.
-   - Check `owner()` equals the intended owner address.
-   - Add the deployed settlement address to the Coinflow merchant allowlist.
-   - Record the deployment and verification links in the release evidence.
-
-Mainnet deployment is gated by ENG-3115 and must be executed through the Safe; do not broadcast the deploy script directly from an EOA for mainnet.
+After deployment, verify every configured `allowedPools` entry and `owner()`, add settlement to the Coinflow merchant allowlist, and record verification links. Mainnet deployment remains gated by ENG-3115 and must use the Safe.

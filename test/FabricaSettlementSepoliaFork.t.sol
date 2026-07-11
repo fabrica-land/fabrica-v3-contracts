@@ -24,15 +24,10 @@ contract FabricaSettlementSepoliaForkTest is Test {
         assertGt(FORK_POOL.code.length, 0, "Fabrica fork pool missing");
     }
 
-    function testFork_shapeA_priceHeadroom_happyPath() public {
-        // TODO(ENG-3506): source an active FORK_POOL loan receipt whose collateral has a valid
-        // oracle-signed Seaport zone order with the payoff removed from the seller floor.
-        vm.skip(true);
-    }
-
-    function testFork_shapeB_sellerAllowance_happyPath() public {
+    function testFork_fullPrice_happyPath() public {
         // TODO(ENG-3506): source an active FORK_POOL loan receipt, a full-price oracle-signed
-        // Seaport zone order, borrower allowance, and buyer/payer funding fixtures.
+        // Seaport zone order, borrower allowance, and buyer/caller funding fixtures, then call:
+        // settlement.settleAndBuy(order, FORK_POOL, encodedLoanReceipt, buyer).
         vm.skip(true);
     }
 }
