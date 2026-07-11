@@ -15,7 +15,7 @@ payer          settlement          Morpho (if needed)       pool             Sea
   |                 |<---------------- order ERC-20 legs pulled by Seaport ------|                       |
   |                 |<-- seller clawback, or --> seller residual headroom                                |
   |                 |-- approve exact flash principal --> Morpho                                         |
-  |                 |<-- Morpho pulls principal; final USDC balance = 0                                  |
+  |                 |<-- Morpho pulls principal; settlement returns to its starting USDC balance         |
 ```
 
 The payer is `msg.sender` and need not be the buyer. The zone and its signed `extraData` remain part of the seller's Seaport order; settlement passes them through unchanged. Seaport receives a zero fulfiller conduit key and sends the ERC-1155 directly to `buyer`.
@@ -32,7 +32,11 @@ Let `P = price`, `C = legsTotal` (the sum of all static ERC-20 consideration leg
 - Seller residual: `sellerGets = max(0, H - L)`.
 - At most one of `sellerOwes` and `sellerGets` is nonzero.
 
-`M` is required before `repay`; if `L < M`, the larger pre-funded flash principal remains available for Morpho. After pool repayment, Seaport legs, and seller true-up, the settlement balance equals `F`. Morpho pulls exactly `F`, and the contract asserts the currency balance is zero after the flash call returns. Without a flash, the same path asserts zero directly.
+`M` is required before `repay`; if `L < M`, the larger pre-funded flash principal remains available for Morpho. After pool repayment, Seaport legs, and seller true-up, the settlement's balance increase equals `F`. Morpho pulls exactly `F`, and the contract asserts the currency balance has returned to its pre-settlement value after the flash call returns. Without a flash, the same path asserts the same net-zero invariant directly. Pre-existing currency donations remain untouched and can be recovered by the owner with `rescueERC20`.
+
+## Supported currency behavior
+
+Only conventional, non-fee-on-transfer, non-rebasing ERC-20 currencies that return a boolean from `transfer` and `transferFrom` are supported (for example, USDC). Currencies with missing return values or ERC-777-style transfer callbacks are also unsupported. Although settlement uses `SafeERC20`, the pool repayment path uses a bare `transferFrom` and expects a returned boolean, and the settlement accounting assumes exact balance deltas. The owner pool allowlist implicitly constrains supported currencies because settlement reads the currency from `pool.currencyToken()`. Currency decimals must remain at most 18.
 
 ## Worked order shapes
 
@@ -69,7 +73,7 @@ Hybrids use exactly the same equations.
 | Callback is not configured Morpho, not in flight, or data differs | `UnauthorizedFlashCallback`. |
 | Morpho callback reports a different principal | `FlashAmountMismatch`. |
 | Flash provider underfunds or cannot pull repayment | Settlement balance check or token transfer reverts. |
-| Currency dust or unexpected token behavior | `SettlementBalanceNotZero`; no funds persist. |
+| Settlement changes its currency balance unexpectedly | `SettlementBalanceNotZero`; pre-existing donations remain untouched. |
 | Non-owner pause/unpause/rescue | OZ `OwnableUnauthorizedAccount`. |
 | Rescue recipient is zero | `InvalidAddress`. |
 

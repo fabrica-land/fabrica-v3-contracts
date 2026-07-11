@@ -71,6 +71,7 @@ contract SettlementMaliciousPool {
 contract SettlementTestMorpho {
     IERC20 public immutable token;
     bool public underpull;
+    bool public doubleCallback;
 
     constructor(IERC20 token_) {
         token = token_;
@@ -80,10 +81,17 @@ contract SettlementTestMorpho {
         underpull = value;
     }
 
+    function setDoubleCallback(bool value) external {
+        doubleCallback = value;
+    }
+
     function flashLoan(address tokenAddress, uint256 assets, bytes calldata data) external {
         require(tokenAddress == address(token), "token");
         token.transfer(msg.sender, assets);
         ISettlementMorphoFlashLoanCallback(msg.sender).onMorphoFlashLoan(assets, data);
+        if (doubleCallback) {
+            ISettlementMorphoFlashLoanCallback(msg.sender).onMorphoFlashLoan(assets, data);
+        }
         token.transferFrom(msg.sender, address(this), underpull ? assets + 1 : assets);
     }
 
@@ -190,6 +198,22 @@ contract FabricaSettlementTest is Test {
         assertEq(usdc.balanceOf(address(settlement)), 0);
     }
 
+    function test_shapeA_donatedCurrencyDoesNotBlockSettlement() public {
+        uint256 donation = 1;
+        usdc.mint(address(settlement), donation);
+
+        AdvancedOrder memory order = _order(PRICE - FEE - MAX_REPAYMENT, false);
+        vm.prank(payer);
+        settlement.settleAndBuy(
+            order, address(pool), receipt, buyer, PRICE, FabricaSettlement.PayoffFunding.PriceHeadroom
+        );
+
+        assertEq(nft.balanceOf(buyer, TOKEN_ID), 1);
+        assertEq(usdc.balanceOf(seller), PRICE - FEE - PAYOFF);
+        assertEq(usdc.balanceOf(feeRecipient), FEE);
+        assertEq(usdc.balanceOf(address(settlement)), donation);
+    }
+
     function test_shapeB_flashAndClawback() public {
         AdvancedOrder memory order = _order(PRICE - FEE, false);
         vm.prank(seller);
@@ -271,6 +295,23 @@ contract FabricaSettlementTest is Test {
         morpho.setUnderpull(true);
         vm.prank(payer);
         vm.expectRevert();
+        settlement.settleAndBuy(
+            _order(PRICE - FEE, false),
+            address(pool),
+            receipt,
+            buyer,
+            PRICE,
+            FabricaSettlement.PayoffFunding.SellerAllowance
+        );
+    }
+
+    function test_revert_secondFlashCallback() public {
+        vm.prank(seller);
+        usdc.approve(address(settlement), MAX_REPAYMENT);
+        morpho.setDoubleCallback(true);
+
+        vm.prank(payer);
+        vm.expectRevert(FabricaSettlement.UnauthorizedFlashCallback.selector);
         settlement.settleAndBuy(
             _order(PRICE - FEE, false),
             address(pool),

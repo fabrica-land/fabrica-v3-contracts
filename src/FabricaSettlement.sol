@@ -103,6 +103,7 @@ contract FabricaSettlement is
 
         SettlementLoanReceipt.Details memory receipt = SettlementLoanReceipt.decode(encodedLoanReceipt);
         (IERC20 currency, uint256 legsTotal, uint256 maxRepayment) = _validate(order, receipt, pool);
+        uint256 balanceBefore = currency.balanceOf(address(this));
         if (legsTotal > price) revert PriceBelowConsideration();
         if (maxRepayment > type(uint256).max - legsTotal) revert InvalidConsideration();
         if (payoffFunding == PayoffFunding.PriceHeadroom && price < legsTotal + maxRepayment) {
@@ -135,7 +136,7 @@ contract FabricaSettlement is
         }
 
         uint256 balance = currency.balanceOf(address(this));
-        if (balance != 0) revert SettlementBalanceNotZero(balance);
+        if (balance != balanceBefore) revert SettlementBalanceNotZero(balance);
     }
 
     function onMorphoFlashLoan(uint256 assets, bytes calldata data) external {
@@ -143,6 +144,8 @@ contract FabricaSettlement is
             revert UnauthorizedFlashCallback();
         }
         SettlementData memory settlementData = abi.decode(data, (SettlementData));
+        _settlementInFlight = false;
+        _callbackHash = bytes32(0);
         uint256 expected = settlementData.legsTotal + settlementData.maxRepayment - settlementData.price;
         if (assets != expected) revert FlashAmountMismatch();
 
