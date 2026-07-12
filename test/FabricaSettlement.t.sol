@@ -10,6 +10,7 @@ import {Pausable} from "@openzeppelin/contracts/utils/Pausable.sol";
 import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 import {FabricaSettlement} from "../src/FabricaSettlement.sol";
 import {ISettlementMorphoFlashLoanCallback} from "../src/interfaces/ISettlementMorpho.sol";
+import {SettlementLoanReceipt} from "../src/libraries/SettlementLoanReceipt.sol";
 import {TestERC20} from "./fabrica-lending-pools/concretes/TestERC20.sol";
 import {
     AdvancedOrder,
@@ -20,6 +21,12 @@ import {
     OrderParameters
 } from "seaport-types/lib/ConsiderationStructs.sol";
 import {ItemType, OrderType} from "seaport-types/lib/ConsiderationEnums.sol";
+
+contract SettlementLoanReceiptHarness {
+    function decode(bytes calldata encoded) external pure returns (SettlementLoanReceipt.Details memory) {
+        return SettlementLoanReceipt.decode(encoded);
+    }
+}
 
 contract SettlementTest1155 is ERC1155("") {
     function mint(address to, uint256 id) external {
@@ -77,6 +84,7 @@ contract SettlementTestMorpho {
     IERC20 public immutable token;
     bool public underpull;
     bool public doubleCallback;
+    bool public mismatchCallbackAmount;
     uint256 public flashLoanCalls;
 
     constructor(IERC20 token_) {
@@ -91,11 +99,16 @@ contract SettlementTestMorpho {
         doubleCallback = value;
     }
 
+    function setMismatchCallbackAmount(bool value) external {
+        mismatchCallbackAmount = value;
+    }
+
     function flashLoan(address tokenAddress, uint256 assets, bytes calldata data) external {
         ++flashLoanCalls;
         require(tokenAddress == address(token), "token");
         token.transfer(msg.sender, assets);
-        ISettlementMorphoFlashLoanCallback(msg.sender).onMorphoFlashLoan(assets, data);
+        ISettlementMorphoFlashLoanCallback(msg.sender)
+            .onMorphoFlashLoan(mismatchCallbackAmount ? assets + 1 : assets, data);
         if (doubleCallback) {
             ISettlementMorphoFlashLoanCallback(msg.sender).onMorphoFlashLoan(assets, data);
         }
@@ -379,6 +392,125 @@ contract FabricaSettlementTest is Test {
         vm.prank(payer);
         vm.expectRevert(FabricaSettlement.UnexpectedConsiderationTip.selector);
         settlement.settleAndBuy(order, address(pool), receipt, buyer);
+    }
+
+    function test_revert_contractOrderTypeRejected() public {
+        AdvancedOrder memory order = _order(PRICE - FEE, false);
+        order.parameters.orderType = OrderType.CONTRACT;
+
+        vm.prank(payer);
+        vm.expectRevert(FabricaSettlement.InvalidOrder.selector);
+        settlement.settleAndBuy(order, address(pool), receipt, buyer);
+    }
+
+    function test_revert_receiptOrderMismatch() public {
+        AdvancedOrder memory order = _order(PRICE - FEE, false);
+        order.parameters.offerer = makeAddr("wrong receipt borrower");
+
+        vm.prank(payer);
+        vm.expectRevert(FabricaSettlement.ReceiptOrderMismatch.selector);
+        settlement.settleAndBuy(order, address(pool), receipt, buyer);
+    }
+
+    function test_revert_flashAmountMismatch() public {
+        morpho.setMismatchCallbackAmount(true);
+
+        vm.prank(payer);
+        vm.expectRevert(
+            abi.encodeWithSelector(FabricaSettlement.FlashAmountMismatch.selector, MAX_REPAYMENT + 1, MAX_REPAYMENT)
+        );
+        settlement.settleAndBuy(_order(PRICE - FEE, false), address(pool), receipt, buyer);
+    }
+
+    function test_revert_unsupportedCurrencyDecimals() public {
+        TestERC20 highDecimals = new TestERC20("High Decimals", "HIGH", 19);
+        SettlementTestPool highDecimalsPool =
+            new SettlementTestPool(IERC20(address(highDecimals)), nft, seller, TOKEN_ID, PAYOFF);
+        SettlementTestMorpho highDecimalsMorpho = new SettlementTestMorpho(IERC20(address(highDecimals)));
+        SettlementTestSeaport highDecimalsSeaport = new SettlementTestSeaport(IERC20(address(highDecimals)), nft);
+        address[] memory initialPools = new address[](1);
+        initialPools[0] = address(highDecimalsPool);
+        FabricaSettlement highDecimalsSettlement = new FabricaSettlement(
+            address(highDecimalsSeaport), address(highDecimalsMorpho), address(this), initialPools
+        );
+        nft.mint(address(highDecimalsPool), TOKEN_ID);
+        AdvancedOrder memory order = _order(PRICE - FEE, false);
+        for (uint256 i; i < order.parameters.consideration.length; ++i) {
+            order.parameters.consideration[i].token = address(highDecimals);
+        }
+
+        vm.prank(payer);
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                FabricaSettlement.UnsupportedCurrencyDecimals.selector, address(highDecimals), uint8(19)
+            )
+        );
+        highDecimalsSettlement.settleAndBuy(order, address(highDecimalsPool), receipt, buyer);
+    }
+
+    function test_happyPath_18DecimalCurrency() public {
+        uint256 scale = 1e12;
+        TestERC20 currency18 = new TestERC20("18 Decimal Currency", "D18", 18);
+        SettlementTestPool pool18 =
+            new SettlementTestPool(IERC20(address(currency18)), nft, seller, TOKEN_ID, PAYOFF * scale);
+        SettlementTestMorpho morpho18 = new SettlementTestMorpho(IERC20(address(currency18)));
+        SettlementTestSeaport seaport18 = new SettlementTestSeaport(IERC20(address(currency18)), nft);
+        address[] memory initialPools = new address[](1);
+        initialPools[0] = address(pool18);
+        FabricaSettlement settlement18 =
+            new FabricaSettlement(address(seaport18), address(morpho18), address(this), initialPools);
+        nft.mint(address(pool18), TOKEN_ID);
+        currency18.mint(payer, PRICE * scale);
+        currency18.mint(address(morpho18), MAX_REPAYMENT * scale);
+        vm.prank(payer);
+        currency18.approve(address(settlement18), type(uint256).max);
+        vm.prank(seller);
+        nft.setApprovalForAll(address(seaport18), true);
+        vm.prank(seller);
+        currency18.approve(address(settlement18), MAX_REPAYMENT * scale);
+
+        AdvancedOrder memory order = _order((PRICE - FEE) * scale, false);
+        order.parameters.consideration[0].token = address(currency18);
+        order.parameters.consideration[1].token = address(currency18);
+        order.parameters.consideration[1].startAmount = FEE * scale;
+        order.parameters.consideration[1].endAmount = FEE * scale;
+
+        vm.prank(payer);
+        settlement18.settleAndBuy(order, address(pool18), receipt, buyer);
+
+        assertEq(nft.balanceOf(buyer, TOKEN_ID), 1);
+        assertEq(currency18.balanceOf(seller), (PRICE - FEE - PAYOFF) * scale);
+        assertEq(currency18.balanceOf(feeRecipient), FEE * scale);
+        assertEq(currency18.balanceOf(address(settlement18)), 0);
+        assertEq(currency18.balanceOf(address(morpho18)), MAX_REPAYMENT * scale);
+    }
+
+    function test_revert_receiptDecoderTooShort() public {
+        SettlementLoanReceiptHarness harness = new SettlementLoanReceiptHarness();
+        vm.expectRevert(SettlementLoanReceipt.InvalidReceiptEncoding.selector);
+        harness.decode(new bytes(186));
+    }
+
+    function test_revert_receiptDecoderWrongVersion() public {
+        SettlementLoanReceiptHarness harness = new SettlementLoanReceiptHarness();
+        bytes memory encoded = receipt;
+        encoded[0] = bytes1(uint8(1));
+        vm.expectRevert(SettlementLoanReceipt.InvalidReceiptEncoding.selector);
+        harness.decode(encoded);
+    }
+
+    function test_revert_receiptDecoderBadContextLength() public {
+        SettlementLoanReceiptHarness harness = new SettlementLoanReceiptHarness();
+        bytes memory encoded = receipt;
+        encoded[186] = bytes1(uint8(1));
+        vm.expectRevert(SettlementLoanReceipt.InvalidReceiptEncoding.selector);
+        harness.decode(encoded);
+    }
+
+    function test_revert_receiptDecoderMisalignedTail() public {
+        SettlementLoanReceiptHarness harness = new SettlementLoanReceiptHarness();
+        vm.expectRevert(SettlementLoanReceipt.InvalidReceiptEncoding.selector);
+        harness.decode(bytes.concat(receipt, hex"00"));
     }
 
     function test_revert_expiredZoneExtraData() public {

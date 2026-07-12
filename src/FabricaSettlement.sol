@@ -12,7 +12,7 @@ import {ERC1155Holder} from "@openzeppelin/contracts/token/ERC1155/utils/ERC1155
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {ConsiderationInterface} from "seaport-types/interfaces/ConsiderationInterface.sol";
 import {AdvancedOrder, CriteriaResolver, OrderComponents} from "seaport-types/lib/ConsiderationStructs.sol";
-import {ItemType} from "seaport-types/lib/ConsiderationEnums.sol";
+import {ItemType, OrderType} from "seaport-types/lib/ConsiderationEnums.sol";
 import {ISettlementPool} from "./interfaces/ISettlementPool.sol";
 import {ISettlementMorpho, ISettlementMorphoFlashLoanCallback} from "./interfaces/ISettlementMorpho.sol";
 import {SettlementLoanReceipt} from "./libraries/SettlementLoanReceipt.sol";
@@ -145,7 +145,6 @@ contract FabricaSettlement is
     ) private {
         SettlementLoanReceipt.Details memory receipt = SettlementLoanReceipt.decode(encodedLoanReceipt);
         uint256 flashAmount = _validateReceipt(order, receipt, currency);
-        if (flashAmount > type(uint256).max - legsTotal) revert InvalidConsideration();
         SettlementData memory settlementData = SettlementData({
             order: order,
             pool: pool,
@@ -227,6 +226,7 @@ contract FabricaSettlement is
         view
         returns (IERC20 currency, uint256 legsTotal)
     {
+        if (order.parameters.orderType == OrderType.CONTRACT) revert InvalidOrder();
         if (
             order.numerator == 0 || order.numerator != order.denominator || order.parameters.offer.length != 1
                 || order.parameters.conduitKey != bytes32(0)

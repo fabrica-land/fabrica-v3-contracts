@@ -23,6 +23,13 @@ contract FabricaSettlementDeployScript is Script {
             morpho == CANONICAL_MORPHO || allowNonCanonicalMorpho,
             "SETTLEMENT_MORPHO is not canonical; set SETTLEMENT_ALLOW_NON_CANONICAL_MORPHO=true to override"
         );
+        if (morpho != CANONICAL_MORPHO) {
+            console2.log(
+                "WARNING: deploying against a NON-CANONICAL Morpho",
+                morpho,
+                "-- must be a verified ZERO-FEE provider or every settlement reverts"
+            );
+        }
         for (uint256 i; i < initialPools.length; ++i) {
             require(initialPools[i] != address(0), "SETTLEMENT_INITIAL_POOLS contains zero");
         }
