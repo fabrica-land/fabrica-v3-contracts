@@ -74,8 +74,9 @@ discipline.
 
 For UUPS-proxy upgrades to existing deployments (FabricaToken,
 FabricaValidator), see **[`UPGRADE-RUNBOOK.md`](./UPGRADE-RUNBOOK.md)**.
-For beacon-based upgrades of the vendored MetaStreet lending pool stack,
-see **[`LENDING-POOL-RUNBOOK.md`](./LENDING-POOL-RUNBOOK.md)**.
+The Fabrica lending pool stack lives in the
+[`fabrica-land/metastreet-contracts-v2`](https://github.com/fabrica-land/metastreet-contracts-v2)
+fork, with its own deploy scripts and upgrade runbook.
 
 Quick reference (sepolia / dev only — mainnet uses Safe multisig per
 DEPLOYMENT.md):

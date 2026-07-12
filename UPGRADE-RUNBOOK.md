@@ -1,9 +1,8 @@
 # FabricaToken Upgrade Runbook
 
-For the vendored MetaStreet lending pool stack
-(`src/fabrica-lending-pools/**`) and its beacon-based upgrade flow, see
-[`LENDING-POOL-RUNBOOK.md`](./LENDING-POOL-RUNBOOK.md) instead — this doc
-covers the FabricaToken UUPS upgrade path only.
+For the Fabrica lending pool stack and its beacon-based upgrade flow, see the
+[`fabrica-land/metastreet-contracts-v2`](https://github.com/fabrica-land/metastreet-contracts-v2)
+fork instead — this doc covers the FabricaToken UUPS upgrade path only.
 
 ## Network Addresses
 

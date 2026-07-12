@@ -1,14 +1,17 @@
 # Deploying contracts from this repo
 
-This repo holds all of Fabrica's Solidity contracts and their deployment
-scripts. We deploy via **Foundry's `forge script`** (Paradigm tooling), one
+This repo holds Fabrica's own Solidity contracts (FabricaToken, FabricaFeeCollector,
+FabricaValidator, FabricaMarketplaceZone, FabricaProxy, and friends) and their
+deployment scripts. The MetaStreet-derived lending-pool contracts live in the
+[`fabrica-land/metastreet-contracts-v2`](https://github.com/fabrica-land/metastreet-contracts-v2)
+fork, not here. We deploy via **Foundry's `forge script`** (Paradigm tooling), one
 script per logical operation, against the network's `--rpc-url`.
 
 For UUPS-proxy upgrades to existing FabricaToken / FabricaValidator
 deployments, see [`UPGRADE-RUNBOOK.md`](./UPGRADE-RUNBOOK.md) instead — this
-doc covers deploying new contracts. For beacon-based upgrades of the
-vendored MetaStreet lending pool stack, see
-[`LENDING-POOL-RUNBOOK.md`](./LENDING-POOL-RUNBOOK.md).
+doc covers deploying new contracts. The Fabrica lending pool stack now lives in
+the [`fabrica-land/metastreet-contracts-v2`](https://github.com/fabrica-land/metastreet-contracts-v2)
+fork, with its own Foundry deploy scripts and upgrade runbook.
 
 ## TL;DR (for anyone vendoring something new)
 
@@ -145,9 +148,9 @@ When a deploy lands, record the new address in:
 
 1. **`UPGRADE-RUNBOOK.md`** if the contract has its own upgrade path or
    is a proxy for an existing implementation
-2. **A new doc** if this is a brand-new contract family (e.g.
-   `DEPLOYMENT-METASTREET.md` for the forked MetaStreet pool contracts —
-   see ENG-3115 for that family's mainnet-deploy ticket)
+2. **A new doc** if this is a brand-new contract family (the Fabrica lending
+   pool contracts and their deploy records live in the
+   `fabrica-land/metastreet-contracts-v2` fork, not this repo)
 3. **The `.broadcast/` artifacts** — Foundry's `--broadcast` writes
    per-network JSON files under `broadcast/<script>/<chain-id>/` that
    record the transaction hash and deployed address. Commit these when
