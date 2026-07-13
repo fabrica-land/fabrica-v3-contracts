@@ -47,14 +47,25 @@ $ anvil
 
 ### Deploy
 
-```shell
-$ forge script script/Counter.s.sol:CounterScript --rpc-url <your_rpc_url> --private-key <your_private_key>
+```bash
+set -a
+. ./.env
+set +a
+: "${ORACLE_SIGNER_ADDRESS:?set ORACLE_SIGNER_ADDRESS}"
+forge script script/FabricaMarketplaceZone.s.sol \
+  --rpc-url sepolia \
+  --account "$DEPLOYER_ACCOUNT" \
+  --broadcast \
+  --verifier etherscan \
+  --verify \
+  --sig "run(address)" \
+  "$ORACLE_SIGNER_ADDRESS"
 ```
 
 ### Cast
 
 ```shell
-$ cast <subcommand>
+cast --help
 ```
 
 ### Help
@@ -81,14 +92,19 @@ fork, with its own deploy scripts and upgrade runbook.
 Quick reference (sepolia / dev only — mainnet uses Safe multisig per
 DEPLOYMENT.md):
 
-```
+```bash
+set -a
+. ./.env
+set +a
+: "${ORACLE_SIGNER_ADDRESS:?set ORACLE_SIGNER_ADDRESS}"
+
 forge script \
     --rpc-url sepolia \
     script/FabricaMarketplaceZone.s.sol \
-    --private-key $DEPLOYER_PRIVATE_KEY \
+    --account "$DEPLOYER_ACCOUNT" \
     --broadcast \
+    --verifier etherscan \
     --verify \
-    # Only if the run function has parameters:
     --sig "run(address)" \
-    0x3fE51ba59dDA319d5Ac3Bf372993Ec0705dC62CB
+    "$ORACLE_SIGNER_ADDRESS"
 ```
