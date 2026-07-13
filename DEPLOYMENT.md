@@ -71,8 +71,9 @@ keystore_path = keystore_dir / account_name
 if keystore_path.exists():
     raise SystemExit(f"refusing to overwrite existing keystore: {keystore_path}")
 keystore = Account.encrypt(private_key, password)
-keystore_path.write_text(json.dumps(keystore), encoding="utf-8")
-keystore_path.chmod(0o600)
+fd = os.open(keystore_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+with os.fdopen(fd, "w", encoding="utf-8") as keystore_file:
+    json.dump(keystore, keystore_file)
 PY
 ```
 

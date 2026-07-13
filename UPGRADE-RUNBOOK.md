@@ -143,6 +143,7 @@ cast call "$PROXY_ADDRESS" "balanceOf(address,uint256)(uint256)" "$HOLDER_ADDRES
 ```bash
 # Ensure .env has the required variables:
 # SEPOLIA_RPC_URL, ETHERSCAN_API_KEY
+# Foundry account aliases used by --account:
 # TESTNET_DEPLOYER_ACCOUNT, TESTNET_PROXY_ADMIN_ACCOUNT
 # TESTNET_DEPLOYER_PRIVATE_KEY, TESTNET_PROXY_ADMIN_PRIVATE_KEY
 # FOUNDRY_KEYSTORE_PASSWORD
@@ -151,6 +152,8 @@ cast call "$PROXY_ADDRESS" "balanceOf(address,uint256)(uint256)" "$HOLDER_ADDRES
 set -a
 . ./.env
 set +a
+: "${TESTNET_DEPLOYER_ACCOUNT:?set TESTNET_DEPLOYER_ACCOUNT}"
+: "${TESTNET_PROXY_ADMIN_ACCOUNT:?set TESTNET_PROXY_ADMIN_ACCOUNT}"
 ```
 
 Use Foundry keystore accounts, hardware wallets, or a Safe flow for signing.
@@ -187,8 +190,9 @@ for account_name, private_key in accounts:
     if keystore_path.exists():
         raise SystemExit(f"refusing to overwrite existing keystore: {keystore_path}")
     keystore = Account.encrypt(private_key, password)
-    keystore_path.write_text(json.dumps(keystore), encoding="utf-8")
-    keystore_path.chmod(0o600)
+    fd = os.open(keystore_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    with os.fdopen(fd, "w", encoding="utf-8") as keystore_file:
+        json.dump(keystore, keystore_file)
 PY
 ```
 
@@ -202,6 +206,7 @@ set -a
 set +a
 : "${PROXY_ADDRESS:?set PROXY_ADDRESS}"
 : "${RPC_NETWORK_NAME:?set RPC_NETWORK_NAME}"
+: "${TESTNET_DEPLOYER_ACCOUNT:?set TESTNET_DEPLOYER_ACCOUNT}"
 
 forge script script/FabricaTokenDeployImpl.s.sol \
   --sig "run(address)" "$PROXY_ADDRESS" \
@@ -213,10 +218,12 @@ forge script script/FabricaTokenDeployImpl.s.sol \
 ```
 
 Example for Sepolia:
+
 ```bash
 set -a
 . ./.env
 set +a
+: "${TESTNET_DEPLOYER_ACCOUNT:?set TESTNET_DEPLOYER_ACCOUNT}"
 
 forge script script/FabricaTokenDeployImpl.s.sol \
   --sig "run(address)" 0xb52ED2Dc8EBD49877De57De3f454Fd71b75bc1fD \
@@ -247,6 +254,7 @@ export EXPECTED_CHAIN_ID=11155111
 export EXPECTED_TOKEN_PROXY=0xb52ED2Dc8EBD49877De57De3f454Fd71b75bc1fD
 : "${NEW_IMPL_ADDRESS:?set NEW_IMPL_ADDRESS}"
 : "${CURRENT_IMPL_ADDRESS:?set CURRENT_IMPL_ADDRESS}"
+: "${TESTNET_PROXY_ADMIN_ACCOUNT:?set TESTNET_PROXY_ADMIN_ACCOUNT}"
 export EXPECTED_TOKEN_IMPLEMENTATION="$NEW_IMPL_ADDRESS"
 export EXPECTED_CURRENT_IMPLEMENTATION="$CURRENT_IMPL_ADDRESS"
 forge script script/FabricaTokenUpgrade.s.sol \
@@ -272,6 +280,7 @@ set +a
 : "${NEW_IMPL_ADDRESS:?set NEW_IMPL_ADDRESS}"
 : "${CURRENT_IMPL_ADDRESS:?set CURRENT_IMPL_ADDRESS}"
 : "${RPC_NETWORK_NAME:?set RPC_NETWORK_NAME}"
+: "${TESTNET_PROXY_ADMIN_ACCOUNT:?set TESTNET_PROXY_ADMIN_ACCOUNT}"
 export EXPECTED_CHAIN_ID="$CHAIN_ID"
 export EXPECTED_TOKEN_PROXY="$PROXY_ADDRESS"
 export EXPECTED_TOKEN_IMPLEMENTATION="$NEW_IMPL_ADDRESS"

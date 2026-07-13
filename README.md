@@ -65,7 +65,7 @@ forge script script/FabricaMarketplaceZone.s.sol \
 ### Cast
 
 ```shell
-$ cast --help
+cast --help
 ```
 
 ### Help
