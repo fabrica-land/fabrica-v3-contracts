@@ -13,10 +13,76 @@ doc covers deploying new contracts. The Fabrica lending pool stack now lives in
 the [`fabrica-land/metastreet-contracts-v2`](https://github.com/fabrica-land/metastreet-contracts-v2)
 fork, with its own Foundry deploy scripts and upgrade runbook.
 
+## Secret handling rules
+
+Never put live secrets in command-line arguments. On macOS, argv is visible to
+other local users through process inspection.
+
+- **Banned: inline env generators** such as `env KEY=$SECRET cmd` or
+  `KEY=$SECRET cmd` expose the secret through process inspection surfaces.
+- **Banned: authorization headers in argv** such as
+  `curl -H "Authorization: Bearer $TOKEN"` expose the token in argv; feed
+  headers to `curl --config -` over stdin instead.
+- **Banned: prompt-feeding private keys** such as piping a key into
+  `cast wallet import --interactive`; PTY transcripts can capture the key, and
+  the import path can fail after exposing it.
+
+Load `.env` through environment inheritance before running tools:
+
+```bash
+set -a
+. ./.env
+set +a
+```
+
+For API calls that need bearer authorization, pass the header via stdin:
+
+```bash
+curl --config - https://example.invalid/api <<EOF
+header = "Authorization: Bearer ${API_TOKEN}"
+EOF
+```
+
+For dev/sepolia key import, install the Python account library once, then read
+the key from the inherited environment and write the encrypted keystore in
+process. This writes no key material to stdout or argv:
+
+```bash
+python3 -m pip install --user eth-account
+
+set -a
+. ./.env
+set +a
+
+python3 - <<'PY'
+import json
+import os
+from pathlib import Path
+
+from eth_account import Account
+
+account_name = os.environ["DEPLOYER_ACCOUNT"]
+private_key = os.environ["DEPLOYER_PRIVATE_KEY"]
+password = os.environ["FOUNDRY_KEYSTORE_PASSWORD"]
+
+keystore_dir = Path.home() / ".foundry" / "keystores"
+keystore_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
+keystore_path = keystore_dir / account_name
+if keystore_path.exists():
+    raise SystemExit(f"refusing to overwrite existing keystore: {keystore_path}")
+keystore = Account.encrypt(private_key, password)
+keystore_path.write_text(json.dumps(keystore), encoding="utf-8")
+keystore_path.chmod(0o600)
+PY
+```
+
 ## TL;DR (for anyone vendoring something new)
 
 ```bash
 # 1. From repo root, with .env populated (see "Environment setup" below):
+set -a
+. ./.env
+set +a
 forge build
 
 # 2. Run the deploy script against the target network. Network names are
@@ -24,8 +90,9 @@ forge build
 forge script \
   --rpc-url sepolia \
   script/MyNewContractDeploy.s.sol \
-  --private-key $DEPLOYER_PRIVATE_KEY \
+  --account "$DEPLOYER_ACCOUNT" \
   --broadcast \
+  --verifier etherscan \
   --verify
 
 # 3. Record the deployed address in UPGRADE-RUNBOOK.md (or a new doc if
@@ -40,17 +107,19 @@ must contain at least:
 
 ```bash
 # RPC endpoints — one per network you intend to deploy to
-MAINNET_RPC_URL=https://mainnet.infura.io/v3/<...>
-SEPOLIA_RPC_URL=https://sepolia.infura.io/v3/<...>
+MAINNET_RPC_URL=https://mainnet.infura.io/v3/replace-with-project-id
+SEPOLIA_RPC_URL=https://sepolia.infura.io/v3/replace-with-project-id
 BASE_SEPOLIA_RPC_URL=https://sepolia.base.org
 
 # Etherscan / Basescan API key for contract verification
-ETHERSCAN_API_KEY=<...>
+ETHERSCAN_API_KEY=replace-with-api-key
 
 # Deployer private key. ONLY for dev/sepolia. Mainnet deploys use Safe
 # multisig + a hardware-wallet-signed transaction; never put a mainnet
 # deployer key in a .env file.
-DEPLOYER_PRIVATE_KEY=<dev-or-sepolia-key>
+DEPLOYER_PRIVATE_KEY=replace-with-dev-or-sepolia-key
+DEPLOYER_ACCOUNT=fabrica-sepolia-deployer
+FOUNDRY_KEYSTORE_PASSWORD=replace-with-keystore-password
 ```
 
 `foundry.toml`'s `[rpc_endpoints]` block declares the network names that
@@ -75,14 +144,20 @@ parameters (constructor args, target addresses), use `--sig` to pass them
 on the CLI:
 
 ```bash
+set -a
+. ./.env
+set +a
+PARAM_ADDRESS=0x0000000000000000000000000000000000001234
+
 forge script \
   --rpc-url sepolia \
   script/MyDeploy.s.sol \
-  --private-key $DEPLOYER_PRIVATE_KEY \
+  --account "$DEPLOYER_ACCOUNT" \
   --broadcast \
+  --verifier etherscan \
   --verify \
   --sig "run(address,uint256)" \
-  0x1234... 86400
+  "$PARAM_ADDRESS" 86400
 ```
 
 See the existing scripts for shape references — `FabricaValidatorUpgrade.s.sol`,
@@ -129,14 +204,17 @@ The flow is:
    NOT use `--broadcast` here; this generates the calldata only).
 2. Inspect the calldata. It will be visible in the `broadcast/*.json`
    output Foundry writes.
-3. Submit the transaction to the Safe Transaction Service via the Safe
-   UI or CLI, targeting the contract address `0x0` (for `CREATE`) and
-   the calldata from step 2.
+3. Submit the transaction through an operator-approved Safe-compatible
+   deployment mechanism. Do **not** submit a Safe CALL to `0x0`; that is
+   not EVM contract creation. If a deployment factory is used, the Safe
+   transaction targets that reviewed factory and carries the factory call
+   data.
 4. Collect signatures from the Safe signers (the org's signing quorum).
 5. Execute the Safe transaction. The deploy lands on-chain.
 6. **Verify the deployed bytecode** matches what `forge build` produced
-   locally. Run `forge verify-contract <deployed-address>
-   <Contract>` to push verification to Etherscan.
+   locally. Run `forge verify-contract --verifier etherscan
+   "$DEPLOYED_ADDRESS" "$CONTRACT_PATH"` to push verification to
+   Etherscan.
 
 Do NOT use `--broadcast` with a private-key flag on mainnet deploys.
 That bypasses the Safe and signs the transaction under whatever key is
@@ -169,17 +247,30 @@ When a deploy lands, record the new address in:
 (network hiccup, API rate limit, missing constructor args):
 
 ```bash
+CHAIN_NAME=sepolia
+DEPLOYED_ADDRESS=0x0000000000000000000000000000000000000000
+CONTRACT_PATH=src/path/to/Contract.sol:Contract
+
 forge verify-contract \
-  --chain sepolia \
+  --chain "$CHAIN_NAME" \
+  --verifier etherscan \
   --watch \
-  <deployed-address> \
-  src/path/to/Contract.sol:Contract
+  "$DEPLOYED_ADDRESS" \
+  "$CONTRACT_PATH"
 ```
 
 For contracts with constructor args, append:
 
 ```bash
-  --constructor-args $(cast abi-encode "constructor(address,uint256)" 0xabc 86400)
+CHAIN_NAME=sepolia
+CONSTRUCTOR_ARGS=$(cast abi-encode "constructor(address,uint256)" 0x0000000000000000000000000000000000000abc 86400)
+forge verify-contract \
+  --chain "$CHAIN_NAME" \
+  --verifier etherscan \
+  --watch \
+  "$DEPLOYED_ADDRESS" \
+  "$CONTRACT_PATH" \
+  --constructor-args "$CONSTRUCTOR_ARGS"
 ```
 
 `--watch` polls Etherscan until verification completes; for unattended
