@@ -57,23 +57,53 @@ set +a
 python3 - <<'PY'
 import json
 import os
+import tempfile
 from pathlib import Path
 
 from eth_account import Account
 
-account_name = os.environ["DEPLOYER_ACCOUNT"]
+def keystore_filename(value):
+    if not value or value in {".", ".."} or "/" in value or "\\" in value:
+        raise SystemExit("account name must be a single keystore filename")
+    path = Path(value)
+    if path.is_absolute() or path.name != value:
+        raise SystemExit("account name must be a single keystore filename")
+    return value
+
+def write_keystore(keystore_path, keystore):
+    tmp_path = None
+    if keystore_path.exists():
+        raise SystemExit(f"refusing to overwrite existing keystore: {keystore_path}")
+    try:
+        fd, tmp_name = tempfile.mkstemp(
+            dir=keystore_path.parent,
+            prefix=f".{keystore_path.name}.",
+            suffix=".tmp",
+            text=True,
+        )
+        tmp_path = Path(tmp_name)
+        with os.fdopen(fd, "w", encoding="utf-8") as keystore_file:
+            json.dump(keystore, keystore_file)
+            keystore_file.flush()
+            os.fsync(keystore_file.fileno())
+        os.chmod(tmp_path, 0o600)
+        os.link(tmp_path, keystore_path)
+    finally:
+        if tmp_path is not None:
+            try:
+                tmp_path.unlink()
+            except FileNotFoundError:
+                pass
+
+account_name = keystore_filename(os.environ["DEPLOYER_ACCOUNT"])
 private_key = os.environ["DEPLOYER_PRIVATE_KEY"]
 password = os.environ["FOUNDRY_KEYSTORE_PASSWORD"]
 
 keystore_dir = Path.home() / ".foundry" / "keystores"
 keystore_dir.mkdir(mode=0o700, parents=True, exist_ok=True)
 keystore_path = keystore_dir / account_name
-if keystore_path.exists():
-    raise SystemExit(f"refusing to overwrite existing keystore: {keystore_path}")
 keystore = Account.encrypt(private_key, password)
-fd = os.open(keystore_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-with os.fdopen(fd, "w", encoding="utf-8") as keystore_file:
-    json.dump(keystore, keystore_file)
+write_keystore(keystore_path, keystore)
 PY
 ```
 
