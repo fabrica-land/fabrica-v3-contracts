@@ -215,9 +215,7 @@ contract FabricaSettlementTest is Test {
     }
 
     function test_happyPath_relayerIsNotBuyer_andNoDust() public {
-        AdvancedOrder memory order = _order(PRICE - FEE, false);
-        vm.prank(payer);
-        settlement.settleAndBuy(order, address(pool), receipt, buyer);
+        _settleDefaultUnderLoan();
         assertEq(nft.balanceOf(buyer, TOKEN_ID), 1);
         assertEq(usdc.balanceOf(seller), PRICE - FEE - PAYOFF);
         assertEq(usdc.balanceOf(feeRecipient), FEE);
@@ -257,11 +255,7 @@ contract FabricaSettlementTest is Test {
 
     function test_flashLoanLiquidityAtRequiredAmount_settles() public {
         assertEq(usdc.balanceOf(address(morpho)), MAX_REPAYMENT);
-
-        AdvancedOrder memory order = _order(PRICE - FEE, false);
-        vm.prank(payer);
-        settlement.settleAndBuy(order, address(pool), receipt, buyer);
-
+        _settleDefaultUnderLoan();
         assertEq(nft.balanceOf(buyer, TOKEN_ID), 1);
         assertEq(usdc.balanceOf(address(morpho)), MAX_REPAYMENT);
         assertEq(morpho.flashLoanCalls(), 1);
@@ -271,13 +265,11 @@ contract FabricaSettlementTest is Test {
         uint256 available = MAX_REPAYMENT - 1;
         vm.prank(address(morpho));
         assertTrue(usdc.transfer(makeAddr("liquidity sink"), 1));
-
         vm.prank(payer);
         vm.expectRevert(
             abi.encodeWithSelector(FabricaSettlement.InsufficientFlashLoanLiquidity.selector, available, MAX_REPAYMENT)
         );
         settlement.settleAndBuy(_order(PRICE - FEE, false), address(pool), receipt, buyer);
-
         assertEq(morpho.flashLoanCalls(), 0);
         assertEq(nft.balanceOf(address(pool), TOKEN_ID), 1);
         assertEq(nft.balanceOf(buyer, TOKEN_ID), 0);
@@ -298,11 +290,7 @@ contract FabricaSettlementTest is Test {
     function test_donatedCurrencyDoesNotBlockSettlement() public {
         uint256 donation = 1;
         usdc.mint(address(settlement), donation);
-
-        AdvancedOrder memory order = _order(PRICE - FEE, false);
-        vm.prank(payer);
-        settlement.settleAndBuy(order, address(pool), receipt, buyer);
-
+        _settleDefaultUnderLoan();
         assertEq(nft.balanceOf(buyer, TOKEN_ID), 1);
         assertEq(usdc.balanceOf(seller), PRICE - FEE - PAYOFF);
         assertEq(usdc.balanceOf(feeRecipient), FEE);
@@ -656,6 +644,12 @@ contract FabricaSettlementTest is Test {
         settlement.settleAndBuy(order, address(maliciousPool), receipt, buyer);
         assertEq(usdc.balanceOf(address(maliciousPool)), 0);
         assertEq(usdc.allowance(seller, address(settlement)), MAX_REPAYMENT);
+    }
+
+    function _settleDefaultUnderLoan() internal {
+        AdvancedOrder memory order = _order(PRICE - FEE, false);
+        vm.prank(payer);
+        settlement.settleAndBuy(order, address(pool), receipt, buyer);
     }
 
     function _order(uint256 sellerLeg, bool expired) internal view returns (AdvancedOrder memory order) {
