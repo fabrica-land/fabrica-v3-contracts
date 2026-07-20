@@ -255,6 +255,34 @@ contract FabricaSettlementTest is Test {
         assertEq(morpho.flashLoanCalls(), 1);
     }
 
+    function test_flashLoanLiquidityAtRequiredAmount_settles() public {
+        assertEq(usdc.balanceOf(address(morpho)), MAX_REPAYMENT);
+
+        AdvancedOrder memory order = _order(PRICE - FEE, false);
+        vm.prank(payer);
+        settlement.settleAndBuy(order, address(pool), receipt, buyer);
+
+        assertEq(nft.balanceOf(buyer, TOKEN_ID), 1);
+        assertEq(usdc.balanceOf(address(morpho)), MAX_REPAYMENT);
+        assertEq(morpho.flashLoanCalls(), 1);
+    }
+
+    function test_revert_insufficientFlashLoanLiquidity() public {
+        uint256 available = MAX_REPAYMENT - 1;
+        vm.prank(address(morpho));
+        assertTrue(usdc.transfer(makeAddr("liquidity sink"), 1));
+
+        vm.prank(payer);
+        vm.expectRevert(
+            abi.encodeWithSelector(FabricaSettlement.InsufficientFlashLoanLiquidity.selector, available, MAX_REPAYMENT)
+        );
+        settlement.settleAndBuy(_order(PRICE - FEE, false), address(pool), receipt, buyer);
+
+        assertEq(morpho.flashLoanCalls(), 0);
+        assertEq(nft.balanceOf(address(pool), TOKEN_ID), 1);
+        assertEq(nft.balanceOf(buyer, TOKEN_ID), 0);
+    }
+
     function test_revert_constructorDependencyIsNotAContract() public {
         address eoa = makeAddr("zero-code dependency");
         address[] memory noPools = new address[](0);
