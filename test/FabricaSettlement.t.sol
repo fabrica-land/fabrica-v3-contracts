@@ -253,11 +253,13 @@ contract FabricaSettlementTest is Test {
         assertEq(morpho.flashLoanCalls(), 1);
     }
 
-    function test_flashLoanLiquidityAtRequiredAmount_settles() public {
-        assertEq(usdc.balanceOf(address(morpho)), MAX_REPAYMENT);
+    function test_flashLoanLiquidityAboveRequiredAmount_settles() public {
+        uint256 surplusLiquidity = 1;
+        usdc.mint(address(morpho), surplusLiquidity);
+        assertEq(usdc.balanceOf(address(morpho)), MAX_REPAYMENT + surplusLiquidity);
         _settleDefaultUnderLoan();
         assertEq(nft.balanceOf(buyer, TOKEN_ID), 1);
-        assertEq(usdc.balanceOf(address(morpho)), MAX_REPAYMENT);
+        assertEq(usdc.balanceOf(address(morpho)), MAX_REPAYMENT + surplusLiquidity);
         assertEq(morpho.flashLoanCalls(), 1);
     }
 
