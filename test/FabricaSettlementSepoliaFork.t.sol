@@ -9,6 +9,7 @@ contract FabricaSettlementSepoliaForkTest is Test {
     address internal constant SEAPORT_1_6 = 0x0000000000000068F116a894984e2DB1123eB395;
     address internal constant MORPHO = 0xBBBBBbbBBb9cC5e90e3b3Af64bdAF62C37EEFFCb;
     address internal constant FORK_POOL = 0x6C56d0953377D7AB479BBA85Da8d61050F774c0B;
+    uint256 internal constant SEPOLIA_FORK_BLOCK = 11_218_223;
 
     function setUp() public {
         string memory rpc = vm.envOr("SEPOLIA_RPC_URL", string(""));
@@ -17,7 +18,7 @@ contract FabricaSettlementSepoliaForkTest is Test {
             return;
         }
 
-        vm.createSelectFork(rpc);
+        vm.createSelectFork("sepolia", SEPOLIA_FORK_BLOCK);
         assertEq(block.chainid, 11155111, "SEPOLIA_RPC_URL must target Sepolia");
         assertGt(SEAPORT_1_6.code.length, 0, "Seaport 1.6 missing");
         assertGt(MORPHO.code.length, 0, "Morpho missing");

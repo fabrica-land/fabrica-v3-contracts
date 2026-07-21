@@ -8,11 +8,11 @@ Settlement detects an active loan by checking whether the supplied pool holds at
 
 ```text
 caller/buyer        settlement          Morpho              pool              Seaport          seller / buyer
-  | full price P ------>|                  |                   |                  |                    |
   |                     |-- flash M ------>|                   |                  |                    |
   |                     |<---- USDC -------|                   |                  |                    |
   |                     |-- repay(receipt) ------------------->|                  |                    |
   |                     |<-- collateral returned to seller ---|----------------------------> seller  |
+  | full price P ------>|                  |                   |                  |                    |
   |                     |-- fulfillAdvancedOrder(recipient=buyer) ------------->| NFT -------------> buyer
   |                     |<----------- full signed consideration P pulled -------|----> recipients    |
   |                     |<-- actual payoff L pulled from seller allowance ---------------- seller    |
@@ -22,7 +22,7 @@ caller/buyer        settlement          Morpho              pool              Se
 
 The caller is `msg.sender` and pays exactly the sum of the signed consideration legs. The caller need not be `buyer`, which supports relayed purchases. The zone and signed `extraData` pass through unchanged. Seaport sends the ERC-1155 directly to `buyer`, saving an intermediate transfer.
 
-Morpho Blue liveness and sufficient flash liquidity are hard dependencies of every under-loan settlement, including a degenerate receipt whose scaled `maxRepayment` is zero. The contract always requests and repays a flash principal of exactly `maxRepayment` and approves Morpho for exactly that amount. This hard-assumes a zero-fee flash provider: `SETTLEMENT_ALLOW_NON_CANONICAL_MORPHO` must only ever authorize deployment against a compatible zero-fee provider.
+Morpho Blue liveness and sufficient flash liquidity are hard dependencies of every under-loan settlement with a nonzero scaled `maxRepayment`. The contract requests and repays a flash principal of exactly `maxRepayment` and approves Morpho for exactly that amount. A degenerate receipt whose scaled `maxRepayment` is zero bypasses Morpho because canonical Morpho rejects zero-asset flash loans. This hard-assumes a zero-fee flash provider for nonzero flashes: `SETTLEMENT_ALLOW_NON_CANONICAL_MORPHO` must only ever authorize deployment against a compatible zero-fee provider.
 
 ## No-loan direct path
 
@@ -91,7 +91,7 @@ Only conventional, non-fee-on-transfer, non-rebasing ERC-20 currencies are suppo
 | Seaport returns false | `SeaportFulfillmentFailed`. |
 | Callback is not configured Morpho, not in flight, or data differs | `UnauthorizedFlashCallback`. |
 | Morpho callback reports a different principal | `FlashAmountMismatch`. |
-| Flash provider underfunds or cannot pull repayment | Token transfer or balance invariant reverts. |
+| Nonzero flash provider underfunds or cannot pull repayment | Token transfer or balance invariant reverts. |
 | Settlement changes its currency balance unexpectedly | `SettlementBalanceNotZero`; pre-existing donations remain untouched. |
 | Non-owner pool management, pause/unpause, or rescue | OZ `OwnableUnauthorizedAccount`. |
 | Rescue token or recipient is zero | `InvalidAddress`. |

@@ -146,8 +146,6 @@ contract FabricaSettlement is
     ) private {
         SettlementLoanReceipt.Details memory receipt = SettlementLoanReceipt.decode(encodedLoanReceipt);
         uint256 flashAmount = _validateReceipt(order, receipt, currency);
-        uint256 available = currency.balanceOf(address(morpho));
-        if (available < flashAmount) revert InsufficientFlashLoanLiquidity(available, flashAmount);
         SettlementData memory settlementData = SettlementData({
             order: order,
             pool: pool,
@@ -159,6 +157,12 @@ contract FabricaSettlement is
             receipt: receipt,
             currency: address(currency)
         });
+        if (flashAmount == 0) {
+            _execute(settlementData);
+            return;
+        }
+        uint256 available = currency.balanceOf(address(morpho));
+        if (available < flashAmount) revert InsufficientFlashLoanLiquidity(available, flashAmount);
         bytes memory data = abi.encode(settlementData);
         _settlementInFlight = true;
         _callbackHash = keccak256(data);
@@ -197,6 +201,8 @@ contract FabricaSettlement is
     /// @param pool Pool whose status is updated.
     /// @param allowed Whether settlement may repay the pool.
     function setPoolAllowed(address pool, bool allowed) external onlyOwner {
+        if (pool == address(0)) revert InvalidAddress();
+        if (allowed && pool.code.length == 0) revert NotAContract(pool);
         allowedPools[pool] = allowed;
         emit PoolAllowedSet(pool, allowed);
     }
@@ -253,7 +259,9 @@ contract FabricaSettlement is
                     || order.parameters.consideration[i].identifierOrCriteria != 0
                     || order.parameters.consideration[i].startAmount != order.parameters.consideration[i].endAmount
             ) revert InvalidConsideration();
-            legsTotal += order.parameters.consideration[i].startAmount;
+            uint256 amount = order.parameters.consideration[i].startAmount;
+            if (legsTotal > type(uint256).max - amount) revert InvalidConsideration();
+            legsTotal += amount;
         }
     }
 
@@ -288,13 +296,7 @@ contract FabricaSettlement is
         IERC20 currency,
         uint256 legsTotal
     ) private {
-        currency.safeTransferFrom(payer, address(this), legsTotal);
-        currency.forceApprove(address(seaport), legsTotal);
-        CriteriaResolver[] memory resolvers = new CriteriaResolver[](0);
-        if (!seaport.fulfillAdvancedOrder(order, resolvers, bytes32(0), buyer)) {
-            revert SeaportFulfillmentFailed();
-        }
-        currency.forceApprove(address(seaport), 0);
+        _fulfillOrder(order, buyer, payer, currency, legsTotal);
 
         emit SettlementExecuted(
             _orderHash(order),
@@ -317,13 +319,9 @@ contract FabricaSettlement is
         uint256 payoff = beforeRepay - currency.balanceOf(address(this));
         currency.forceApprove(settlementData.pool, 0);
 
-        currency.safeTransferFrom(settlementData.payer, address(this), settlementData.legsTotal);
-        currency.forceApprove(address(seaport), settlementData.legsTotal);
-        CriteriaResolver[] memory resolvers = new CriteriaResolver[](0);
-        if (!seaport.fulfillAdvancedOrder(settlementData.order, resolvers, bytes32(0), settlementData.buyer)) {
-            revert SeaportFulfillmentFailed();
-        }
-        currency.forceApprove(address(seaport), 0);
+        _fulfillOrder(
+            settlementData.order, settlementData.buyer, settlementData.payer, currency, settlementData.legsTotal
+        );
 
         // The borrower is the order's offerer and is required to receive a consideration leg. The full signed
         // price is paid before this measured loan payoff is pulled through the seller's standing allowance.
@@ -340,6 +338,18 @@ contract FabricaSettlement is
             payoff,
             payoff
         );
+    }
+
+    function _fulfillOrder(AdvancedOrder memory order, address buyer, address payer, IERC20 currency, uint256 legsTotal)
+        private
+    {
+        currency.safeTransferFrom(payer, address(this), legsTotal);
+        currency.forceApprove(address(seaport), legsTotal);
+        CriteriaResolver[] memory resolvers = new CriteriaResolver[](0);
+        if (!seaport.fulfillAdvancedOrder(order, resolvers, bytes32(0), buyer)) {
+            revert SeaportFulfillmentFailed();
+        }
+        currency.forceApprove(address(seaport), 0);
     }
 
     function _orderHash(AdvancedOrder memory order) private view returns (bytes32) {

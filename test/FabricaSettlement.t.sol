@@ -159,7 +159,8 @@ contract SettlementTestMorpho {
         if (doubleCallback) {
             ISettlementMorphoFlashLoanCallback(msg.sender).onMorphoFlashLoan(assets, data);
         }
-        token.transferFrom(msg.sender, address(this), underpull ? assets + 1 : assets);
+        uint256 repayment = underpull && assets > 0 ? assets - 1 : assets;
+        token.transferFrom(msg.sender, address(this), repayment);
     }
 
     function spoof(address target, uint256 assets, bytes calldata data) external {
@@ -459,6 +460,18 @@ contract FabricaSettlementTest is Test {
         settlement.settleAndBuy(order, address(pool), receipt, buyer);
     }
 
+    function test_revert_considerationSumOverflow() public {
+        AdvancedOrder memory order = _order(PRICE - FEE, false);
+        order.parameters.consideration[0].startAmount = type(uint256).max;
+        order.parameters.consideration[0].endAmount = type(uint256).max;
+        order.parameters.consideration[1].startAmount = 1;
+        order.parameters.consideration[1].endAmount = 1;
+
+        vm.prank(payer);
+        vm.expectRevert(FabricaSettlement.InvalidConsideration.selector);
+        settlement.settleAndBuy(order, address(pool), receipt, buyer);
+    }
+
     function test_revert_contractOrderTypeRejected() public {
         AdvancedOrder memory order = _order(PRICE - FEE, false);
         order.parameters.orderType = OrderType.CONTRACT;
@@ -550,6 +563,40 @@ contract FabricaSettlementTest is Test {
         assertEq(currency18.balanceOf(address(morpho18)), MAX_REPAYMENT * scale);
     }
 
+    function test_roundsUpScaledReceiptRepayment() public {
+        uint256 roundedMaxRepayment = MAX_REPAYMENT + 1;
+        SettlementTestPool roundedPool =
+            new SettlementTestPool(IERC20(address(usdc)), nft, seller, TOKEN_ID, roundedMaxRepayment);
+        settlement.setPoolAllowed(address(roundedPool), true);
+        nft.mint(address(roundedPool), TOKEN_ID);
+        usdc.mint(address(morpho), 1);
+        vm.prank(seller);
+        usdc.approve(address(settlement), roundedMaxRepayment);
+
+        vm.expectEmit(true, true, true, true, address(settlement));
+        emit FabricaSettlement.SettlementExecuted(
+            keccak256(abi.encode(seller, uint256(1))),
+            TOKEN_ID,
+            buyer,
+            seller,
+            address(roundedPool),
+            PRICE,
+            roundedMaxRepayment,
+            roundedMaxRepayment
+        );
+        vm.prank(payer);
+        settlement.settleAndBuy(
+            _order(PRICE - FEE, false),
+            address(roundedPool),
+            _receiptWithScaledMaxRepayment(MAX_REPAYMENT * 1e12 + 1),
+            buyer
+        );
+
+        assertEq(usdc.balanceOf(address(morpho)), MAX_REPAYMENT + 1);
+        assertEq(usdc.balanceOf(seller), PRICE - FEE - roundedMaxRepayment);
+        assertEq(nft.balanceOf(buyer, TOKEN_ID), 1);
+    }
+
     function test_revert_receiptDecoderTooShort() public {
         SettlementLoanReceiptHarness harness = new SettlementLoanReceiptHarness();
         vm.expectRevert(SettlementLoanReceipt.InvalidReceiptEncoding.selector);
@@ -578,6 +625,17 @@ contract FabricaSettlementTest is Test {
         harness.decode(bytes.concat(receipt, hex"00"));
     }
 
+    function test_receiptDecoderGoldenWithContextAndNodeTail() public {
+        SettlementLoanReceiptHarness harness = new SettlementLoanReceiptHarness();
+        bytes memory golden =
+            hex"0200000000000000000000000000000000000000000000000000000000000000010000000000000000000000000000000000000000000000000123456789abcdef0000000000000000000000000000000000000000000000000000000000000000111111111111111111111111111111111111111100000000000000020000000000000003222222222222222222222222222222222222222200000000000000000000000000000000000000000000000000000000000000040003aabbccdddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd";
+        SettlementLoanReceipt.Details memory details = harness.decode(golden);
+        assertEq(details.maxRepayment, 0x0123456789abcdef);
+        assertEq(details.borrower, 0x1111111111111111111111111111111111111111);
+        assertEq(details.collateralToken, 0x2222222222222222222222222222222222222222);
+        assertEq(details.collateralTokenId, 4);
+    }
+
     function test_revert_expiredZoneExtraData() public {
         vm.prank(payer);
         vm.expectRevert("Oracle signature expired");
@@ -586,13 +644,13 @@ contract FabricaSettlementTest is Test {
 
     function test_revert_directFlashCallback() public {
         vm.expectRevert(FabricaSettlement.UnauthorizedFlashCallback.selector);
-        morpho.spoof(address(settlement), 1, "");
+        settlement.onMorphoFlashLoan(1, "");
     }
 
     function test_revert_flashLoanRepayShortfall() public {
         morpho.setUnderpull(true);
         vm.prank(payer);
-        vm.expectRevert(stdError.arithmeticError);
+        vm.expectRevert(abi.encodeWithSelector(FabricaSettlement.SettlementBalanceNotZero.selector, 1));
         settlement.settleAndBuy(_order(PRICE - FEE, false), address(pool), receipt, buyer);
     }
 
@@ -649,7 +707,7 @@ contract FabricaSettlementTest is Test {
         assertEq(nft.balanceOf(buyer, TOKEN_ID), 1);
     }
 
-    function test_boundary_zeroMaxRepaymentReceiptUsesFlashPath() public {
+    function test_boundary_zeroMaxRepaymentReceiptBypassesFlashPath() public {
         SettlementTestPool zero = new SettlementTestPool(IERC20(address(usdc)), nft, seller, TOKEN_ID, 0);
         settlement.setPoolAllowed(address(zero), true);
         nft.mint(address(zero), TOKEN_ID);
@@ -657,10 +715,36 @@ contract FabricaSettlementTest is Test {
         vm.prank(payer);
         settlement.settleAndBuy(_order(PRICE - FEE, false), address(zero), _receiptWithMaxRepayment(0), buyer);
 
-        assertEq(morpho.flashLoanCalls(), 1);
+        assertEq(morpho.flashLoanCalls(), 0);
         assertEq(zero.repayCalls(), 1);
         assertEq(usdc.balanceOf(seller), PRICE - FEE);
         assertEq(nft.balanceOf(buyer, TOKEN_ID), 1);
+    }
+
+    function test_setPoolAllowed_revertsOnZeroAddress() public {
+        vm.expectRevert(FabricaSettlement.InvalidAddress.selector);
+        settlement.setPoolAllowed(address(0), true);
+    }
+
+    function test_setPoolAllowed_revertsOnAllowedNonContract() public {
+        address eoa = makeAddr("pool eoa");
+        vm.expectRevert(abi.encodeWithSelector(FabricaSettlement.NotAContract.selector, eoa));
+        settlement.setPoolAllowed(eoa, true);
+    }
+
+    function test_setPoolAllowed_allowsRemovingNonContract() public {
+        address eoa = makeAddr("pool eoa");
+        settlement.setPoolAllowed(eoa, false);
+        assertFalse(settlement.allowedPools(eoa));
+    }
+
+    function test_revert_nonzeroConduitKey() public {
+        AdvancedOrder memory order = _order(PRICE - FEE, false);
+        order.parameters.conduitKey = bytes32(uint256(1));
+
+        vm.prank(payer);
+        vm.expectRevert(FabricaSettlement.InvalidOrder.selector);
+        settlement.settleAndBuy(order, address(pool), receipt, buyer);
     }
 
     function test_revert_pausedEntryPoint() public {
@@ -729,10 +813,14 @@ contract FabricaSettlementTest is Test {
     }
 
     function _receiptWithMaxRepayment(uint256 maxRepayment) internal view returns (bytes memory) {
+        return _receiptWithScaledMaxRepayment(maxRepayment * 1e12);
+    }
+
+    function _receiptWithScaledMaxRepayment(uint256 scaledMaxRepayment) internal view returns (bytes memory) {
         return abi.encodePacked(
             uint8(2),
             uint256(1),
-            maxRepayment * 1e12,
+            scaledMaxRepayment,
             uint256(0),
             seller,
             uint64(block.timestamp + 1 days),
