@@ -6,19 +6,19 @@ import {FabricaToken} from "../src/FabricaToken.sol";
 import {FabricaProxy} from "../src/FabricaProxy.sol";
 
 /// @dev Minimal mirror of the EIP-721 Metadata `symbol()` getter. This is the
-/// exact interface MetaStreet's lending-pool deposit token uses to read a
+/// exact interface the Fabrica lending pool's deposit token uses to read a
 /// collateral collection's symbol — `IERC721Metadata(collateralToken).symbol()`
-/// in src/fabrica-lending-pools/tokenization/ERC20DepositTokenImplementation.sol.
-/// Declared locally because the OZ v5 tree vendored for Fabrica's own contracts
-/// does not ship the ERC721 metadata interface (it lives in the OZ v4 tree that
-/// is remap-scoped to the vendored MetaStreet sources only).
+/// in the fabrica-land/metastreet-contracts-v2 fork
+/// (contracts/tokenization/ERC20DepositTokenImplementation.sol). Declared
+/// locally to keep this test independent of any OpenZeppelin ERC721 metadata
+/// interface import path.
 interface IErc721MetadataSymbol {
     function symbol() external view returns (string memory);
 }
 
 /// @notice Verifies the Fabrica 1155 token exposes a collection symbol of
-/// "FABRICA" through the EIP-721 Metadata `symbol()` getter, the path MetaStreet
-/// integrates against (ENG-3226).
+/// "FABRICA" through the EIP-721 Metadata `symbol()` getter, the path the Fabrica
+/// lending pool integrates against (ENG-3226).
 contract FabricaTokenSymbolTest is Test {
     /// @dev Canonical EIP-721 Metadata `symbol()` selector.
     bytes4 internal constant SYMBOL_SELECTOR = 0x95d89b41;
@@ -39,7 +39,7 @@ contract FabricaTokenSymbolTest is Test {
     }
 
     /// @dev The getter MUST be reachable through the EIP-721 Metadata interface,
-    /// since that is how MetaStreet's deposit token reads the collateral symbol.
+    /// since that is how the Fabrica lending pool's deposit token reads the collateral symbol.
     function test_symbol_readableViaErc721MetadataInterface() public view {
         assertEq(
             IErc721MetadataSymbol(address(token)).symbol(), "FABRICA", "symbol via IERC721Metadata should be FABRICA"
@@ -50,7 +50,7 @@ contract FabricaTokenSymbolTest is Test {
     /// the full EIP-721 Metadata interface (id 0x5b5e139f) via ERC-165. This is
     /// an ERC-1155, not an ERC-721; falsely claiming IERC721Metadata conformance
     /// would mislead generic NFT tooling into using the ERC-721 transfer ABI /
-    /// ownerOf assumptions. MetaStreet reads symbol() by selector with no ERC-165
+    /// ownerOf assumptions. The lending pool reads symbol() by selector with no ERC-165
     /// probe, so the bare getter is sufficient. This locks the decision in.
     function test_symbol_doesNotAdvertiseErc721MetadataInterface() public view {
         bytes4 erc721MetadataInterfaceId = 0x5b5e139f;
@@ -75,7 +75,7 @@ contract FabricaTokenSymbolTest is Test {
         assertEq(abi.decode(ret, (string)), "FABRICA", "raw staticcall should decode to FABRICA");
     }
 
-    /// @dev The symbol getter must not be coupled to pause state — MetaStreet and
+    /// @dev The symbol getter must not be coupled to pause state — the lending pool and
     /// other metadata consumers may read it while the collection is paused. The
     /// getter is `pure` so it cannot observe pause state; this locks that in.
     function test_symbol_readableWhilePaused() public {
