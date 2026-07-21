@@ -85,7 +85,8 @@ Only conventional, non-fee-on-transfer, non-rebasing ERC-20 currencies are suppo
 | Borrower/offerer receives no consideration leg | Under-loan: `SellerRecipientMismatch`. No-loan: no seller-recipient receipt check is needed. |
 | Appended consideration changes the original consideration count | Both paths: `UnexpectedConsiderationTip`. |
 | Pool currency has more than 18 decimals | `UnsupportedCurrencyDecimals`. |
-| Pool holds the collateral but repayment is inactive or payoff exceeds the receipt maximum | Pool `repay` reverts; the transaction is atomic. |
+| Pool holds the collateral but repayment is inactive | Pool `repay` reverts; the transaction is atomic. |
+| Measured payoff exceeds the receipt maximum | `PayoffExceedsMaxRepayment`; the transaction is atomic. |
 | Seller allowance is below `maxRepayment`, or seller funds after proceeds are below actual payoff | Under-loan transfer reverts atomically; no-loan performs no clawback. |
 | Invalid/expired zone permission or invalid Seaport signature/order | Seaport/zone reverts. |
 | Seaport returns false | `SeaportFulfillmentFailed`. |

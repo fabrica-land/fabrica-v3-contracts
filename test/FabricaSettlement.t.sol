@@ -278,17 +278,7 @@ contract FabricaSettlementTest is Test {
         usdc.approve(address(settlement), PRICE);
 
         AdvancedOrder memory order = _order(PRICE - FEE, false);
-        vm.expectEmit(true, true, true, true, address(settlement));
-        emit FabricaSettlement.SettlementExecuted(
-            keccak256(abi.encode(seller, order.parameters.salt)),
-            TOKEN_ID,
-            buyer,
-            seller,
-            address(pool),
-            PRICE,
-            PAYOFF,
-            PAYOFF
-        );
+        _expectSettlementExecuted(order, buyer, address(pool), PRICE, PAYOFF);
         vm.prank(buyer);
         settlement.settleAndBuy(order, address(pool), receipt, buyer);
 
@@ -353,26 +343,11 @@ contract FabricaSettlementTest is Test {
         nft.mint(seller, TOKEN_ID);
         AdvancedOrder memory order = _order(PRICE - FEE, false);
 
-        vm.expectEmit(true, true, true, true, address(settlement));
-        emit FabricaSettlement.SettlementExecuted(
-            keccak256(abi.encode(seller, order.parameters.salt)),
-            TOKEN_ID,
-            buyer,
-            seller,
-            address(directPool),
-            PRICE,
-            0,
-            0
-        );
+        _expectSettlementExecuted(order, buyer, address(directPool), PRICE, 0);
         vm.prank(payer);
         settlement.settleAndBuy(order, address(directPool), hex"ff", buyer);
 
-        assertEq(nft.balanceOf(buyer, TOKEN_ID), 1);
-        assertEq(usdc.balanceOf(seller), PRICE - FEE);
-        assertEq(usdc.balanceOf(feeRecipient), FEE);
-        assertEq(usdc.balanceOf(address(settlement)), 0);
-        assertEq(usdc.balanceOf(payer), 0);
-        assertEq(morpho.flashLoanCalls(), 0);
+        _assertNoLoanSettlement();
         assertEq(directPool.repayCalls(), 0);
         assertEq(usdc.allowance(seller, address(settlement)), MAX_REPAYMENT);
     }
@@ -388,19 +363,11 @@ contract FabricaSettlementTest is Test {
         assertEq(nft.balanceOf(seller, TOKEN_ID), 1);
 
         AdvancedOrder memory order = _order(PRICE - FEE, false);
-        vm.expectEmit(true, true, true, true, address(settlement));
-        emit FabricaSettlement.SettlementExecuted(
-            keccak256(abi.encode(seller, order.parameters.salt)), TOKEN_ID, buyer, seller, address(pool), PRICE, 0, 0
-        );
+        _expectSettlementExecuted(order, buyer, address(pool), PRICE, 0);
         vm.prank(payer);
         settlement.settleAndBuy(order, address(pool), hex"ff", buyer);
 
-        assertEq(nft.balanceOf(buyer, TOKEN_ID), 1);
-        assertEq(usdc.balanceOf(seller), PRICE - FEE);
-        assertEq(usdc.balanceOf(feeRecipient), FEE);
-        assertEq(usdc.balanceOf(address(settlement)), 0);
-        assertEq(usdc.balanceOf(payer), 0);
-        assertEq(morpho.flashLoanCalls(), 0);
+        _assertNoLoanSettlement();
         assertEq(pool.repayCalls(), 1);
     }
 
@@ -680,17 +647,7 @@ contract FabricaSettlementTest is Test {
         nft.mint(address(exact), TOKEN_ID);
 
         AdvancedOrder memory order = _order(PRICE - FEE, false);
-        vm.expectEmit(true, true, true, true, address(settlement));
-        emit FabricaSettlement.SettlementExecuted(
-            keccak256(abi.encode(seller, order.parameters.salt)),
-            TOKEN_ID,
-            buyer,
-            seller,
-            address(exact),
-            PRICE,
-            MAX_REPAYMENT,
-            MAX_REPAYMENT
-        );
+        _expectSettlementExecuted(order, buyer, address(exact), PRICE, MAX_REPAYMENT);
         vm.prank(payer);
         settlement.settleAndBuy(order, address(exact), receipt, buyer);
 
@@ -788,6 +745,35 @@ contract FabricaSettlementTest is Test {
         AdvancedOrder memory order = _order(PRICE - FEE, false);
         vm.prank(payer);
         settlement.settleAndBuy(order, address(pool), receipt, buyer);
+    }
+
+    function _expectSettlementExecuted(
+        AdvancedOrder memory order,
+        address recipient,
+        address poolAddress,
+        uint256 price,
+        uint256 payoff
+    ) internal {
+        vm.expectEmit(true, true, true, true, address(settlement));
+        emit FabricaSettlement.SettlementExecuted(
+            keccak256(abi.encode(seller, order.parameters.salt)),
+            TOKEN_ID,
+            recipient,
+            seller,
+            poolAddress,
+            price,
+            payoff,
+            payoff
+        );
+    }
+
+    function _assertNoLoanSettlement() internal view {
+        assertEq(nft.balanceOf(buyer, TOKEN_ID), 1);
+        assertEq(usdc.balanceOf(seller), PRICE - FEE);
+        assertEq(usdc.balanceOf(feeRecipient), FEE);
+        assertEq(usdc.balanceOf(address(settlement)), 0);
+        assertEq(usdc.balanceOf(payer), 0);
+        assertEq(morpho.flashLoanCalls(), 0);
     }
 
     function _order(uint256 sellerLeg, bool expired) internal view returns (AdvancedOrder memory order) {
