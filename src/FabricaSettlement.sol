@@ -39,6 +39,7 @@ contract FabricaSettlement is
     error UnauthorizedFlashCallback();
     error FlashAmountMismatch(uint256 actual, uint256 expected);
     error InsufficientFlashLoanLiquidity(uint256 available, uint256 required);
+    error PayoffExceedsMaxRepayment(uint256 payoff, uint256 maxRepayment);
     error UnsupportedCurrencyDecimals(address currency, uint8 decimals);
     error SettlementBalanceNotZero(uint256 balance);
 
@@ -314,10 +315,13 @@ contract FabricaSettlement is
         IERC20 currency = IERC20(settlementData.currency);
         bytes32 orderHash = _orderHash(settlementData.order);
         uint256 beforeRepay = currency.balanceOf(address(this));
-        currency.forceApprove(settlementData.pool, settlementData.maxRepayment);
+        currency.forceApprove(settlementData.pool, beforeRepay);
         ISettlementPool(settlementData.pool).repay(settlementData.encodedLoanReceipt);
         uint256 payoff = beforeRepay - currency.balanceOf(address(this));
         currency.forceApprove(settlementData.pool, 0);
+        if (payoff > settlementData.maxRepayment) {
+            revert PayoffExceedsMaxRepayment(payoff, settlementData.maxRepayment);
+        }
 
         _fulfillOrder(
             settlementData.order, settlementData.buyer, settlementData.payer, currency, settlementData.legsTotal

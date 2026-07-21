@@ -409,8 +409,13 @@ contract FabricaSettlementTest is Test {
             new SettlementTestPool(IERC20(address(usdc)), nft, seller, TOKEN_ID, MAX_REPAYMENT + 1);
         settlement.setPoolAllowed(address(underwater), true);
         nft.mint(address(underwater), TOKEN_ID);
+        usdc.mint(address(settlement), 1);
         vm.prank(payer);
-        vm.expectRevert(stdError.arithmeticError);
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                FabricaSettlement.PayoffExceedsMaxRepayment.selector, MAX_REPAYMENT + 1, MAX_REPAYMENT
+            )
+        );
         settlement.settleAndBuy(_order(PRICE - FEE, false), address(underwater), receipt, buyer);
     }
 
