@@ -38,6 +38,7 @@ contract FabricaSettlement is
     error SeaportFulfillmentFailed();
     error UnauthorizedFlashCallback();
     error FlashAmountMismatch(uint256 actual, uint256 expected);
+    error InsufficientFlashLoanLiquidity(uint256 available, uint256 required);
     error UnsupportedCurrencyDecimals(address currency, uint8 decimals);
     error SettlementBalanceNotZero(uint256 balance);
 
@@ -145,6 +146,8 @@ contract FabricaSettlement is
     ) private {
         SettlementLoanReceipt.Details memory receipt = SettlementLoanReceipt.decode(encodedLoanReceipt);
         uint256 flashAmount = _validateReceipt(order, receipt, currency);
+        uint256 available = currency.balanceOf(address(morpho));
+        if (available < flashAmount) revert InsufficientFlashLoanLiquidity(available, flashAmount);
         SettlementData memory settlementData = SettlementData({
             order: order,
             pool: pool,
