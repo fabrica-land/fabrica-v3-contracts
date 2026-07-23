@@ -22,9 +22,13 @@ contract FabricaGuardedSignedPriceOracle is
     EIP712Upgradeable,
     IPriceOracle
 {
+    /// @notice Basis point denominator used for deviation checks.
     uint256 public constant BASIS_POINTS = 10_000;
+    /// @notice Implementation version for deployment and monitoring readback.
     string public constant IMPLEMENTATION_VERSION = "1.0.0";
+    /// @notice EIP-712 signing domain version.
     string public constant DOMAIN_VERSION = "1";
+    /// @notice EIP-712 quote struct typehash.
     bytes32 public constant QUOTE_TYPEHASH = keccak256(
         "Quote(address token,uint256 tokenId,address currency,uint256 price,uint64 timestamp,uint64 duration)"
     );
