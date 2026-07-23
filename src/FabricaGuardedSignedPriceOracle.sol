@@ -45,6 +45,7 @@ contract FabricaGuardedSignedPriceOracle is
 
     struct CollateralPolicy {
         address signer;
+        address currencyToken;
         uint64 maxQuoteAge;
         uint64 maxDuration;
         uint64 maxReferenceAge;
@@ -71,6 +72,7 @@ contract FabricaGuardedSignedPriceOracle is
     error QuoteDurationTooLong(uint256 duration, uint256 maxDuration);
     error QuoteStale(uint256 timestamp, uint256 maxAge, uint256 currentTimestamp);
     error InvalidSigner(address collateralToken, address configuredSigner);
+    error InvalidCurrencyToken(address collateralToken, address expectedCurrency, address actualCurrency);
     error QuotePriceExceedsCap(uint256 tokenId, uint256 price, uint256 maxPrice);
     error ReferencePriceStale(uint256 tokenId, uint256 referenceUpdatedAt, uint256 maxReferenceAge);
     error QuoteDeviationTooHigh(uint256 tokenId, uint256 price, uint256 referencePrice, uint256 maxDeviationBps);
@@ -78,11 +80,34 @@ contract FabricaGuardedSignedPriceOracle is
     error InvalidTokenPolicy(address collateralToken, uint256 tokenId);
     error InvalidDeviationBps(uint256 maxDeviationBps);
     error TokenIdsRequired(address collateralToken);
+    error InvalidSignerContract(address signer);
+    error InvalidDomainName();
+    error OwnershipRenounceDisabled();
 
+    /// @notice Emitted when the ERC-1271 signer is changed for a collateral token.
+    /// @param collateralToken Collateral contract governed by the signer.
+    /// @param signer Contract signer that must validate future quotes.
     event SignerUpdated(address indexed collateralToken, address indexed signer);
+    /// @notice Emitted when collateral-wide quote freshness and duration bounds are changed.
+    /// @param collateralToken Collateral contract governed by the policy.
+    /// @param currencyToken Only currency token accepted for this collateral market.
+    /// @param maxQuoteAge Maximum quote age in seconds.
+    /// @param maxDuration Maximum signed quote duration in seconds.
+    /// @param maxReferenceAge Maximum reference-price age in seconds.
     event CollateralPolicyUpdated(
-        address indexed collateralToken, uint64 maxQuoteAge, uint64 maxDuration, uint64 maxReferenceAge
+        address indexed collateralToken,
+        address indexed currencyToken,
+        uint64 maxQuoteAge,
+        uint64 maxDuration,
+        uint64 maxReferenceAge
     );
+    /// @notice Emitted when token-level cap and reference-price bounds are changed.
+    /// @param collateralToken Collateral contract containing the token.
+    /// @param tokenId Token ID governed by the policy.
+    /// @param maxPrice Hard maximum signed price for this token ID.
+    /// @param referencePrice Governance reference price for deviation checks.
+    /// @param referenceUpdatedAt Timestamp when the reference price was set.
+    /// @param maxDeviationBps Maximum allowed deviation from the reference price.
     event TokenPolicyUpdated(
         address indexed collateralToken,
         uint256 indexed tokenId,
@@ -91,6 +116,9 @@ contract FabricaGuardedSignedPriceOracle is
         uint64 referenceUpdatedAt,
         uint16 maxDeviationBps
     );
+    /// @notice Emitted when a collateral market is enabled or disabled.
+    /// @param collateralToken Collateral contract governed by the switch.
+    /// @param enabled True when the collateral can return prices.
     event CollateralEnabledUpdated(address indexed collateralToken, bool enabled);
 
     mapping(address => CollateralPolicy) private _collateralPolicies;
@@ -105,6 +133,7 @@ contract FabricaGuardedSignedPriceOracle is
     /// @param initialOwner Safe or owner that controls policy and upgrades.
     /// @param name EIP-712 signing domain name.
     function initialize(address initialOwner, string memory name) external initializer {
+        if (bytes(name).length == 0) revert InvalidDomainName();
         __Ownable_init(initialOwner);
         __Ownable2Step_init();
         __UUPSUpgradeable_init();
@@ -112,42 +141,63 @@ contract FabricaGuardedSignedPriceOracle is
     }
 
     /// @notice Return collateral-level policy.
+    /// @param collateralToken Collateral contract governed by the policy.
+    /// @return policy Current collateral-level policy.
     function collateralPolicy(address collateralToken) external view returns (CollateralPolicy memory) {
         return _collateralPolicies[collateralToken];
     }
 
     /// @notice Return token-level policy.
+    /// @param collateralToken Collateral contract containing the token.
+    /// @param tokenId Token ID governed by the policy.
+    /// @return policy Current token-level policy.
     function tokenPolicy(address collateralToken, uint256 tokenId) external view returns (TokenPolicy memory) {
         return _tokenPolicies[collateralToken][tokenId];
     }
 
-    /// @notice Set the Safe/ERC-1271 or EOA signer for a collateral token.
+    /// @notice Set the Safe/ERC-1271 signer for a collateral token.
+    /// @param collateralToken Collateral contract governed by the signer.
+    /// @param signer Contract signer that must validate future quotes.
     function setSigner(address collateralToken, address signer) external onlyOwner {
         if (collateralToken == address(0) || signer == address(0)) revert ZeroAddress();
+        if (signer.code.length == 0) revert InvalidSignerContract(signer);
         _collateralPolicies[collateralToken].signer = signer;
         emit SignerUpdated(collateralToken, signer);
     }
 
     /// @notice Set collateral-wide quote, duration, and reference freshness bounds.
+    /// @param collateralToken Collateral contract governed by the policy.
+    /// @param currencyToken Only currency token accepted for this collateral market.
+    /// @param maxQuoteAge Maximum quote age in seconds.
+    /// @param maxDuration Maximum signed quote duration in seconds.
+    /// @param maxReferenceAge Maximum reference-price age in seconds.
     function setCollateralPolicy(
         address collateralToken,
+        address currencyToken,
         uint64 maxQuoteAge,
         uint64 maxDuration,
         uint64 maxReferenceAge
     ) external onlyOwner {
-        if (collateralToken == address(0)) revert ZeroAddress();
+        if (collateralToken == address(0) || currencyToken == address(0)) revert ZeroAddress();
         if (maxQuoteAge == 0 || maxDuration == 0 || maxReferenceAge == 0) {
             revert InvalidCollateralPolicy(collateralToken);
         }
         CollateralPolicy storage policy = _collateralPolicies[collateralToken];
+        policy.currencyToken = currencyToken;
         policy.maxQuoteAge = maxQuoteAge;
         policy.maxDuration = maxDuration;
         policy.maxReferenceAge = maxReferenceAge;
         policy.configured = true;
-        emit CollateralPolicyUpdated(collateralToken, maxQuoteAge, maxDuration, maxReferenceAge);
+        emit CollateralPolicyUpdated(collateralToken, currencyToken, maxQuoteAge, maxDuration, maxReferenceAge);
     }
 
     /// @notice Set token-level hard cap and reference-price policy.
+    /// @param collateralToken Collateral contract containing the token.
+    /// @param tokenId Token ID governed by the policy.
+    /// @param maxPrice Hard maximum signed price for this token ID.
+    /// @param referencePrice Governance reference price for deviation checks.
+    /// @param referenceUpdatedAt Timestamp when the reference price was set.
+    /// @param maxDeviationBps Maximum allowed deviation from the reference price.
     function setTokenPolicy(
         address collateralToken,
         uint256 tokenId,
@@ -172,6 +222,9 @@ contract FabricaGuardedSignedPriceOracle is
 
     /// @notice Enable or disable a collateral market.
     /// @dev Enabling validates every supplied live tokenId so launch cannot proceed half-configured.
+    /// @param collateralToken Collateral contract governed by the switch.
+    /// @param enabled True to enable pricing, false to fail closed.
+    /// @param liveTokenIds Complete token ID set that must be configured before enabling.
     function setCollateralEnabled(address collateralToken, bool enabled, uint256[] calldata liveTokenIds)
         external
         onlyOwner
@@ -194,6 +247,9 @@ contract FabricaGuardedSignedPriceOracle is
         if (signedQuotes.length == 0 || signedQuotes.length != collateralTokenIds.length) revert InvalidLength();
         if (collateralTokenIds.length != collateralTokenQuantities.length) revert InvalidLength();
         CollateralPolicy memory policy = _requireEnabledCollateral(collateralToken);
+        if (policy.currencyToken != currencyToken) {
+            revert InvalidCurrencyToken(collateralToken, policy.currencyToken, currencyToken);
+        }
         uint256 totalOraclePrice = 0;
         uint256 totalQuantity = 0;
         for (uint256 i; i < collateralTokenIds.length; i++) {
@@ -210,15 +266,24 @@ contract FabricaGuardedSignedPriceOracle is
     /// @dev Owner/Safe-only UUPS upgrades.
     function _authorizeUpgrade(address) internal override onlyOwner {}
 
+    /// @notice Disable ownership renounce so oracle policy and upgrade recovery remain available.
+    function renounceOwnership() public override onlyOwner {
+        revert OwnershipRenounceDisabled();
+    }
+
     function _requireEnabledCollateral(address collateralToken) private view returns (CollateralPolicy memory policy) {
         policy = _collateralPolicies[collateralToken];
-        if (!policy.configured || policy.signer == address(0)) revert MissingCollateralConfig(collateralToken);
+        if (!policy.configured || policy.signer == address(0) || policy.currencyToken == address(0)) {
+            revert MissingCollateralConfig(collateralToken);
+        }
         if (!policy.enabled) revert MarketDisabled(collateralToken);
     }
 
     function _validateCollateralReady(address collateralToken, uint256[] calldata liveTokenIds) private view {
         CollateralPolicy memory policy = _collateralPolicies[collateralToken];
-        if (!policy.configured || policy.signer == address(0)) revert MissingCollateralConfig(collateralToken);
+        if (!policy.configured || policy.signer == address(0) || policy.currencyToken == address(0)) {
+            revert MissingCollateralConfig(collateralToken);
+        }
         if (liveTokenIds.length == 0) revert TokenIdsRequired(collateralToken);
         for (uint256 i; i < liveTokenIds.length; i++) {
             TokenPolicy memory tokenPolicy_ = _tokenPolicies[collateralToken][liveTokenIds[i]];

@@ -38,30 +38,34 @@ Two sibling release gates remain outside the oracle implementation PR:
 
 ## Sepolia Deploy
 
-Load secrets through environment inheritance; never paste or print private keys.
+Use a Foundry account/keystore or hardware-wallet account path so private-key
+material is not expanded into command-line arguments. Never paste, print, or log
+private keys.
 
 ```bash
 set -a
 . ./.env
 set +a
 
-: "${TESTNET_DEPLOYER_PRIVATE_KEY:?set TESTNET_DEPLOYER_PRIVATE_KEY}"
 : "${SEPOLIA_RPC_URL:?set SEPOLIA_RPC_URL}"
+: "${TESTNET_DEPLOYER_ACCOUNT:?set TESTNET_DEPLOYER_ACCOUNT}"
+: "${EXPECTED_TESTNET_DEPLOYER:?set EXPECTED_TESTNET_DEPLOYER}"
 : "${GUARDED_ORACLE_OWNER:?set GUARDED_ORACLE_OWNER}"
 : "${GUARDED_ORACLE_NAME:?set GUARDED_ORACLE_NAME}"
 
-cast wallet address --private-key "$TESTNET_DEPLOYER_PRIVATE_KEY"
+cast wallet address --account "$TESTNET_DEPLOYER_ACCOUNT"
 
 forge script script/FabricaGuardedSignedPriceOracleDeploy.s.sol:FabricaGuardedSignedPriceOracleDeployScript \
   --rpc-url "$SEPOLIA_RPC_URL" \
-  --private-key "$TESTNET_DEPLOYER_PRIVATE_KEY" \
+  --account "$TESTNET_DEPLOYER_ACCOUNT" \
+  --sender "$EXPECTED_TESTNET_DEPLOYER" \
   --broadcast \
   --verify
 ```
 
-Before broadcasting, confirm the derived deployer address is the expected
-testnet deployer/owner for this operation. Never use a mainnet key from this
-agent lane.
+Before broadcasting, confirm the derived deployer address equals
+`EXPECTED_TESTNET_DEPLOYER` and that this address is the expected testnet
+deployer/owner for this operation. Never use a mainnet key from this agent lane.
 
 ## Mainnet Boundary
 
@@ -80,7 +84,7 @@ setSigner(collateralToken, newSafeSigner)
 Required pre-flight:
 
 - `newSafeSigner` is non-zero.
-- `newSafeSigner.code.length > 0` for Safe/ERC-1271 custody.
+- `newSafeSigner.code.length > 0`; the contract rejects EOA signers.
 - Safe threshold and owner set have been reviewed.
 - A known-good quote signed by the new Safe validates through
   `price(collateralToken, currencyToken, ids, quantities, oracleContext)` before
@@ -89,7 +93,7 @@ Required pre-flight:
 After execution, read back:
 
 ```bash
-cast call "$GUARDED_ORACLE_PROXY" "collateralPolicy(address)((address,uint64,uint64,uint64,bool,bool))" "$COLLATERAL_TOKEN" --rpc-url "$RPC_URL"
+cast call "$GUARDED_ORACLE_PROXY" "collateralPolicy(address)((address,address,uint64,uint64,uint64,bool,bool))" "$COLLATERAL_TOKEN" --rpc-url "$RPC_URL"
 ```
 
 ## Policy Setup
@@ -98,7 +102,7 @@ Configure collateral-wide policy:
 
 ```solidity
 setSigner(collateralToken, signer)
-setCollateralPolicy(collateralToken, maxQuoteAge, maxDuration, maxReferenceAge)
+setCollateralPolicy(collateralToken, currencyToken, maxQuoteAge, maxDuration, maxReferenceAge)
 ```
 
 Configure every launch/live token:

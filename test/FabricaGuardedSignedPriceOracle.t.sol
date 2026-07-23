@@ -7,13 +7,19 @@ import {FabricaGuardedSignedPriceOracle} from "../src/FabricaGuardedSignedPriceO
 
 contract MockERC1271Signer {
     bytes4 internal constant MAGIC_VALUE = 0x1626ba7e;
+    bool internal _shouldRevert;
     mapping(bytes32 => mapping(bytes => bool)) internal _validSignatures;
 
     function setValidSignature(bytes32 hash, bytes memory signature, bool valid) external {
         _validSignatures[hash][signature] = valid;
     }
 
+    function setShouldRevert(bool shouldRevert) external {
+        _shouldRevert = shouldRevert;
+    }
+
     function isValidSignature(bytes32 hash, bytes memory signature) external view returns (bytes4) {
+        if (_shouldRevert) revert("ERC1271_REVERT");
         return _validSignatures[hash][signature] ? MAGIC_VALUE : bytes4(0);
     }
 }
@@ -27,7 +33,11 @@ contract FabricaGuardedSignedPriceOracleV2 is FabricaGuardedSignedPriceOracle {
 contract FabricaGuardedSignedPriceOracleTest is Test {
     event SignerUpdated(address indexed collateralToken, address indexed signer);
     event CollateralPolicyUpdated(
-        address indexed collateralToken, uint64 maxQuoteAge, uint64 maxDuration, uint64 maxReferenceAge
+        address indexed collateralToken,
+        address indexed currencyToken,
+        uint64 maxQuoteAge,
+        uint64 maxDuration,
+        uint64 maxReferenceAge
     );
     event TokenPolicyUpdated(
         address indexed collateralToken,
@@ -40,10 +50,10 @@ contract FabricaGuardedSignedPriceOracleTest is Test {
     event CollateralEnabledUpdated(address indexed collateralToken, bool enabled);
 
     FabricaGuardedSignedPriceOracle internal oracle;
+    MockERC1271Signer internal signerContract;
     address internal owner;
     address internal collateralToken;
     address internal currencyToken;
-    uint256 internal signerPrivateKey;
     address internal signer;
     string internal constant NAME = "All US Land";
     bytes32 internal constant EIP712_DOMAIN_TYPEHASH =
@@ -58,8 +68,8 @@ contract FabricaGuardedSignedPriceOracleTest is Test {
         owner = makeAddr("owner");
         collateralToken = makeAddr("collateralToken");
         currencyToken = makeAddr("currencyToken");
-        signerPrivateKey = 0xA11CE;
-        signer = vm.addr(signerPrivateKey);
+        signerContract = new MockERC1271Signer();
+        signer = address(signerContract);
         FabricaGuardedSignedPriceOracle impl = new FabricaGuardedSignedPriceOracle();
         bytes memory initData = abi.encodeCall(FabricaGuardedSignedPriceOracle.initialize, (owner, NAME));
         ERC1967Proxy proxy = new ERC1967Proxy(address(impl), initData);
@@ -76,7 +86,7 @@ contract FabricaGuardedSignedPriceOracleTest is Test {
         assertEq(address(uint160(uint256(ownerSlot))), owner);
     }
 
-    function test_price_validEoaQuoteReturnsWeightedAverage() public {
+    function test_price_validErc1271QuotesReturnWeightedAverage() public {
         _configureToken(2, 1_000_000, 500_000, uint64(block.timestamp), 10_000);
         _enableMany(_ids(1, 2));
         uint256[] memory ids = _ids(1, 2);
@@ -103,14 +113,14 @@ contract FabricaGuardedSignedPriceOracleTest is Test {
 
     function test_emitsPolicyEvents() public {
         address newCollateralToken = makeAddr("eventCollateralToken");
-        address newSigner = makeAddr("eventSigner");
+        address newSigner = address(new MockERC1271Signer());
         vm.startPrank(owner);
         vm.expectEmit(true, true, false, true, address(oracle));
         emit SignerUpdated(newCollateralToken, newSigner);
         oracle.setSigner(newCollateralToken, newSigner);
-        vm.expectEmit(true, false, false, true, address(oracle));
-        emit CollateralPolicyUpdated(newCollateralToken, 60, 90, 30 days);
-        oracle.setCollateralPolicy(newCollateralToken, 60, 90, 30 days);
+        vm.expectEmit(true, true, false, true, address(oracle));
+        emit CollateralPolicyUpdated(newCollateralToken, currencyToken, 60, 90, 30 days);
+        oracle.setCollateralPolicy(newCollateralToken, currencyToken, 60, 90, 30 days);
         vm.expectEmit(true, true, false, true, address(oracle));
         emit TokenPolicyUpdated(newCollateralToken, 7, 1_000_000, 500_000, uint64(block.timestamp), 1_000);
         oracle.setTokenPolicy(newCollateralToken, 7, 1_000_000, 500_000, uint64(block.timestamp), 1_000);
@@ -179,6 +189,22 @@ contract FabricaGuardedSignedPriceOracleTest is Test {
         oracle.price(collateralToken, currencyToken, _ids(1), _quantities(1), abi.encode(quotes));
     }
 
+    function test_revert_currencyTokenMismatch() public {
+        address wrongCurrency = makeAddr("wrongCurrency");
+        FabricaGuardedSignedPriceOracle.SignedQuote[] memory quotes =
+            new FabricaGuardedSignedPriceOracle.SignedQuote[](1);
+        quotes[0] = _signedQuote(1, 100_000, uint64(block.timestamp), 60);
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                FabricaGuardedSignedPriceOracle.InvalidCurrencyToken.selector,
+                collateralToken,
+                currencyToken,
+                wrongCurrency
+            )
+        );
+        oracle.price(collateralToken, wrongCurrency, _ids(1), _quantities(1), abi.encode(quotes));
+    }
+
     function test_revert_quotePriceZero() public {
         FabricaGuardedSignedPriceOracle.SignedQuote[] memory quotes =
             new FabricaGuardedSignedPriceOracle.SignedQuote[](1);
@@ -232,12 +258,24 @@ contract FabricaGuardedSignedPriceOracleTest is Test {
     }
 
     function test_revert_invalidSigner() public {
-        uint256 oldKey = signerPrivateKey;
-        signerPrivateKey = 0xB0B;
         FabricaGuardedSignedPriceOracle.SignedQuote[] memory quotes =
             new FabricaGuardedSignedPriceOracle.SignedQuote[](1);
-        quotes[0] = _signedQuote(1, 100_000, uint64(block.timestamp), 60);
-        signerPrivateKey = oldKey;
+        quotes[0] = FabricaGuardedSignedPriceOracle.SignedQuote(
+            _quote(1, 100_000, uint64(block.timestamp), 60), bytes("badsignature")
+        );
+        vm.expectRevert(
+            abi.encodeWithSelector(FabricaGuardedSignedPriceOracle.InvalidSigner.selector, collateralToken, signer)
+        );
+        oracle.price(collateralToken, currencyToken, _ids(1), _quantities(1), abi.encode(quotes));
+    }
+
+    function test_revert_invalidSignerWhenErc1271Reverts() public {
+        signerContract.setShouldRevert(true);
+        FabricaGuardedSignedPriceOracle.SignedQuote[] memory quotes =
+            new FabricaGuardedSignedPriceOracle.SignedQuote[](1);
+        quotes[0] = FabricaGuardedSignedPriceOracle.SignedQuote(
+            _quote(1, 100_000, uint64(block.timestamp), 60), bytes("reverting")
+        );
         vm.expectRevert(
             abi.encodeWithSelector(FabricaGuardedSignedPriceOracle.InvalidSigner.selector, collateralToken, signer)
         );
@@ -326,10 +364,30 @@ contract FabricaGuardedSignedPriceOracleTest is Test {
         vm.startPrank(owner);
         vm.expectRevert(FabricaGuardedSignedPriceOracle.ZeroAddress.selector);
         oracle.setSigner(address(0), signer);
+        vm.expectRevert(FabricaGuardedSignedPriceOracle.ZeroAddress.selector);
+        oracle.setSigner(collateralToken, address(0));
+        vm.expectRevert(
+            abi.encodeWithSelector(FabricaGuardedSignedPriceOracle.InvalidSignerContract.selector, makeAddr("eoa"))
+        );
+        oracle.setSigner(collateralToken, makeAddr("eoa"));
+        vm.expectRevert(FabricaGuardedSignedPriceOracle.ZeroAddress.selector);
+        oracle.setCollateralPolicy(address(0), currencyToken, 120, 300, 30 days);
+        vm.expectRevert(FabricaGuardedSignedPriceOracle.ZeroAddress.selector);
+        oracle.setCollateralPolicy(collateralToken, address(0), 120, 300, 30 days);
         vm.expectRevert(
             abi.encodeWithSelector(FabricaGuardedSignedPriceOracle.InvalidCollateralPolicy.selector, collateralToken)
         );
-        oracle.setCollateralPolicy(collateralToken, 0, 300, 30 days);
+        oracle.setCollateralPolicy(collateralToken, currencyToken, 0, 300, 30 days);
+        vm.expectRevert(
+            abi.encodeWithSelector(FabricaGuardedSignedPriceOracle.InvalidCollateralPolicy.selector, collateralToken)
+        );
+        oracle.setCollateralPolicy(collateralToken, currencyToken, 120, 0, 30 days);
+        vm.expectRevert(
+            abi.encodeWithSelector(FabricaGuardedSignedPriceOracle.InvalidCollateralPolicy.selector, collateralToken)
+        );
+        oracle.setCollateralPolicy(collateralToken, currencyToken, 120, 300, 0);
+        vm.expectRevert(FabricaGuardedSignedPriceOracle.ZeroAddress.selector);
+        oracle.setTokenPolicy(address(0), 3, 1_000_000, 500_000, uint64(block.timestamp), 1_000);
         vm.expectRevert(abi.encodeWithSelector(FabricaGuardedSignedPriceOracle.InvalidDeviationBps.selector, 10_001));
         oracle.setTokenPolicy(collateralToken, 3, 1_000_000, 500_000, uint64(block.timestamp), 10_001);
         vm.expectRevert(
@@ -339,8 +397,35 @@ contract FabricaGuardedSignedPriceOracleTest is Test {
         vm.expectRevert(
             abi.encodeWithSelector(FabricaGuardedSignedPriceOracle.InvalidTokenPolicy.selector, collateralToken, 3)
         );
+        oracle.setTokenPolicy(collateralToken, 3, 1_000_000, 0, uint64(block.timestamp), 1_000);
+        vm.expectRevert(
+            abi.encodeWithSelector(FabricaGuardedSignedPriceOracle.InvalidTokenPolicy.selector, collateralToken, 3)
+        );
+        oracle.setTokenPolicy(collateralToken, 3, 1_000_000, 500_000, 0, 1_000);
+        vm.expectRevert(
+            abi.encodeWithSelector(FabricaGuardedSignedPriceOracle.InvalidTokenPolicy.selector, collateralToken, 3)
+        );
+        oracle.setTokenPolicy(collateralToken, 3, 1_000_000, 500_000, uint64(block.timestamp + 1), 1_000);
+        vm.expectRevert(
+            abi.encodeWithSelector(FabricaGuardedSignedPriceOracle.InvalidTokenPolicy.selector, collateralToken, 3)
+        );
         oracle.setTokenPolicy(collateralToken, 3, 500_000, 500_001, uint64(block.timestamp), 1_000);
+        vm.expectRevert(FabricaGuardedSignedPriceOracle.ZeroAddress.selector);
+        oracle.setCollateralEnabled(address(0), false, new uint256[](0));
         vm.stopPrank();
+    }
+
+    function test_revert_emptyEip712DomainName() public {
+        FabricaGuardedSignedPriceOracle impl = new FabricaGuardedSignedPriceOracle();
+        bytes memory initData = abi.encodeCall(FabricaGuardedSignedPriceOracle.initialize, (owner, ""));
+        vm.expectRevert(FabricaGuardedSignedPriceOracle.InvalidDomainName.selector);
+        new ERC1967Proxy(address(impl), initData);
+    }
+
+    function test_revert_renounceOwnershipDisabled() public {
+        vm.prank(owner);
+        vm.expectRevert(FabricaGuardedSignedPriceOracle.OwnershipRenounceDisabled.selector);
+        oracle.renounceOwnership();
     }
 
     function test_upgradePreservesPoliciesAndPrice() public {
@@ -351,6 +436,7 @@ contract FabricaGuardedSignedPriceOracleTest is Test {
         assertEq(oracle.owner(), owner);
         FabricaGuardedSignedPriceOracle.CollateralPolicy memory policy = oracle.collateralPolicy(collateralToken);
         assertEq(policy.signer, signer);
+        assertEq(policy.currencyToken, currencyToken);
         assertEq(policy.maxQuoteAge, 120);
         assertEq(policy.maxDuration, 300);
         assertEq(policy.maxReferenceAge, 30 days);
@@ -399,7 +485,7 @@ contract FabricaGuardedSignedPriceOracleTest is Test {
     function _configureCollateral() internal {
         vm.startPrank(owner);
         oracle.setSigner(collateralToken, signer);
-        oracle.setCollateralPolicy(collateralToken, 120, 300, 30 days);
+        oracle.setCollateralPolicy(collateralToken, currencyToken, 120, 300, 30 days);
         vm.stopPrank();
     }
 
@@ -426,7 +512,6 @@ contract FabricaGuardedSignedPriceOracleTest is Test {
 
     function _signedQuote(uint256 tokenId, uint256 quotePrice, uint64 timestamp, uint64 duration)
         internal
-        view
         returns (FabricaGuardedSignedPriceOracle.SignedQuote memory)
     {
         return _sign(_quote(tokenId, quotePrice, timestamp, duration));
@@ -444,11 +529,13 @@ contract FabricaGuardedSignedPriceOracleTest is Test {
 
     function _sign(FabricaGuardedSignedPriceOracle.Quote memory quote)
         internal
-        view
         returns (FabricaGuardedSignedPriceOracle.SignedQuote memory)
     {
-        (uint8 v, bytes32 r, bytes32 s) = vm.sign(signerPrivateKey, _digest(quote));
-        return FabricaGuardedSignedPriceOracle.SignedQuote(quote, abi.encodePacked(r, s, v));
+        bytes memory signature = abi.encodePacked(
+            quote.token, quote.tokenId, quote.currency, quote.price, quote.timestamp, quote.duration
+        );
+        signerContract.setValidSignature(_digest(quote), signature, true);
+        return FabricaGuardedSignedPriceOracle.SignedQuote(quote, signature);
     }
 
     function _digest(FabricaGuardedSignedPriceOracle.Quote memory quote) internal view returns (bytes32) {

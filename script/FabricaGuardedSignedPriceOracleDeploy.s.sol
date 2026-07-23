@@ -6,11 +6,14 @@ import {ERC1967Proxy} from "../lib/openzeppelin-contracts/contracts/proxy/ERC196
 import {FabricaGuardedSignedPriceOracle} from "../src/FabricaGuardedSignedPriceOracle.sol";
 
 contract FabricaGuardedSignedPriceOracleDeployScript is Script {
+    error InvalidGuardedOracleOwner();
+    error InvalidGuardedOracleName();
+
     function run() external returns (FabricaGuardedSignedPriceOracle oracle) {
         address owner = vm.envAddress("GUARDED_ORACLE_OWNER");
         string memory name = vm.envString("GUARDED_ORACLE_NAME");
-        require(owner != address(0), "GUARDED_ORACLE_OWNER must not be zero");
-        require(bytes(name).length != 0, "GUARDED_ORACLE_NAME must not be empty");
+        if (owner == address(0)) revert InvalidGuardedOracleOwner();
+        if (bytes(name).length == 0) revert InvalidGuardedOracleName();
         console2.log("Oracle owner:", owner);
         console2.log("Oracle EIP712 name:", name);
         vm.startBroadcast();
