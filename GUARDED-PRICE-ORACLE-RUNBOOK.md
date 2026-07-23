@@ -42,6 +42,8 @@ Use a Foundry account/keystore or hardware-wallet account path so private-key
 material is not expanded into command-line arguments. Never paste, print, or log
 private keys.
 
+<!-- markdownlint-disable MD013 -->
+
 ```bash
 set -a
 . ./.env
@@ -55,7 +57,16 @@ set +a
 
 cast wallet address --account "$TESTNET_DEPLOYER_ACCOUNT"
 
-forge script script/FabricaGuardedSignedPriceOracleDeploy.s.sol:FabricaGuardedSignedPriceOracleDeployScript \
+forge fmt --check \
+  src/interfaces/IPriceOracle.sol \
+  src/FabricaGuardedSignedPriceOracle.sol \
+  script/FabricaGuardedSignedPriceOracleDeploy.s.sol \
+  test/FabricaGuardedSignedPriceOracle.t.sol
+forge build
+npx -y markdownlint-cli GUARDED-PRICE-ORACLE-RUNBOOK.md
+
+forge script \
+  script/FabricaGuardedSignedPriceOracleDeploy.s.sol:FabricaGuardedSignedPriceOracleDeployScript \
   --rpc-url "$SEPOLIA_RPC_URL" \
   --account "$TESTNET_DEPLOYER_ACCOUNT" \
   --sender "$EXPECTED_TESTNET_DEPLOYER" \
@@ -63,9 +74,27 @@ forge script script/FabricaGuardedSignedPriceOracleDeploy.s.sol:FabricaGuardedSi
   --verify
 ```
 
+<!-- markdownlint-enable MD013 -->
+
 Before broadcasting, confirm the derived deployer address equals
 `EXPECTED_TESTNET_DEPLOYER` and that this address is the expected testnet
 deployer/owner for this operation. Never use a mainnet key from this agent lane.
+After deployment, record the proxy address and read it back on Sepolia:
+
+```bash
+: "${GUARDED_ORACLE_PROXY:?set GUARDED_ORACLE_PROXY from the deployment log}"
+
+cast call "$GUARDED_ORACLE_PROXY" "owner()(address)" --rpc-url "$SEPOLIA_RPC_URL"
+cast call "$GUARDED_ORACLE_PROXY" "IMPLEMENTATION_VERSION()(string)" --rpc-url "$SEPOLIA_RPC_URL"
+cast storage "$GUARDED_ORACLE_PROXY" \
+  0x360894a13ba1a3210667c828492db98dca3e2076cc3735a920a3ca505d382bbc \
+  --rpc-url "$SEPOLIA_RPC_URL"
+```
+
+If `--verify` does not complete during the broadcast, verify the implementation
+manually with `forge verify-contract` against the recorded implementation
+address and constructor arguments for the implementation contract. The proxy
+readback above remains required even if verification succeeds.
 
 ## Mainnet Boundary
 
@@ -92,9 +121,16 @@ Required pre-flight:
 
 After execution, read back:
 
+<!-- markdownlint-disable MD013 -->
+
 ```bash
-cast call "$GUARDED_ORACLE_PROXY" "collateralPolicy(address)((address,address,uint64,uint64,uint64,bool,bool))" "$COLLATERAL_TOKEN" --rpc-url "$RPC_URL"
+cast call "$GUARDED_ORACLE_PROXY" \
+  "collateralPolicy(address)((address,address,uint64,uint64,uint64,bool,bool))" \
+  "$COLLATERAL_TOKEN" \
+  --rpc-url "$RPC_URL"
 ```
+
+<!-- markdownlint-enable MD013 -->
 
 ## Policy Setup
 

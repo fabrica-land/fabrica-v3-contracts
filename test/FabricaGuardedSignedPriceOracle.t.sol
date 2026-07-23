@@ -460,20 +460,46 @@ contract FabricaGuardedSignedPriceOracleTest is Test {
         uint64 rawQuantityA,
         uint64 rawQuantityB
     ) public {
-        uint256 priceA = bound(uint256(rawPriceA), 1, 1_000_000);
-        uint256 priceB = bound(uint256(rawPriceB), 1, 1_000_000);
+        uint256 priceA = bound(uint256(rawPriceA), 1, 1_500_000);
+        uint256 priceB = bound(uint256(rawPriceB), 1, 1_500_000);
         uint256 quantityA = bound(uint256(rawQuantityA), 1, 1_000_000);
         uint256 quantityB = bound(uint256(rawQuantityB), 1, 1_000_000);
-        _configureToken(2, 1_000_000, 500_000, uint64(block.timestamp), 10_000);
+        _configureToken(2, 1_000_000, 500_000, uint64(block.timestamp), 1_000);
         _enableMany(_ids(1, 2));
         FabricaGuardedSignedPriceOracle.SignedQuote[] memory quotes =
             new FabricaGuardedSignedPriceOracle.SignedQuote[](2);
         quotes[0] = _signedQuote(1, priceA, uint64(block.timestamp), 60);
         quotes[1] = _signedQuote(2, priceB, uint64(block.timestamp), 60);
-        uint256 aggregate = oracle.price(
-            collateralToken, currencyToken, _ids(1, 2), _quantities(quantityA, quantityB), abi.encode(quotes)
-        );
-        assertLe(aggregate, 1_000_000);
+        if (priceA > 1_000_000) {
+            vm.expectRevert(
+                abi.encodeWithSelector(
+                    FabricaGuardedSignedPriceOracle.QuotePriceExceedsCap.selector, 1, priceA, 1_000_000
+                )
+            );
+        } else if (priceB > 1_000_000) {
+            vm.expectRevert(
+                abi.encodeWithSelector(
+                    FabricaGuardedSignedPriceOracle.QuotePriceExceedsCap.selector, 2, priceB, 1_000_000
+                )
+            );
+        } else if (priceB < 450_000 || priceB > 550_000) {
+            vm.expectRevert(
+                abi.encodeWithSelector(
+                    FabricaGuardedSignedPriceOracle.QuoteDeviationTooHigh.selector, 2, priceB, 500_000, 1_000
+                )
+            );
+        } else {
+            uint256 expected = (priceA * quantityA + priceB * quantityB) / (quantityA + quantityB);
+            assertEq(
+                oracle.price(
+                    collateralToken, currencyToken, _ids(1, 2), _quantities(quantityA, quantityB), abi.encode(quotes)
+                ),
+                expected
+            );
+            assertLe(expected, 1_000_000);
+            return;
+        }
+        oracle.price(collateralToken, currencyToken, _ids(1, 2), _quantities(quantityA, quantityB), abi.encode(quotes));
     }
 
     function _freshOracle() internal returns (FabricaGuardedSignedPriceOracle fresh) {
