@@ -22,9 +22,28 @@ contract MockFabricaToken {
     }
 }
 
+contract MockERC1271Signer {
+    bytes4 private constant _ERC1271_MAGIC_VALUE = 0x1626ba7e;
+    bytes4 private constant _INVALID_SIGNATURE_VALUE = 0xffffffff;
+
+    mapping(bytes32 => bool) public validSignatures;
+
+    function setValidSignature(bytes32 digest, bytes memory signature, bool valid) external {
+        validSignatures[keccak256(abi.encode(digest, signature))] = valid;
+    }
+
+    function isValidSignature(bytes32 hash, bytes calldata signature) external view returns (bytes4) {
+        if (validSignatures[keccak256(abi.encode(hash, signature))]) {
+            return _ERC1271_MAGIC_VALUE;
+        }
+        return _INVALID_SIGNATURE_VALUE;
+    }
+}
+
 contract FabricaMarketplaceZoneTest is Test {
     FabricaMarketplaceZone public zone;
     MockFabricaToken public mockToken;
+    MockERC1271Signer public mock1271Signer;
 
     uint256 internal signerPrivateKey;
     address internal signer;
@@ -39,6 +58,7 @@ contract FabricaMarketplaceZoneTest is Test {
 
         zone = new FabricaMarketplaceZone(signer);
         mockToken = new MockFabricaToken();
+        mock1271Signer = new MockERC1271Signer();
     }
 
     function _buildDomainSeparator(address zoneAddress) internal view returns (bytes32) {
@@ -75,6 +95,26 @@ contract FabricaMarketplaceZoneTest is Test {
 
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(signerPrivateKey, digest);
         return abi.encodePacked(r, s, v);
+    }
+
+    function _buildPermissionDigest(
+        address zoneAddress,
+        bytes32 orderHash,
+        uint64 expiry,
+        string memory definitionUrl,
+        string memory disclosurePackageId
+    ) internal view returns (bytes32) {
+        bytes32 domainSeparator = _buildDomainSeparator(zoneAddress);
+        bytes32 structHash = keccak256(
+            abi.encode(
+                _EIP712_TYPE_HASH,
+                orderHash,
+                expiry,
+                keccak256(bytes(definitionUrl)),
+                keccak256(bytes(disclosurePackageId))
+            )
+        );
+        return keccak256(abi.encodePacked("\x19\x01", domainSeparator, structHash));
     }
 
     function _buildExtraData(
@@ -131,6 +171,86 @@ contract FabricaMarketplaceZoneTest is Test {
 
         bytes4 result = zone.authorizeOrder(params);
         assertEq(result, FabricaMarketplaceZone.authorizeOrder.selector);
+    }
+
+    function testERC1271Signer_AuthorizeAndValidateOrderWithExactDigestAndSignature() public {
+        FabricaMarketplaceZone contractSignerZone = new FabricaMarketplaceZone(address(mock1271Signer));
+        bytes32 orderHash = keccak256("erc1271_order");
+        uint64 expiry = uint64(block.timestamp + 1 hours);
+        string memory definitionUrl = "";
+        string memory disclosurePackageId = "12345678-1234-1234-1234-123456789012";
+        bytes memory signature = hex"1234";
+        bytes32 digest =
+            _buildPermissionDigest(address(contractSignerZone), orderHash, expiry, definitionUrl, disclosurePackageId);
+        mock1271Signer.setValidSignature(digest, signature, true);
+        bytes memory extraData = _buildExtraData(expiry, definitionUrl, disclosurePackageId, signature);
+        ZoneParameters memory params = _buildZoneParameters(orderHash, extraData, address(mockToken), 1);
+
+        assertEq(contractSignerZone.authorizeOrder(params), FabricaMarketplaceZone.authorizeOrder.selector);
+        assertEq(contractSignerZone.validateOrder(params), FabricaMarketplaceZone.validateOrder.selector);
+    }
+
+    function testERC1271Signer_RejectsOldEoaSignaturePath() public {
+        FabricaMarketplaceZone contractSignerZone = new FabricaMarketplaceZone(address(mock1271Signer));
+        bytes32 orderHash = keccak256("erc1271_rejects_eoa");
+        uint64 expiry = uint64(block.timestamp + 1 hours);
+        string memory definitionUrl = "";
+        string memory disclosurePackageId = "12345678-1234-1234-1234-123456789012";
+        bytes32 digest =
+            _buildPermissionDigest(address(contractSignerZone), orderHash, expiry, definitionUrl, disclosurePackageId);
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(signerPrivateKey, digest);
+        bytes memory oldEoaSignature = abi.encodePacked(r, s, v);
+        bytes memory extraData = _buildExtraData(expiry, definitionUrl, disclosurePackageId, oldEoaSignature);
+        ZoneParameters memory params = _buildZoneParameters(orderHash, extraData, address(mockToken), 1);
+
+        vm.expectRevert("Bad oracle sig");
+        contractSignerZone.authorizeOrder(params);
+    }
+
+    function testERC1271Signer_RejectsWrongDigestOrSignature() public {
+        FabricaMarketplaceZone contractSignerZone = new FabricaMarketplaceZone(address(mock1271Signer));
+        bytes32 orderHash = keccak256("erc1271_wrong_signature");
+        uint64 expiry = uint64(block.timestamp + 1 hours);
+        string memory definitionUrl = "";
+        string memory disclosurePackageId = "12345678-1234-1234-1234-123456789012";
+        bytes memory validSignature = hex"1234";
+        bytes memory wrongSignature = hex"5678";
+        bytes32 digest =
+            _buildPermissionDigest(address(contractSignerZone), orderHash, expiry, definitionUrl, disclosurePackageId);
+        mock1271Signer.setValidSignature(digest, validSignature, true);
+        bytes memory extraData = _buildExtraData(expiry, definitionUrl, disclosurePackageId, wrongSignature);
+        ZoneParameters memory params = _buildZoneParameters(orderHash, extraData, address(mockToken), 1);
+
+        vm.expectRevert("Bad oracle sig");
+        contractSignerZone.authorizeOrder(params);
+    }
+
+    function testERC1271Signer_RejectsExpiredSignature() public {
+        FabricaMarketplaceZone contractSignerZone = new FabricaMarketplaceZone(address(mock1271Signer));
+        bytes32 orderHash = keccak256("erc1271_expired");
+        uint64 expiry = uint64(block.timestamp - 1);
+        string memory definitionUrl = "";
+        string memory disclosurePackageId = "12345678-1234-1234-1234-123456789012";
+        bytes memory signature = hex"1234";
+        bytes memory extraData = _buildExtraData(expiry, definitionUrl, disclosurePackageId, signature);
+        ZoneParameters memory params = _buildZoneParameters(orderHash, extraData, address(mockToken), 1);
+
+        vm.expectRevert("Oracle signature expired");
+        contractSignerZone.authorizeOrder(params);
+    }
+
+    function testERC1271Signer_RejectsExpiryBeyondMaxAge() public {
+        FabricaMarketplaceZone contractSignerZone = new FabricaMarketplaceZone(address(mock1271Signer));
+        bytes32 orderHash = keccak256("erc1271_expiry_too_far");
+        uint64 expiry = uint64(block.timestamp + 8 days);
+        string memory definitionUrl = "";
+        string memory disclosurePackageId = "12345678-1234-1234-1234-123456789012";
+        bytes memory signature = hex"1234";
+        bytes memory extraData = _buildExtraData(expiry, definitionUrl, disclosurePackageId, signature);
+        ZoneParameters memory params = _buildZoneParameters(orderHash, extraData, address(mockToken), 1);
+
+        vm.expectRevert("Expiry too far");
+        contractSignerZone.authorizeOrder(params);
     }
 
     function testAuthorizeOrder_ValidSignatureWithDefinitionUrl() public {
