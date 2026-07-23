@@ -454,6 +454,46 @@ contract FabricaGuardedSignedPriceOracleTest is Test {
         oracle.upgradeToAndCall(address(newImpl), "");
     }
 
+    function test_weightedAggregateExercisesCapDeviationAndValidPaths() public {
+        _configureToken(2, 1_000_000, 500_000, uint64(block.timestamp), 1_000);
+        _enableMany(_ids(1, 2));
+        _expectTwoQuoteRevert(
+            1_000_001,
+            500_000,
+            abi.encodeWithSelector(
+                FabricaGuardedSignedPriceOracle.QuotePriceExceedsCap.selector, 1, 1_000_001, 1_000_000
+            )
+        );
+        _expectTwoQuoteRevert(
+            500_000,
+            1_000_001,
+            abi.encodeWithSelector(
+                FabricaGuardedSignedPriceOracle.QuotePriceExceedsCap.selector, 2, 1_000_001, 1_000_000
+            )
+        );
+        _expectTwoQuoteRevert(
+            500_000,
+            550_001,
+            abi.encodeWithSelector(
+                FabricaGuardedSignedPriceOracle.QuoteDeviationTooHigh.selector, 2, 550_001, 500_000, 1_000
+            )
+        );
+        _expectTwoQuoteRevert(
+            500_000,
+            449_999,
+            abi.encodeWithSelector(
+                FabricaGuardedSignedPriceOracle.QuoteDeviationTooHigh.selector, 2, 449_999, 500_000, 1_000
+            )
+        );
+        FabricaGuardedSignedPriceOracle.SignedQuote[] memory quotes =
+            new FabricaGuardedSignedPriceOracle.SignedQuote[](2);
+        quotes[0] = _signedQuote(1, 600_000, uint64(block.timestamp), 60);
+        quotes[1] = _signedQuote(2, 500_000, uint64(block.timestamp), 60);
+        assertEq(
+            oracle.price(collateralToken, currencyToken, _ids(1, 2), _quantities(2, 3), abi.encode(quotes)), 540_000
+        );
+    }
+
     function testFuzz_weightedAggregateCannotExceedConfiguredCaps(
         uint128 rawPriceA,
         uint128 rawPriceB,
@@ -500,6 +540,15 @@ contract FabricaGuardedSignedPriceOracleTest is Test {
             return;
         }
         oracle.price(collateralToken, currencyToken, _ids(1, 2), _quantities(quantityA, quantityB), abi.encode(quotes));
+    }
+
+    function _expectTwoQuoteRevert(uint256 priceA, uint256 priceB, bytes memory expectedRevertData) internal {
+        FabricaGuardedSignedPriceOracle.SignedQuote[] memory quotes =
+            new FabricaGuardedSignedPriceOracle.SignedQuote[](2);
+        quotes[0] = _signedQuote(1, priceA, uint64(block.timestamp), 60);
+        quotes[1] = _signedQuote(2, priceB, uint64(block.timestamp), 60);
+        vm.expectRevert(expectedRevertData);
+        oracle.price(collateralToken, currencyToken, _ids(1, 2), _quantities(1, 1), abi.encode(quotes));
     }
 
     function _freshOracle() internal returns (FabricaGuardedSignedPriceOracle fresh) {
