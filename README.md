@@ -89,6 +89,9 @@ The Fabrica lending pool stack lives in the
 [`fabrica-land/metastreet-contracts-v2`](https://github.com/fabrica-land/metastreet-contracts-v2)
 fork, with its own deploy scripts and upgrade runbook.
 
+For the guarded lending price oracle used by future pool launches, see
+**[`GUARDED-PRICE-ORACLE-RUNBOOK.md`](./GUARDED-PRICE-ORACLE-RUNBOOK.md)**.
+
 Quick reference (sepolia / dev only — mainnet uses Safe multisig per
 DEPLOYMENT.md):
 
