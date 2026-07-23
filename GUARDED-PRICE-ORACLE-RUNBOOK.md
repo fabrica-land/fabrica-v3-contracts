@@ -127,7 +127,7 @@ After execution, read back:
 cast call "$GUARDED_ORACLE_PROXY" \
   "collateralPolicy(address)((address,address,uint64,uint64,uint64,bool,bool))" \
   "$COLLATERAL_TOKEN" \
-  --rpc-url "$RPC_URL"
+  --rpc-url "$SEPOLIA_RPC_URL"
 ```
 
 <!-- markdownlint-enable MD013 -->
