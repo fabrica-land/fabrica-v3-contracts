@@ -212,7 +212,7 @@ contract FabricaOracleAggregator is Ownable2Step, IPriceOracle {
     /// @inheritdoc IPriceOracle
     /// @dev oracleContext unused (empty for launch path). USDC 1e6 per unit supply.
     ///      Evaluation order (MIN-then-temporal): currency → heartbeat → registry → recovery →
-    ///      live sources + breaker → MIN → temporal floor → dispersion → land-use → return.
+    ///      live sources + breaker → MIN → dispersion → temporal floor → land-use → return.
     function price(
         address, /* collateralToken */
         address currencyToken,
@@ -354,6 +354,7 @@ contract FabricaOracleAggregator is Ownable2Step, IPriceOracle {
         if (len == 0) return false; // first price: no prior — store MAX_FIRST_PRICE is the defense
         IFabricaAttributeOracle.HistoryEntry memory prev = store.getHistory(vid, tokenId, sid, 0);
         if (prev.priceUsdc6 == 0) return false;
+        if (!store.isCycleValid(vid, prev.cycle)) return false;
         uint256 cur = uint256(current.priceUsdc6);
         uint256 prv = uint256(prev.priceUsdc6);
         uint256 hi = cur > prv ? cur : prv;
@@ -394,15 +395,16 @@ contract FabricaOracleAggregator is Ownable2Step, IPriceOracle {
         IFabricaAttributeOracle.SourcePrice memory current,
         uint64 targetTs
     ) internal view returns (bool found, uint128 priceUsdc6) {
-        // If current was already written at or before target, it is the as-of value.
-        if (current.valuedAt <= targetTs) {
+        // Wall-clock write time (lastWrittenAt), not publisher-controlled valuedAt.
+        if (current.lastWrittenAt <= targetTs && current.priceUsdc6 != 0) {
             return (true, current.priceUsdc6);
         }
-        // Walk history newest-first for first entry with valuedAt <= targetTs.
         uint256 len = store.historyLength(vid, tokenId, sid);
         for (uint256 i; i < len; ++i) {
             IFabricaAttributeOracle.HistoryEntry memory h = store.getHistory(vid, tokenId, sid, i);
-            if (h.valuedAt <= targetTs && h.priceUsdc6 != 0) {
+            if (h.priceUsdc6 == 0) continue;
+            if (!store.isCycleValid(vid, h.cycle)) continue;
+            if (h.valuedAt <= targetTs) {
                 return (true, h.priceUsdc6);
             }
         }
@@ -411,6 +413,11 @@ contract FabricaOracleAggregator is Ownable2Step, IPriceOracle {
 
     function _setSourceIds(uint8[] memory sourceIds_) internal {
         if (sourceIds_.length == 0) revert InvalidConfig();
+        for (uint256 i; i < sourceIds_.length; ++i) {
+            for (uint256 j = i + 1; j < sourceIds_.length; ++j) {
+                if (sourceIds_[i] == sourceIds_[j]) revert InvalidConfig();
+            }
+        }
         delete _sourceIds;
         for (uint256 i; i < sourceIds_.length; ++i) {
             _sourceIds.push(sourceIds_[i]);
@@ -422,6 +429,7 @@ contract FabricaOracleAggregator is Ownable2Step, IPriceOracle {
         internal
     {
         if (minLiveSources_ < 2) revert InvalidConfig();
+        if (maxJumpBps_ == 0) revert InvalidConfig();
         if (maxDispersionBps_ < BPS_DENOMINATOR) revert InvalidConfig(); // must allow ≥1.0×
         seasoningWindow = seasoningWindow_;
         maxJumpBps = maxJumpBps_;

@@ -50,8 +50,12 @@ contract MockFactStore is IFabricaAttributeOracle {
         }
         sp.priceUsdc6 = priceUsdc6;
         sp.valuedAt = valuedAt;
-        sp.lastWrittenAt = valuedAt;
+        sp.lastWrittenAt = uint64(block.timestamp);
         sp.cycle = cycle;
+    }
+
+    function setLastWrittenAt(uint256 vid, uint256 tokenId, uint8 sid, uint64 ts) external {
+        _prices[vid][tokenId][sid].lastWrittenAt = ts;
     }
 
     function pushHistory(uint256 vid, uint256 tokenId, uint8 sid, uint128 priceUsdc6, uint64 valuedAt, uint64 cycle)
@@ -332,6 +336,34 @@ contract FabricaOracleAggregatorTest is Test {
         assertEq(minSrc, 2);
         assertEq(keccak256(bytes(order)), keccak256("MIN-then-temporal"));
         assertEq(keccak256(bytes(evo)), keccak256("immutable-post-renounce; new-checks=new-aggregator-deploy"));
+    }
+
+    function test_setSourceIds_rejectsDuplicates() public {
+        uint8[] memory bad = new uint8[](2);
+        bad[0] = 0;
+        bad[1] = 0;
+        vm.prank(owner);
+        vm.expectRevert(FabricaOracleAggregator.InvalidConfig.selector);
+        agg.setSourceIds(bad);
+    }
+
+    function test_price_dropsInvalidCycleFeeds() public {
+        store.setMinValidCycle(VID, 10);
+        vm.expectRevert(abi.encodeWithSelector(FabricaOracleAggregator.CheckFailed.selector, agg.CHECK_MIN_SOURCES()));
+        _price();
+    }
+
+    function test_price_temporalIgnoresBackdatedValuedAt() public {
+        uint64 nowTs = uint64(block.timestamp);
+        uint64 past = nowTs - 25 hours;
+        for (uint8 s; s < 3; ++s) {
+            store.setPrice(VID, TOKEN, s, 100_000e6, past, 1);
+            store.setLastWrittenAt(VID, TOKEN, s, past);
+        }
+        for (uint8 s; s < 3; ++s) {
+            store.setPrice(VID, TOKEN, s, 140_000e6, past, 2);
+        }
+        assertEq(_price(), 100_000e6);
     }
 
     function test_landUseCheck() public {
