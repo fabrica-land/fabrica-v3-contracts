@@ -60,11 +60,21 @@ contract MockFactStore is IFabricaAttributeOracle {
         _prices[vid][tokenId][sid].lastWrittenAt = ts;
     }
 
-    function pushHistory(uint256 vid, uint256 tokenId, uint8 sid, uint128 priceUsdc6, uint64 valuedAt, uint64 cycle)
-        external
-    {
+    function clearHistory(uint256 vid, uint256 tokenId, uint8 sid) external {
+        delete _history[vid][tokenId][sid];
+    }
+
+    function pushHistory(
+        uint256 vid,
+        uint256 tokenId,
+        uint8 sid,
+        uint128 priceUsdc6,
+        uint64 valuedAt,
+        uint64 lastWrittenAt,
+        uint64 cycle
+    ) external {
         _history[vid][tokenId][sid].push(
-            HistoryEntry({priceUsdc6: priceUsdc6, valuedAt: valuedAt, lastWrittenAt: valuedAt, cycle: cycle})
+            HistoryEntry({priceUsdc6: priceUsdc6, valuedAt: valuedAt, lastWrittenAt: lastWrittenAt, cycle: cycle})
         );
     }
 
@@ -174,9 +184,9 @@ contract FabricaOracleAggregatorTest is Test {
         store.setPrice(VID, TOKEN, 2, 100_000e6, nowTs, 1);
         // Prior prices 24h+ ago so temporal doesn't floor below current.
         uint64 past = nowTs - 25 hours;
-        store.pushHistory(VID, TOKEN, 0, 100_000e6, past, 1);
-        store.pushHistory(VID, TOKEN, 1, 100_000e6, past, 1);
-        store.pushHistory(VID, TOKEN, 2, 100_000e6, past, 1);
+        store.pushHistory(VID, TOKEN, 0, 100_000e6, past, past, 1);
+        store.pushHistory(VID, TOKEN, 1, 100_000e6, past, past, 1);
+        store.pushHistory(VID, TOKEN, 2, 100_000e6, past, past, 1);
     }
 
     function _price() internal view returns (uint256) {
@@ -190,9 +200,9 @@ contract FabricaOracleAggregatorTest is Test {
         store.setPrice(VID, TOKEN, 2, 110_000e6, nowTs, 2);
         // past history so temporal doesn't change MIN
         uint64 past = nowTs - 25 hours;
-        store.pushHistory(VID, TOKEN, 0, 100_000e6, past, 1);
-        store.pushHistory(VID, TOKEN, 1, 90_000e6, past, 1);
-        store.pushHistory(VID, TOKEN, 2, 110_000e6, past, 1);
+        store.pushHistory(VID, TOKEN, 0, 100_000e6, past, past, 1);
+        store.pushHistory(VID, TOKEN, 1, 90_000e6, past, past, 1);
+        store.pushHistory(VID, TOKEN, 2, 110_000e6, past, past, 1);
         assertEq(_price(), 90_000e6);
     }
 
@@ -238,8 +248,8 @@ contract FabricaOracleAggregatorTest is Test {
         // Ensure history[0] for source 2 is 100k: setPrice pushes previous when updating.
         // Rebuild cleanly:
         // We need prior of 100k for feed 2. setPrice already pushed old 100k when set to 200k.
-        store.pushHistory(VID, TOKEN, 0, 100_000e6, past, 1);
-        store.pushHistory(VID, TOKEN, 1, 100_000e6, past, 1);
+        store.pushHistory(VID, TOKEN, 0, 100_000e6, past, past, 1);
+        store.pushHistory(VID, TOKEN, 1, 100_000e6, past, past, 1);
         // Feed 2 history newest should be previous current from setPrice chain.
         // After setPrice to 200k, history includes 100k entry from setUp overwrite path.
         assertEq(_price(), 100_000e6); // feed 2 dropped; MIN of remaining = 100k
@@ -258,20 +268,19 @@ contract FabricaOracleAggregatorTest is Test {
     }
 
     function test_price_temporalFloorMinThenTemporal() public {
-        // Current MIN = 150k; past MIN at N ago = 100k → usable 100k.
+        // Current MIN = 140k; past MIN at N ago = 100k → usable 100k.
         // Use small jumps so rate-of-change breaker does not drop feeds (maxJumpBps=50%).
         uint64 nowTs = uint64(block.timestamp);
         uint64 past = nowTs - 25 hours;
-        // Seed prior-at-past via pushHistory before setting current (mock history is explicit).
-        // Clear by re-setting from known prior: first set 100k@past, then 150k@now with push of past.
+        // Seed genuinely old wall-clock history; current writes stay at nowTs.
         for (uint8 s; s < 3; ++s) {
-            // Reset feed to past value then step up moderately.
             store.setPrice(VID, TOKEN, s, 100_000e6, past, 9);
+            store.setLastWrittenAt(VID, TOKEN, s, past);
         }
         store.setPrice(VID, TOKEN, 0, 140_000e6, nowTs, 10); // +40%
         store.setPrice(VID, TOKEN, 1, 145_000e6, nowTs, 10);
         store.setPrice(VID, TOKEN, 2, 149_000e6, nowTs, 10);
-        // After setPrice, history[0] is 100k@past for each. Temporal pastMin=100k; currentMin=140k.
+        // History[0] is 100k@lastWrittenAt=past. Temporal pastMin=100k; currentMin=140k.
         assertEq(_price(), 100_000e6);
     }
 
@@ -281,9 +290,9 @@ contract FabricaOracleAggregatorTest is Test {
         store.setPrice(VID, TOKEN, 1, 100_000e6, nowTs, 2);
         store.setPrice(VID, TOKEN, 2, 250_000e6, nowTs, 2); // 2.5× > 2.0×
         uint64 past = nowTs - 25 hours;
-        store.pushHistory(VID, TOKEN, 0, 100_000e6, past, 1);
-        store.pushHistory(VID, TOKEN, 1, 100_000e6, past, 1);
-        store.pushHistory(VID, TOKEN, 2, 250_000e6, past, 1);
+        store.pushHistory(VID, TOKEN, 0, 100_000e6, past, past, 1);
+        store.pushHistory(VID, TOKEN, 1, 100_000e6, past, past, 1);
+        store.pushHistory(VID, TOKEN, 2, 250_000e6, past, past, 1);
         // Jump from history for feed 2: if previous was also 250k, no breaker.
         vm.expectRevert(abi.encodeWithSelector(FabricaOracleAggregator.CheckFailed.selector, agg.CHECK_DISPERSION()));
         _price();
@@ -302,7 +311,7 @@ contract FabricaOracleAggregatorTest is Test {
         uint64 past = nowTs - 25 hours;
         for (uint8 s; s < 3; ++s) {
             store.setPrice(VID, 99, s, 50_000e6, nowTs, 1);
-            store.pushHistory(VID, 99, s, 50_000e6, past, 1);
+            store.pushHistory(VID, 99, s, 50_000e6, past, past, 1);
         }
         // TOKEN still 100k MIN, 99 is 50k → avg 75k
         assertEq(agg.price(address(0), usdc, ids, q, ""), 75_000e6);
@@ -391,6 +400,8 @@ contract FabricaOracleAggregatorTest is Test {
     }
 
     function test_price_temporalIgnoresBackdatedValuedAt() public {
+        // Keep write timestamps current; only valuedAt is backdated on current.
+        // Prior history must use genuine old lastWrittenAt so temporal floor applies.
         uint64 nowTs = uint64(block.timestamp);
         uint64 past = nowTs - 25 hours;
         for (uint8 s; s < 3; ++s) {
@@ -398,9 +409,62 @@ contract FabricaOracleAggregatorTest is Test {
             store.setLastWrittenAt(VID, TOKEN, s, past);
         }
         for (uint8 s; s < 3; ++s) {
+            // Backdated valuedAt, current wall-clock write time (setPrice sets lastWrittenAt=now).
             store.setPrice(VID, TOKEN, s, 140_000e6, past, 2);
         }
         assertEq(_price(), 100_000e6);
+    }
+
+    function test_priceAsOf_requiresNonzeroLastWrittenAt() public {
+        // History with old valuedAt but lastWrittenAt==0 must NOT floor the temporal path.
+        // (+40% jump stays under maxJumpBps=50% so breaker does not drop feeds.)
+        uint64 nowTs = uint64(block.timestamp);
+        uint64 past = nowTs - 25 hours;
+        for (uint8 s; s < 3; ++s) {
+            store.clearHistory(VID, TOKEN, s);
+            store.setPrice(VID, TOKEN, s, 140_000e6, nowTs, 2);
+            store.clearHistory(VID, TOKEN, s);
+            store.pushHistory(VID, TOKEN, s, 100_000e6, past, 0, 1);
+        }
+        // If valuedAt fallback were used, pastMin=100k and price would floor. Strict path: 140k.
+        assertEq(_price(), 140_000e6);
+        // Same prices with trusted lastWrittenAt on history → temporal floors to 100k.
+        for (uint8 s; s < 3; ++s) {
+            store.clearHistory(VID, TOKEN, s);
+            store.pushHistory(VID, TOKEN, s, 100_000e6, past, past, 1);
+        }
+        assertEq(_price(), 100_000e6);
+    }
+
+    function test_constructor_rejectsEoaDependencies() public {
+        address eoa = makeAddr("eoa-dep");
+        uint8[] memory sources = new uint8[](2);
+        sources[0] = 0;
+        sources[1] = 1;
+        vm.expectRevert(FabricaOracleAggregator.InvalidConfig.selector);
+        new FabricaOracleAggregator(owner, eoa, address(store), VID, sources, 24 hours, 5000, 20_000, 2);
+        vm.expectRevert(FabricaOracleAggregator.InvalidConfig.selector);
+        new FabricaOracleAggregator(owner, address(store), eoa, VID, sources, 24 hours, 5000, 20_000, 2);
+    }
+
+    function test_setters_rejectEoaDependencies() public {
+        address eoa = makeAddr("eoa-dep");
+        vm.startPrank(owner);
+        vm.expectRevert(FabricaOracleAggregator.InvalidConfig.selector);
+        agg.setFactStore(eoa);
+        vm.expectRevert(FabricaOracleAggregator.InvalidConfig.selector);
+        agg.setUsdc(eoa);
+        vm.stopPrank();
+    }
+
+    function test_renounce_acceptsDistinctContractUsdc() public {
+        MockFactStore usdcToken = new MockFactStore();
+        vm.prank(owner);
+        agg.setUsdc(address(usdcToken));
+        vm.prank(owner);
+        agg.renounceAggregator();
+        assertTrue(agg.renounced());
+        assertEq(agg.usdc(), address(usdcToken));
     }
 
     function test_landUseCheck() public {

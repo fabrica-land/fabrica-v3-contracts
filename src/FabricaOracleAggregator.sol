@@ -402,8 +402,9 @@ contract FabricaOracleAggregator is Ownable2Step, IPriceOracle {
         IFabricaAttributeOracle.SourcePrice memory current,
         uint64 targetTs
     ) internal view returns (bool found, uint128 priceUsdc6) {
-        // Wall-clock write time (lastWrittenAt), not publisher-controlled valuedAt.
-        if (current.lastWrittenAt <= targetTs && current.priceUsdc6 != 0) {
+        // Trusted wall-clock write time only — never publisher-controlled valuedAt.
+        // Unset lastWrittenAt (0) is ineligible for every cutoff.
+        if (current.lastWrittenAt != 0 && current.lastWrittenAt <= targetTs && current.priceUsdc6 != 0) {
             return (true, current.priceUsdc6);
         }
         uint256 len = store.historyLength(vid, tokenId, sid);
@@ -411,9 +412,8 @@ contract FabricaOracleAggregator is Ownable2Step, IPriceOracle {
             IFabricaAttributeOracle.HistoryEntry memory h = store.getHistory(vid, tokenId, sid, i);
             if (h.priceUsdc6 == 0) continue;
             if (!store.isCycleValid(vid, h.cycle)) continue;
-            // Prefer wall-clock write time; fall back to valuedAt only if lastWrittenAt unset (legacy).
-            uint64 asOf = h.lastWrittenAt != 0 ? h.lastWrittenAt : h.valuedAt;
-            if (asOf <= targetTs) {
+            if (h.lastWrittenAt == 0) continue;
+            if (h.lastWrittenAt <= targetTs) {
                 return (true, h.priceUsdc6);
             }
         }
