@@ -45,7 +45,9 @@ contract MockFactStore is IFabricaAttributeOracle {
         // Push previous into history (newest-first via array push then we reverse on read).
         if (sp.priceUsdc6 != 0) {
             _history[vid][tokenId][sid].push(
-                HistoryEntry({priceUsdc6: sp.priceUsdc6, valuedAt: sp.valuedAt, cycle: sp.cycle})
+                HistoryEntry({
+                    priceUsdc6: sp.priceUsdc6, valuedAt: sp.valuedAt, lastWrittenAt: sp.lastWrittenAt, cycle: sp.cycle
+                })
             );
         }
         sp.priceUsdc6 = priceUsdc6;
@@ -61,7 +63,7 @@ contract MockFactStore is IFabricaAttributeOracle {
     function pushHistory(uint256 vid, uint256 tokenId, uint8 sid, uint128 priceUsdc6, uint64 valuedAt, uint64 cycle)
         external
     {
-        _history[vid][tokenId][sid].push(HistoryEntry({priceUsdc6: priceUsdc6, valuedAt: valuedAt, cycle: cycle}));
+        _history[vid][tokenId][sid].push(HistoryEntry({priceUsdc6: priceUsdc6, valuedAt: valuedAt, lastWrittenAt: valuedAt, cycle: cycle}));
     }
 
     function setAttribute(uint256 vid, uint256 tokenId, bytes32 id, bytes32 value, uint64 cycle) external {
@@ -308,6 +310,24 @@ contract FabricaOracleAggregatorTest is Test {
         (bool ok, bytes32 failed) = agg.eligibilityReport(usdc, TOKEN);
         assertFalse(ok);
         assertEq(failed, agg.CHECK_HEARTBEAT());
+    }
+
+    function test_renounce_rejectsMinLiveExceedsSources() public {
+        // Configure only 2 sources while minLiveSources is 2 — ok.
+        // Raise minLiveSources above source count without changing sources.
+        uint8[] memory two = new uint8[](2);
+        two[0] = 0;
+        two[1] = 1;
+        vm.startPrank(owner);
+        agg.setSourceIds(two);
+        agg.setKnobs(24 hours, 5000, 20_000, 2);
+        // Now set minLiveSources=3 with only 2 sources via setKnobs — setKnobs allows it
+        // (cross-check is at renounce). Wait: setKnobs doesn't know about source count.
+        // Set minLive to 3:
+        agg.setKnobs(24 hours, 5000, 20_000, 3);
+        vm.expectRevert(FabricaOracleAggregator.InvalidConfig.selector);
+        agg.renounceAggregator();
+        vm.stopPrank();
     }
 
     function test_renounceFreezesSetters() public {

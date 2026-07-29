@@ -190,6 +190,8 @@ contract FabricaOracleAggregator is Ownable2Step, IPriceOracle {
     /// @notice Permanently freeze config. Only evolution path: new deploy + pool repoint.
     function renounceAggregator() external onlyOwner {
         _requireNotRenounced();
+        // Permanent freeze: cannot leave minLiveSources > configured independent sources.
+        if (_sourceIds.length < minLiveSources) revert InvalidConfig();
         renounced = true;
         address prev = owner();
         _transferOwnership(address(0));
@@ -404,7 +406,9 @@ contract FabricaOracleAggregator is Ownable2Step, IPriceOracle {
             IFabricaAttributeOracle.HistoryEntry memory h = store.getHistory(vid, tokenId, sid, i);
             if (h.priceUsdc6 == 0) continue;
             if (!store.isCycleValid(vid, h.cycle)) continue;
-            if (h.valuedAt <= targetTs) {
+            // Prefer wall-clock write time; fall back to valuedAt only if lastWrittenAt unset (legacy).
+            uint64 asOf = h.lastWrittenAt != 0 ? h.lastWrittenAt : h.valuedAt;
+            if (asOf <= targetTs) {
                 return (true, h.priceUsdc6);
             }
         }

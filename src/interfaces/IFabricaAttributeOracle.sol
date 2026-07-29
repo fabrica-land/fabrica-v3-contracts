@@ -23,6 +23,8 @@ interface IFabricaAttributeOracle {
     struct HistoryEntry {
         uint128 priceUsdc6;
         uint64 valuedAt;
+        /// @notice Wall-clock time when this price was written on-chain (not publisher-controlled).
+        uint64 lastWrittenAt;
         uint64 cycle;
     }
 
