@@ -31,11 +31,11 @@ contract FabricaAttributeOracle is Ownable2Step, EIP712 {
     /// @notice Basis-point denominator for write-time band knobs.
     uint16 public constant BPS_DENOMINATOR = 10_000;
 
-    /// @notice EIP-712 typehash for relayed price writes.
+    /// @notice EIP-712 typehash for relayed price writes (includes full Provenance + deadline).
     bytes32 public constant PRICE_WRITE_TYPEHASH = keccak256(
         "PriceWrite(uint256 validatorId,uint256 tokenId,uint8 sourceId,uint128 priceUsdc6,"
         "uint24 confidenceScore,uint64 valuedAt,uint64 cycle,bytes32 rawPayloadHash,"
-        "bytes32 inputsHash,address signer,uint256 nonce)"
+        "bytes32 inputsHash,uint64 provenanceTimestamp,address signer,uint256 nonce,uint256 deadline)"
     );
 
     // -------------------------------------------------------------------------
@@ -55,6 +55,8 @@ contract FabricaAttributeOracle is Ownable2Step, EIP712 {
         uint128 priceUsdc6;
         uint24 confidenceScore;
         uint64 valuedAt;
+        /// @notice Wall-clock of last successful write (rate-limit key; not publisher-controlled).
+        uint64 lastWrittenAt;
         uint64 cycle;
         Provenance provenance;
     }
@@ -127,6 +129,11 @@ contract FabricaAttributeOracle is Ownable2Step, EIP712 {
     error InvalidNonce(uint256 expected, uint256 actual);
     error HistoryDepthZero();
     error HistoryIndexOutOfBounds(uint256 index, uint256 length);
+    error InvalidValuedAt(uint64 valuedAt, uint64 nowTs);
+    error ProvenanceSignerMismatch(address expected, address actual);
+    error ExpiredSignature(uint256 deadline, uint256 nowTs);
+    error OwnershipRenounceDisabled();
+    error CycleNotMonotonic(uint64 currentCycle, uint64 newCycle);
 
     // -------------------------------------------------------------------------
     // Events
@@ -152,7 +159,7 @@ contract FabricaAttributeOracle is Ownable2Step, EIP712 {
     );
     event IndexAssigned(uint256 indexed validatorId, uint256 indexed tokenId, uint32 index, uint64 registeredAt);
     event KeeperHeartbeat(uint256 indexed validatorId, uint64 cycle, uint64 timestamp);
-    event RecoveryStatusSet(uint256 indexed validatorId, uint256 indexed tokenId, uint8 status, address writer);
+    event RecoveryStatusSet(uint256 indexed validatorId, uint256 indexed tokenId, uint8 status, address indexed writer);
     event CycleInvalidated(uint256 indexed validatorId, uint64 minValidCycle);
     event RootAnchored(uint256 indexed validatorId, uint64 cycle, bytes32 root);
     event PricePublisherSet(uint256 indexed validatorId, address indexed publisher, bool allowed);
@@ -199,7 +206,7 @@ contract FabricaAttributeOracle is Ownable2Step, EIP712 {
     mapping(uint256 => mapping(uint256 => mapping(uint8 => mapping(uint256 => HistoryEntry)))) private _history;
     /// @notice Total history writes (head = count; slot = (count - 1) % depth).
     mapping(uint256 => mapping(uint256 => mapping(uint8 => uint256))) private _historyCount;
-    /// @notice recoveryStatus digit per token (default 0 = unset → treat as Normal for fresh tokens).
+    /// @notice recoveryStatus digit per token (0 = unset / not borrowable; register seeds Normal).
     mapping(uint256 => mapping(uint256 => uint8)) private _recoveryStatus;
     /// @notice Attribute facts.
     mapping(uint256 => mapping(uint256 => mapping(bytes32 => AttributeFact))) private _attributes;
@@ -360,23 +367,29 @@ contract FabricaAttributeOracle is Ownable2Step, EIP712 {
     // Writes — price publisher
     // -------------------------------------------------------------------------
 
-    /// @notice Direct price write (default publisher path).
+    /// @notice Direct price write (default publisher path). Provenance.signer must equal msg.sender.
     function writePrice(PriceWriteParams calldata params) external {
-        if (!pricePublishers[params.validatorId][msg.sender]) {
-            revert NotPricePublisher(params.validatorId, msg.sender);
+        _requirePricePublisher(params.validatorId, msg.sender);
+        if (params.provenance.signer != msg.sender) {
+            revert ProvenanceSignerMismatch(msg.sender, params.provenance.signer);
         }
         _writePrice(params);
     }
 
     /// @notice EIP-712 relayed price write (publisher signs; any relayer may submit).
-    function writePriceRelayed(PriceWriteParams calldata params, uint256 nonce, bytes calldata signature) external {
+    /// @param deadline Unix timestamp after which the signature is rejected.
+    function writePriceRelayed(
+        PriceWriteParams calldata params,
+        uint256 nonce,
+        uint256 deadline,
+        bytes calldata signature
+    ) external {
+        if (block.timestamp > deadline) revert ExpiredSignature(deadline, block.timestamp);
         address publisher = params.provenance.signer;
-        if (!pricePublishers[params.validatorId][publisher]) {
-            revert NotPricePublisher(params.validatorId, publisher);
-        }
+        _requirePricePublisher(params.validatorId, publisher);
         uint256 expected = nonces[publisher];
         if (nonce != expected) revert InvalidNonce(expected, nonce);
-        address recovered = _hashTypedDataV4(_priceWriteStructHash(params, nonce)).recover(signature);
+        address recovered = _hashTypedDataV4(_priceWriteStructHash(params, nonce, deadline)).recover(signature);
         if (recovered != publisher) revert InvalidSignature();
         nonces[publisher] = expected + 1;
         _writePrice(params);
@@ -391,13 +404,12 @@ contract FabricaAttributeOracle is Ownable2Step, EIP712 {
         uint64 cycle,
         Provenance calldata provenance
     ) external {
-        if (!pricePublishers[validatorId][msg.sender]) {
-            revert NotPricePublisher(validatorId, msg.sender);
+        _requirePricePublisher(validatorId, msg.sender);
+        _requireRegistered(validatorId, tokenId);
+        _requireValidCycle(validatorId, cycle);
+        if (provenance.signer != msg.sender) {
+            revert ProvenanceSignerMismatch(msg.sender, provenance.signer);
         }
-        if (!registry[validatorId][tokenId].registered) {
-            revert NotRegistered(validatorId, tokenId);
-        }
-        if (cycle < minValidCycle[validatorId]) revert InvalidCycle();
         _attributes[validatorId][tokenId][attributeId] =
             AttributeFact({value: value, cycle: cycle, provenance: provenance});
         emit AttributeWritten(validatorId, tokenId, attributeId, value, cycle, _provenanceHash(provenance));
@@ -405,13 +417,9 @@ contract FabricaAttributeOracle is Ownable2Step, EIP712 {
 
     /// @notice Keeper heartbeat (standalone write on quiet cycles).
     function heartbeat(uint256 validatorId, uint64 cycle) external {
-        if (!pricePublishers[validatorId][msg.sender]) {
-            revert NotPricePublisher(validatorId, msg.sender);
-        }
-        uint64 ts = uint64(block.timestamp);
-        lastHeartbeatAt[validatorId] = ts;
-        lastHeartbeatCycle[validatorId] = cycle;
-        emit KeeperHeartbeat(validatorId, cycle, ts);
+        _requirePricePublisher(validatorId, msg.sender);
+        _requireValidCycle(validatorId, cycle);
+        _touchHeartbeat(validatorId, cycle);
     }
 
     // -------------------------------------------------------------------------
@@ -423,6 +431,7 @@ contract FabricaAttributeOracle is Ownable2Step, EIP712 {
         if (!recoveryWriters[validatorId][msg.sender]) {
             revert NotRecoveryWriter(validatorId, msg.sender);
         }
+        _requireRegistered(validatorId, tokenId);
         if (!_isValidRecoveryStatus(status)) revert InvalidRecoveryStatus(status);
         uint8 current = _recoveryStatus[validatorId][tokenId];
         if (current == RECOVERY_VOID && status != RECOVERY_VOID) revert VoidIsIrreversible();
@@ -430,11 +439,18 @@ contract FabricaAttributeOracle is Ownable2Step, EIP712 {
         emit RecoveryStatusSet(validatorId, tokenId, status, msg.sender);
     }
 
+    /// @notice Ownership renounce is disabled — this store requires ongoing owner ops.
+    function renounceOwnership() public pure override {
+        revert OwnershipRenounceDisabled();
+    }
+
     // -------------------------------------------------------------------------
     // Views — fact surface for aggregator / subgraph / tooling
     // -------------------------------------------------------------------------
 
     /// @notice Current source price record (empty if never written).
+    /// @dev Raw storage. Consumers (ENG-3519) MUST call `isCycleValid` on `cycle` after
+    ///      `setMinValidCycle` — this view does not tombstone killed cycles (lazy invalidation).
     function getSourcePrice(uint256 validatorId, uint256 tokenId, uint8 sourceId)
         external
         view
@@ -509,6 +525,15 @@ contract FabricaAttributeOracle is Ownable2Step, EIP712 {
         return _domainSeparatorV4();
     }
 
+    /// @notice EIP-712 digest for a relayed price write (for off-chain signers and tests).
+    function hashPriceWrite(PriceWriteParams calldata params, uint256 nonce, uint256 deadline)
+        external
+        view
+        returns (bytes32)
+    {
+        return _hashTypedDataV4(_priceWriteStructHash(params, nonce, deadline));
+    }
+
     // -------------------------------------------------------------------------
     // Internals
     // -------------------------------------------------------------------------
@@ -525,17 +550,19 @@ contract FabricaAttributeOracle is Ownable2Step, EIP712 {
         // Fresh tokens default to Normal recovery until a writer sets otherwise.
         if (_recoveryStatus[validatorId][tokenId] == 0) {
             _recoveryStatus[validatorId][tokenId] = RECOVERY_NORMAL;
+            emit RecoveryStatusSet(validatorId, tokenId, RECOVERY_NORMAL, msg.sender);
         }
         emit IndexAssigned(validatorId, tokenId, index, registeredAt);
     }
 
     function _writePrice(PriceWriteParams calldata params) internal {
         if (!sourceEnabled[params.sourceId]) revert SourceNotEnabled(params.sourceId);
-        if (!registry[params.validatorId][params.tokenId].registered) {
-            revert NotRegistered(params.validatorId, params.tokenId);
-        }
+        _requireRegistered(params.validatorId, params.tokenId);
         if (params.priceUsdc6 == 0) revert InvalidPrice();
-        if (params.cycle < minValidCycle[params.validatorId]) revert InvalidCycle();
+        _requireValidCycle(params.validatorId, params.cycle);
+        uint64 nowTs = uint64(block.timestamp);
+        uint64 valuedAt = params.valuedAt == 0 ? nowTs : params.valuedAt;
+        if (valuedAt > nowTs) revert InvalidValuedAt(valuedAt, nowTs);
         SourcePrice storage current = _sourcePrices[params.validatorId][params.tokenId][params.sourceId];
         if (current.priceUsdc6 == 0) {
             // First-price cap is the specific drain-edge guard; check before generic ceiling.
@@ -543,9 +570,12 @@ contract FabricaAttributeOracle is Ownable2Step, EIP712 {
                 revert FirstPriceTooHigh(params.priceUsdc6, maxFirstPriceUsdc6);
             }
         } else {
-            if (minWriteInterval > 0 && current.valuedAt > 0) {
-                if (block.timestamp < uint256(current.valuedAt) + uint256(minWriteInterval)) {
-                    revert WriteTooSoon(current.valuedAt, minWriteInterval, uint64(block.timestamp));
+            if (params.cycle < current.cycle) {
+                revert CycleNotMonotonic(current.cycle, params.cycle);
+            }
+            if (minWriteInterval > 0 && current.lastWrittenAt > 0) {
+                if (block.timestamp < uint256(current.lastWrittenAt) + uint256(minWriteInterval)) {
+                    revert WriteTooSoon(current.lastWrittenAt, minWriteInterval, nowTs);
                 }
             }
             _enforceBand(current.priceUsdc6, params.priceUsdc6);
@@ -563,24 +593,28 @@ contract FabricaAttributeOracle is Ownable2Step, EIP712 {
         }
         current.priceUsdc6 = params.priceUsdc6;
         current.confidenceScore = params.confidenceScore;
-        current.valuedAt = params.valuedAt == 0 ? uint64(block.timestamp) : params.valuedAt;
+        current.valuedAt = valuedAt;
+        current.lastWrittenAt = nowTs;
         current.cycle = params.cycle;
         current.provenance = params.provenance;
-        lastHeartbeatAt[params.validatorId] = uint64(block.timestamp);
-        lastHeartbeatCycle[params.validatorId] = params.cycle;
+        _touchHeartbeat(params.validatorId, params.cycle);
         emit PriceWritten(
             params.validatorId,
             params.tokenId,
             params.sourceId,
             params.priceUsdc6,
             params.confidenceScore,
-            current.valuedAt,
+            valuedAt,
             params.cycle,
             _provenanceHash(params.provenance)
         );
     }
 
-    function _priceWriteStructHash(PriceWriteParams calldata params, uint256 nonce) internal pure returns (bytes32) {
+    function _priceWriteStructHash(PriceWriteParams calldata params, uint256 nonce, uint256 deadline)
+        internal
+        pure
+        returns (bytes32)
+    {
         return keccak256(
             abi.encode(
                 PRICE_WRITE_TYPEHASH,
@@ -593,10 +627,35 @@ contract FabricaAttributeOracle is Ownable2Step, EIP712 {
                 params.cycle,
                 params.provenance.rawPayloadHash,
                 params.provenance.inputsHash,
+                params.provenance.timestamp,
                 params.provenance.signer,
-                nonce
+                nonce,
+                deadline
             )
         );
+    }
+
+    function _requirePricePublisher(uint256 validatorId, address account) internal view {
+        if (!pricePublishers[validatorId][account]) {
+            revert NotPricePublisher(validatorId, account);
+        }
+    }
+
+    function _requireRegistered(uint256 validatorId, uint256 tokenId) internal view {
+        if (!registry[validatorId][tokenId].registered) {
+            revert NotRegistered(validatorId, tokenId);
+        }
+    }
+
+    function _requireValidCycle(uint256 validatorId, uint64 cycle) internal view {
+        if (cycle < minValidCycle[validatorId]) revert InvalidCycle();
+    }
+
+    function _touchHeartbeat(uint256 validatorId, uint64 cycle) internal {
+        uint64 ts = uint64(block.timestamp);
+        lastHeartbeatAt[validatorId] = ts;
+        lastHeartbeatCycle[validatorId] = cycle;
+        emit KeeperHeartbeat(validatorId, cycle, ts);
     }
 
     function _pushHistory(uint256 validatorId, uint256 tokenId, uint8 sourceId, HistoryEntry memory entry) internal {
@@ -629,15 +688,15 @@ contract FabricaAttributeOracle is Ownable2Step, EIP712 {
         uint16 maxDownBps_,
         uint128 maxFirstPriceUsdc6_,
         uint64 maxSilence_,
-        uint64 minWriteInterval_,
-        uint64 registrySeasonDelay_,
+        uint64, /* minWriteInterval_ — 0 allowed */
+        uint64, /* registrySeasonDelay_ — 0 allowed */
         uint128 valueCeilingUsdc6_
     ) internal pure {
         if (maxUpBps_ > BPS_DENOMINATOR || maxDownBps_ > BPS_DENOMINATOR) {
             revert InvalidKnob();
         }
         if (maxFirstPriceUsdc6_ == 0 || valueCeilingUsdc6_ == 0) revert InvalidKnob();
+        if (maxFirstPriceUsdc6_ > valueCeilingUsdc6_) revert InvalidKnob();
         if (maxSilence_ == 0) revert InvalidKnob();
-        // minWriteInterval_ and registrySeasonDelay_ may be 0 (tests / emergency); production defaults are non-zero.
     }
 }

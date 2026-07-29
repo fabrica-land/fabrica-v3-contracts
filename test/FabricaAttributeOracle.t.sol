@@ -35,7 +35,7 @@ contract FabricaAttributeOracleTest is Test {
     );
     event IndexAssigned(uint256 indexed validatorId, uint256 indexed tokenId, uint32 index, uint64 registeredAt);
     event KeeperHeartbeat(uint256 indexed validatorId, uint64 cycle, uint64 timestamp);
-    event RecoveryStatusSet(uint256 indexed validatorId, uint256 indexed tokenId, uint8 status, address writer);
+    event RecoveryStatusSet(uint256 indexed validatorId, uint256 indexed tokenId, uint8 status, address indexed writer);
     event CycleInvalidated(uint256 indexed validatorId, uint64 minValidCycle);
 
     function setUp() public {
@@ -44,16 +44,8 @@ contract FabricaAttributeOracleTest is Test {
         publisher = makeAddr("publisher");
         recoveryWriter = makeAddr("recoveryWriter");
         stranger = makeAddr("stranger");
-        FabricaAttributeOracle.KnobConfig memory knobs = FabricaAttributeOracle.KnobConfig({
-            maxUpBps: 1500,
-            maxDownBps: 5000,
-            maxFirstPriceUsdc6: 50_000_000e6,
-            maxSilence: 24 hours,
-            minWriteInterval: 1 hours,
-            registrySeasonDelay: 1 days,
-            valueCeilingUsdc6: 50_000_000e6,
-            historyDepth: 8
-        });
+        FabricaAttributeOracle.KnobConfig memory knobs = _defaultKnobs();
+        knobs.historyDepth = 8;
         oracle = new FabricaAttributeOracle(owner, knobs);
         vm.startPrank(owner);
         oracle.setPricePublisher(VALIDATOR, publisher, true);
@@ -76,19 +68,33 @@ contract FabricaAttributeOracleTest is Test {
     }
 
     function test_defaultKnobs_matchPhase0StartProposals() public view {
-        FabricaAttributeOracle.KnobConfig memory d = oracle.defaultKnobs();
-        assertEq(d.maxUpBps, 1500);
-        assertEq(d.maxDownBps, 5000);
-        assertEq(d.maxSilence, 24 hours);
-        assertEq(d.minWriteInterval, 1 hours);
-        assertEq(d.registrySeasonDelay, 1 days);
-        assertEq(d.historyDepth, 48);
+        FabricaAttributeOracle.KnobConfig memory knobs = oracle.defaultKnobs();
+        assertEq(knobs.maxUpBps, 1500);
+        assertEq(knobs.maxDownBps, 5000);
+        assertEq(knobs.maxSilence, 24 hours);
+        assertEq(knobs.minWriteInterval, 1 hours);
+        assertEq(knobs.registrySeasonDelay, 1 days);
+        assertEq(knobs.maxFirstPriceUsdc6, 50_000_000e6);
+        assertEq(knobs.valueCeilingUsdc6, 50_000_000e6);
+        assertEq(knobs.historyDepth, 48);
+    }
+
+    function test_renounceOwnership_disabled() public {
+        vm.prank(owner);
+        vm.expectRevert(FabricaAttributeOracle.OwnershipRenounceDisabled.selector);
+        oracle.renounceOwnership();
     }
 
     function test_setKnobs_onlyOwner() public {
         vm.prank(stranger);
         vm.expectRevert();
         oracle.setKnobs(1000, 4000, 1e6, 12 hours, 30 minutes, 12 hours, 1e6);
+    }
+
+    function test_setKnobs_rejectsFirstPriceAboveCeiling() public {
+        vm.prank(owner);
+        vm.expectRevert(FabricaAttributeOracle.InvalidKnob.selector);
+        oracle.setKnobs(1500, 5000, 100e6, 24 hours, 1 hours, 1 days, 50e6);
     }
 
     function test_register_assignsDenseIndexAndSeedsNormal() public {
@@ -115,6 +121,18 @@ contract FabricaAttributeOracleTest is Test {
         oracle.register(VALIDATOR, TOKEN_A);
     }
 
+    function test_registerBatch() public {
+        uint256[] memory ids = new uint256[](2);
+        ids[0] = TOKEN_B;
+        ids[1] = 1001;
+        vm.prank(owner);
+        oracle.registerBatch(VALIDATOR, ids);
+        (, uint32 indexB,) = oracle.registry(VALIDATOR, TOKEN_B);
+        (, uint32 indexC,) = oracle.registry(VALIDATOR, 1001);
+        assertEq(indexB, 2);
+        assertEq(indexC, 3);
+    }
+
     function test_registrySeasoning() public {
         assertFalse(oracle.isRegistrySeasoned(VALIDATOR, TOKEN_A));
         vm.warp(block.timestamp + 1 days - 1);
@@ -126,41 +144,55 @@ contract FabricaAttributeOracleTest is Test {
     function test_writePrice_threeIndependentSources() public {
         FabricaAttributeOracle.Provenance memory prov = _prov(publisher);
         vm.startPrank(publisher);
-        oracle.writePrice(_p(TOKEN_A, SRC_PRYCD, PRICE_100K, 8000, 1, prov));
-        oracle.writePrice(_p(TOKEN_A, SRC_OPENAVM, PRICE_110K, 7000, 1, prov));
-        oracle.writePrice(_p(TOKEN_A, SRC_REGRID, PRICE_50K, 0, 1, prov));
+        oracle.writePrice(_priceParams(TOKEN_A, SRC_PRYCD, PRICE_100K, 8000, 1, prov));
+        oracle.writePrice(_priceParams(TOKEN_A, SRC_OPENAVM, PRICE_110K, 7000, 1, prov));
+        oracle.writePrice(_priceParams(TOKEN_A, SRC_REGRID, PRICE_50K, 0, 1, prov));
         vm.stopPrank();
-
-        FabricaAttributeOracle.SourcePrice memory prycd = oracle.getSourcePrice(VALIDATOR, TOKEN_A, SRC_PRYCD);
-        FabricaAttributeOracle.SourcePrice memory openavm = oracle.getSourcePrice(VALIDATOR, TOKEN_A, SRC_OPENAVM);
-        FabricaAttributeOracle.SourcePrice memory regrid = oracle.getSourcePrice(VALIDATOR, TOKEN_A, SRC_REGRID);
-
-        assertEq(prycd.priceUsdc6, PRICE_100K);
-        assertEq(openavm.priceUsdc6, PRICE_110K);
-        assertEq(regrid.priceUsdc6, PRICE_50K);
-        assertEq(prycd.confidenceScore, 8000);
-        assertEq(regrid.confidenceScore, 0);
-        assertEq(prycd.provenance.signer, publisher);
-        assertTrue(prycd.priceUsdc6 != openavm.priceUsdc6);
-        assertTrue(openavm.priceUsdc6 != regrid.priceUsdc6);
+        assertEq(oracle.getSourcePrice(VALIDATOR, TOKEN_A, SRC_PRYCD).priceUsdc6, PRICE_100K);
+        assertEq(oracle.getSourcePrice(VALIDATOR, TOKEN_A, SRC_OPENAVM).priceUsdc6, PRICE_110K);
+        assertEq(oracle.getSourcePrice(VALIDATOR, TOKEN_A, SRC_REGRID).priceUsdc6, PRICE_50K);
+        assertEq(oracle.getSourcePrice(VALIDATOR, TOKEN_A, SRC_PRYCD).confidenceScore, 8000);
+        assertEq(oracle.getSourcePrice(VALIDATOR, TOKEN_A, SRC_REGRID).confidenceScore, 0);
+        assertEq(oracle.getSourcePrice(VALIDATOR, TOKEN_A, SRC_PRYCD).provenance.signer, publisher);
+        assertTrue(
+            oracle.getSourcePrice(VALIDATOR, TOKEN_A, SRC_PRYCD).priceUsdc6
+                != oracle.getSourcePrice(VALIDATOR, TOKEN_A, SRC_OPENAVM).priceUsdc6
+        );
     }
 
     function test_writePrice_notPublisher() public {
         vm.prank(stranger);
         vm.expectRevert(abi.encodeWithSelector(FabricaAttributeOracle.NotPricePublisher.selector, VALIDATOR, stranger));
-        oracle.writePrice(_p(TOKEN_A, SRC_PRYCD, PRICE_100K, 0, 1, _prov(stranger)));
+        oracle.writePrice(_priceParams(TOKEN_A, SRC_PRYCD, PRICE_100K, 0, 1, _prov(stranger)));
+    }
+
+    function test_writePrice_provenanceSignerMismatch() public {
+        FabricaAttributeOracle.Provenance memory prov = _prov(stranger);
+        vm.prank(publisher);
+        vm.expectRevert(
+            abi.encodeWithSelector(FabricaAttributeOracle.ProvenanceSignerMismatch.selector, publisher, stranger)
+        );
+        oracle.writePrice(_priceParams(TOKEN_A, SRC_PRYCD, PRICE_100K, 0, 1, prov));
     }
 
     function test_writePrice_notRegistered() public {
         vm.prank(publisher);
         vm.expectRevert(abi.encodeWithSelector(FabricaAttributeOracle.NotRegistered.selector, VALIDATOR, TOKEN_B));
-        oracle.writePrice(_p(TOKEN_B, SRC_PRYCD, PRICE_100K, 0, 1, _prov(publisher)));
+        oracle.writePrice(_priceParams(TOKEN_B, SRC_PRYCD, PRICE_100K, 0, 1, _prov(publisher)));
     }
 
     function test_writePrice_rejectsZeroPrice() public {
         vm.prank(publisher);
         vm.expectRevert(FabricaAttributeOracle.InvalidPrice.selector);
-        oracle.writePrice(_p(TOKEN_A, SRC_PRYCD, 0, 0, 1, _prov(publisher)));
+        oracle.writePrice(_priceParams(TOKEN_A, SRC_PRYCD, 0, 0, 1, _prov(publisher)));
+    }
+
+    function test_writePrice_sourceNotEnabled() public {
+        vm.prank(owner);
+        oracle.setSourceEnabled(SRC_PRYCD, false);
+        vm.prank(publisher);
+        vm.expectRevert(abi.encodeWithSelector(FabricaAttributeOracle.SourceNotEnabled.selector, SRC_PRYCD));
+        oracle.writePrice(_priceParams(TOKEN_A, SRC_PRYCD, PRICE_100K, 0, 1, _prov(publisher)));
     }
 
     function test_writePrice_emitsPriceWritten() public {
@@ -169,7 +201,7 @@ contract FabricaAttributeOracleTest is Test {
         vm.prank(publisher);
         vm.expectEmit(true, true, true, true);
         emit PriceWritten(VALIDATOR, TOKEN_A, SRC_PRYCD, PRICE_100K, 100, uint64(block.timestamp), 1, pHash);
-        oracle.writePrice(_p(TOKEN_A, SRC_PRYCD, PRICE_100K, 100, 1, prov));
+        oracle.writePrice(_priceParams(TOKEN_A, SRC_PRYCD, PRICE_100K, 100, 1, prov));
     }
 
     function test_writePrice_firstPriceTooHigh() public {
@@ -178,7 +210,7 @@ contract FabricaAttributeOracleTest is Test {
         vm.expectRevert(
             abi.encodeWithSelector(FabricaAttributeOracle.FirstPriceTooHigh.selector, tooHigh, 50_000_000e6)
         );
-        oracle.writePrice(_p(TOKEN_A, SRC_PRYCD, tooHigh, 0, 1, _prov(publisher)));
+        oracle.writePrice(_priceParams(TOKEN_A, SRC_PRYCD, tooHigh, 0, 1, _prov(publisher)));
     }
 
     function test_writePrice_bandUpExceeded() public {
@@ -186,8 +218,12 @@ contract FabricaAttributeOracleTest is Test {
         uint128 over = 115_001e6;
         vm.warp(block.timestamp + 1 hours);
         vm.prank(publisher);
-        vm.expectRevert();
-        oracle.writePrice(_p(TOKEN_A, SRC_PRYCD, over, 0, 2, _prov(publisher)));
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                FabricaAttributeOracle.BandExceeded.selector, PRICE_100K, over, uint16(1500), uint16(5000)
+            )
+        );
+        oracle.writePrice(_priceParams(TOKEN_A, SRC_PRYCD, over, 0, 2, _prov(publisher)));
     }
 
     function test_writePrice_bandDownExceeded() public {
@@ -195,35 +231,77 @@ contract FabricaAttributeOracleTest is Test {
         uint128 under = 49_999e6;
         vm.warp(block.timestamp + 1 hours);
         vm.prank(publisher);
-        vm.expectRevert();
-        oracle.writePrice(_p(TOKEN_A, SRC_PRYCD, under, 0, 2, _prov(publisher)));
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                FabricaAttributeOracle.BandExceeded.selector, PRICE_100K, under, uint16(1500), uint16(5000)
+            )
+        );
+        oracle.writePrice(_priceParams(TOKEN_A, SRC_PRYCD, under, 0, 2, _prov(publisher)));
     }
 
     function test_writePrice_inBandSucceeds() public {
         _write(SRC_PRYCD, PRICE_100K, 1);
         vm.warp(block.timestamp + 1 hours);
         _write(SRC_PRYCD, 115_000e6, 2);
-        FabricaAttributeOracle.SourcePrice memory p = oracle.getSourcePrice(VALIDATOR, TOKEN_A, SRC_PRYCD);
-        assertEq(p.priceUsdc6, 115_000e6);
+        assertEq(oracle.getSourcePrice(VALIDATOR, TOKEN_A, SRC_PRYCD).priceUsdc6, 115_000e6);
     }
 
-    function test_writePrice_minInterval() public {
-        _write(SRC_PRYCD, PRICE_100K, 1);
+    function test_writePrice_minInterval_usesLastWrittenAtNotValuedAt() public {
+        // Publisher passes past valuedAt — interval must still use wall-clock lastWrittenAt.
+        FabricaAttributeOracle.PriceWriteParams memory params =
+            _priceParams(TOKEN_A, SRC_PRYCD, PRICE_100K, 0, 1, _prov(publisher));
+        params.valuedAt = 1;
         vm.prank(publisher);
-        vm.expectRevert();
-        oracle.writePrice(_p(TOKEN_A, SRC_PRYCD, PRICE_110K, 0, 2, _prov(publisher)));
+        oracle.writePrice(params);
+        uint64 lastWrite = uint64(block.timestamp);
+        params.priceUsdc6 = PRICE_110K;
+        params.cycle = 2;
+        params.valuedAt = 1;
+        vm.prank(publisher);
+        vm.expectRevert(
+            abi.encodeWithSelector(FabricaAttributeOracle.WriteTooSoon.selector, lastWrite, uint64(1 hours), lastWrite)
+        );
+        oracle.writePrice(params);
         vm.warp(block.timestamp + 1 hours);
-        _write(SRC_PRYCD, PRICE_110K, 2);
+        vm.prank(publisher);
+        oracle.writePrice(params);
+        assertEq(oracle.getSourcePrice(VALIDATOR, TOKEN_A, SRC_PRYCD).priceUsdc6, PRICE_110K);
+        assertEq(oracle.getSourcePrice(VALIDATOR, TOKEN_A, SRC_PRYCD).valuedAt, 1);
+    }
+
+    function test_writePrice_rejectsFutureValuedAt() public {
+        FabricaAttributeOracle.PriceWriteParams memory params =
+            _priceParams(TOKEN_A, SRC_PRYCD, PRICE_100K, 0, 1, _prov(publisher));
+        params.valuedAt = uint64(block.timestamp + 1);
+        vm.prank(publisher);
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                FabricaAttributeOracle.InvalidValuedAt.selector, params.valuedAt, uint64(block.timestamp)
+            )
+        );
+        oracle.writePrice(params);
     }
 
     function test_writePrice_valueCeiling() public {
+        // maxFirst ≤ ceiling; subsequent in-band write still blocked by ceiling.
         vm.prank(owner);
-        oracle.setKnobs(1500, 5000, 50_000_000e6, 24 hours, 1 hours, 1 days, 90_000e6);
+        oracle.setKnobs(1500, 5000, 80_000e6, 24 hours, 1 hours, 1 days, 90_000e6);
+        _write(SRC_PRYCD, 80_000e6, 1);
+        vm.warp(block.timestamp + 1 hours);
+        uint128 overCeiling = 91_000e6; // ≤ 80k * 1.15 band, > 90k ceiling
         vm.prank(publisher);
         vm.expectRevert(
-            abi.encodeWithSelector(FabricaAttributeOracle.AboveValueCeiling.selector, PRICE_100K, uint128(90_000e6))
+            abi.encodeWithSelector(FabricaAttributeOracle.AboveValueCeiling.selector, overCeiling, uint128(90_000e6))
         );
-        oracle.writePrice(_p(TOKEN_A, SRC_PRYCD, PRICE_100K, 0, 1, _prov(publisher)));
+        oracle.writePrice(_priceParams(TOKEN_A, SRC_PRYCD, overCeiling, 0, 2, _prov(publisher)));
+    }
+
+    function test_writePrice_cycleNotMonotonic() public {
+        _write(SRC_PRYCD, PRICE_100K, 5);
+        vm.warp(block.timestamp + 1 hours);
+        vm.prank(publisher);
+        vm.expectRevert(abi.encodeWithSelector(FabricaAttributeOracle.CycleNotMonotonic.selector, uint64(5), uint64(4)));
+        oracle.writePrice(_priceParams(TOKEN_A, SRC_PRYCD, PRICE_110K, 0, 4, _prov(publisher)));
     }
 
     function test_historyRing_retainsPriorValuesNewestFirst() public {
@@ -232,14 +310,11 @@ contract FabricaAttributeOracleTest is Test {
         _write(SRC_PRYCD, PRICE_110K, 2);
         vm.warp(block.timestamp + 1 hours);
         _write(SRC_PRYCD, 105_000e6, 3);
-
         assertEq(oracle.historyLength(VALIDATOR, TOKEN_A, SRC_PRYCD), 2);
-        FabricaAttributeOracle.HistoryEntry memory h0 = oracle.getHistory(VALIDATOR, TOKEN_A, SRC_PRYCD, 0);
-        FabricaAttributeOracle.HistoryEntry memory h1 = oracle.getHistory(VALIDATOR, TOKEN_A, SRC_PRYCD, 1);
-        assertEq(h0.priceUsdc6, PRICE_110K);
-        assertEq(h0.cycle, 2);
-        assertEq(h1.priceUsdc6, PRICE_100K);
-        assertEq(h1.cycle, 1);
+        assertEq(oracle.getHistory(VALIDATOR, TOKEN_A, SRC_PRYCD, 0).priceUsdc6, PRICE_110K);
+        assertEq(oracle.getHistory(VALIDATOR, TOKEN_A, SRC_PRYCD, 0).cycle, 2);
+        assertEq(oracle.getHistory(VALIDATOR, TOKEN_A, SRC_PRYCD, 1).priceUsdc6, PRICE_100K);
+        assertEq(oracle.getHistory(VALIDATOR, TOKEN_A, SRC_PRYCD, 1).cycle, 1);
     }
 
     function test_historyRing_wrapsAtDepth() public {
@@ -252,8 +327,14 @@ contract FabricaAttributeOracleTest is Test {
             _write(SRC_PRYCD, price, c);
         }
         assertEq(oracle.historyLength(VALIDATOR, TOKEN_A, SRC_PRYCD), 8);
-        FabricaAttributeOracle.HistoryEntry memory newest = oracle.getHistory(VALIDATOR, TOKEN_A, SRC_PRYCD, 0);
-        assertEq(newest.cycle, 9);
+        assertEq(oracle.getHistory(VALIDATOR, TOKEN_A, SRC_PRYCD, 0).cycle, 9);
+    }
+
+    function test_historyIndexOutOfBounds() public {
+        vm.expectRevert(
+            abi.encodeWithSelector(FabricaAttributeOracle.HistoryIndexOutOfBounds.selector, uint256(0), uint256(0))
+        );
+        oracle.getHistory(VALIDATOR, TOKEN_A, SRC_PRYCD, 0);
     }
 
     function test_heartbeat_setsFreshness() public {
@@ -274,6 +355,14 @@ contract FabricaAttributeOracleTest is Test {
         assertFalse(oracle.isHeartbeatFresh(VALIDATOR));
     }
 
+    function test_heartbeat_rejectsBelowMinValidCycle() public {
+        vm.prank(owner);
+        oracle.setMinValidCycle(VALIDATOR, 10);
+        vm.prank(publisher);
+        vm.expectRevert(FabricaAttributeOracle.InvalidCycle.selector);
+        oracle.heartbeat(VALIDATOR, 9);
+    }
+
     function test_writePrice_piggybacksHeartbeat() public {
         _write(SRC_PRYCD, PRICE_100K, 1);
         assertTrue(oracle.isHeartbeatFresh(VALIDATOR));
@@ -281,18 +370,22 @@ contract FabricaAttributeOracleTest is Test {
     }
 
     function test_setRecoveryStatus_separateRole() public {
-        // Use literal digits so constant getters do not consume expectRevert.
         uint8 distressed = 4;
         vm.prank(publisher);
         vm.expectRevert(abi.encodeWithSelector(FabricaAttributeOracle.NotRecoveryWriter.selector, VALIDATOR, publisher));
         oracle.setRecoveryStatus(VALIDATOR, TOKEN_A, distressed);
-
         vm.prank(recoveryWriter);
-        vm.expectEmit(true, true, false, true);
+        vm.expectEmit(true, true, true, true);
         emit RecoveryStatusSet(VALIDATOR, TOKEN_A, distressed, recoveryWriter);
         oracle.setRecoveryStatus(VALIDATOR, TOKEN_A, distressed);
         assertEq(oracle.recoveryStatusOf(VALIDATOR, TOKEN_A), distressed);
         assertFalse(oracle.isRecoveryNormal(VALIDATOR, TOKEN_A));
+    }
+
+    function test_setRecoveryStatus_requiresRegistered() public {
+        vm.prank(recoveryWriter);
+        vm.expectRevert(abi.encodeWithSelector(FabricaAttributeOracle.NotRegistered.selector, VALIDATOR, TOKEN_B));
+        oracle.setRecoveryStatus(VALIDATOR, TOKEN_B, 4);
     }
 
     function test_setRecoveryStatus_voidIrreversible() public {
@@ -319,6 +412,14 @@ contract FabricaAttributeOracleTest is Test {
         assertTrue(oracle.isRecoveryNormal(VALIDATOR, TOKEN_A));
     }
 
+    function test_roleRevoke_blocksPublisher() public {
+        vm.prank(owner);
+        oracle.setPricePublisher(VALIDATOR, publisher, false);
+        vm.prank(publisher);
+        vm.expectRevert(abi.encodeWithSelector(FabricaAttributeOracle.NotPricePublisher.selector, VALIDATOR, publisher));
+        oracle.writePrice(_priceParams(TOKEN_A, SRC_PRYCD, PRICE_100K, 0, 1, _prov(publisher)));
+    }
+
     function test_minValidCycle_blocksStaleWrites() public {
         _write(SRC_PRYCD, PRICE_100K, 5);
         vm.prank(owner);
@@ -327,14 +428,14 @@ contract FabricaAttributeOracleTest is Test {
         oracle.setMinValidCycle(VALIDATOR, 10);
         assertFalse(oracle.isCycleValid(VALIDATOR, 5));
         assertTrue(oracle.isCycleValid(VALIDATOR, 10));
-
+        // Raw getter still returns killed-cycle data — consumers must check isCycleValid.
+        assertEq(oracle.getSourcePrice(VALIDATOR, TOKEN_A, SRC_PRYCD).cycle, 5);
         vm.warp(block.timestamp + 1 hours);
         vm.prank(publisher);
         vm.expectRevert(FabricaAttributeOracle.InvalidCycle.selector);
-        oracle.writePrice(_p(TOKEN_A, SRC_PRYCD, PRICE_110K, 0, 9, _prov(publisher)));
-
+        oracle.writePrice(_priceParams(TOKEN_A, SRC_PRYCD, PRICE_110K, 0, 9, _prov(publisher)));
         vm.prank(publisher);
-        oracle.writePrice(_p(TOKEN_A, SRC_PRYCD, PRICE_110K, 0, 10, _prov(publisher)));
+        oracle.writePrice(_priceParams(TOKEN_A, SRC_PRYCD, PRICE_110K, 0, 10, _prov(publisher)));
     }
 
     function test_minValidCycle_onlyIncreases() public {
@@ -353,10 +454,15 @@ contract FabricaAttributeOracleTest is Test {
         FabricaAttributeOracle.Provenance memory prov = _prov(publisher);
         vm.prank(publisher);
         oracle.writeAttribute(VALIDATOR, TOKEN_A, attrId, value, 1, prov);
-        FabricaAttributeOracle.AttributeFact memory fact = oracle.getAttribute(VALIDATOR, TOKEN_A, attrId);
-        assertEq(fact.value, value);
-        assertEq(fact.cycle, 1);
-        assertEq(fact.provenance.signer, publisher);
+        assertEq(oracle.getAttribute(VALIDATOR, TOKEN_A, attrId).value, value);
+        assertEq(oracle.getAttribute(VALIDATOR, TOKEN_A, attrId).cycle, 1);
+        assertEq(oracle.getAttribute(VALIDATOR, TOKEN_A, attrId).provenance.signer, publisher);
+    }
+
+    function test_writeAttribute_notPublisher() public {
+        vm.prank(stranger);
+        vm.expectRevert(abi.encodeWithSelector(FabricaAttributeOracle.NotPricePublisher.selector, VALIDATOR, stranger));
+        oracle.writeAttribute(VALIDATOR, TOKEN_A, keccak256("x"), bytes32(0), 1, _prov(stranger));
     }
 
     function test_writePriceRelayed() public {
@@ -364,36 +470,19 @@ contract FabricaAttributeOracleTest is Test {
         address publisherAddr = vm.addr(publisherPk);
         vm.prank(owner);
         oracle.setPricePublisher(VALIDATOR, publisherAddr, true);
-
         FabricaAttributeOracle.Provenance memory prov = FabricaAttributeOracle.Provenance({
             rawPayloadHash: keccak256("raw"),
             inputsHash: keccak256("inputs"),
             timestamp: uint64(block.timestamp),
             signer: publisherAddr
         });
-        FabricaAttributeOracle.PriceWriteParams memory params = _p(TOKEN_A, SRC_PRYCD, PRICE_100K, 500, 1, prov);
+        FabricaAttributeOracle.PriceWriteParams memory params =
+            _priceParams(TOKEN_A, SRC_PRYCD, PRICE_100K, 500, 1, prov);
         uint256 nonce = 0;
-        bytes32 structHash = keccak256(
-            abi.encode(
-                oracle.PRICE_WRITE_TYPEHASH(),
-                params.validatorId,
-                params.tokenId,
-                params.sourceId,
-                params.priceUsdc6,
-                params.confidenceScore,
-                params.valuedAt,
-                params.cycle,
-                prov.rawPayloadHash,
-                prov.inputsHash,
-                prov.signer,
-                nonce
-            )
-        );
-        bytes32 digest = keccak256(abi.encodePacked("\x19\x01", oracle.DOMAIN_SEPARATOR(), structHash));
-        (uint8 v, bytes32 r, bytes32 s) = vm.sign(publisherPk, digest);
-
+        uint256 deadline = block.timestamp + 1 hours;
+        bytes memory sig = _signPriceWrite(params, publisherPk, nonce, deadline);
         vm.prank(stranger);
-        oracle.writePriceRelayed(params, nonce, abi.encodePacked(r, s, v));
+        oracle.writePriceRelayed(params, nonce, deadline, sig);
         assertEq(oracle.getSourcePrice(VALIDATOR, TOKEN_A, SRC_PRYCD).priceUsdc6, PRICE_100K);
         assertEq(oracle.nonces(publisherAddr), 1);
     }
@@ -403,35 +492,75 @@ contract FabricaAttributeOracleTest is Test {
         address publisherAddr = vm.addr(publisherPk);
         vm.prank(owner);
         oracle.setPricePublisher(VALIDATOR, publisherAddr, true);
-
         FabricaAttributeOracle.Provenance memory prov = FabricaAttributeOracle.Provenance({
             rawPayloadHash: bytes32(0),
             inputsHash: bytes32(0),
             timestamp: uint64(block.timestamp),
             signer: publisherAddr
         });
-        FabricaAttributeOracle.PriceWriteParams memory params = _p(TOKEN_A, SRC_PRYCD, PRICE_100K, 0, 1, prov);
-        bytes32 structHash = keccak256(
-            abi.encode(
-                oracle.PRICE_WRITE_TYPEHASH(),
-                params.validatorId,
-                params.tokenId,
-                params.sourceId,
-                params.priceUsdc6,
-                params.confidenceScore,
-                params.valuedAt,
-                params.cycle,
-                prov.rawPayloadHash,
-                prov.inputsHash,
-                prov.signer,
-                uint256(1)
-            )
-        );
-        bytes32 digest = keccak256(abi.encodePacked("\x19\x01", oracle.DOMAIN_SEPARATOR(), structHash));
-        (uint8 v, bytes32 r, bytes32 s) = vm.sign(publisherPk, digest);
-
+        FabricaAttributeOracle.PriceWriteParams memory params = _priceParams(TOKEN_A, SRC_PRYCD, PRICE_100K, 0, 1, prov);
+        uint256 deadline = block.timestamp + 1 hours;
+        bytes memory sig = _signPriceWrite(params, publisherPk, 1, deadline);
         vm.expectRevert(abi.encodeWithSelector(FabricaAttributeOracle.InvalidNonce.selector, uint256(0), uint256(1)));
-        oracle.writePriceRelayed(params, 1, abi.encodePacked(r, s, v));
+        oracle.writePriceRelayed(params, 1, deadline, sig);
+    }
+
+    function test_writePriceRelayed_rejectsBadSignature() public {
+        uint256 publisherPk = 0xA11CE;
+        uint256 otherPk = 0xB0B;
+        address publisherAddr = vm.addr(publisherPk);
+        vm.prank(owner);
+        oracle.setPricePublisher(VALIDATOR, publisherAddr, true);
+        FabricaAttributeOracle.Provenance memory prov = FabricaAttributeOracle.Provenance({
+            rawPayloadHash: keccak256("raw"),
+            inputsHash: keccak256("inputs"),
+            timestamp: uint64(block.timestamp),
+            signer: publisherAddr
+        });
+        FabricaAttributeOracle.PriceWriteParams memory params = _priceParams(TOKEN_A, SRC_PRYCD, PRICE_100K, 0, 1, prov);
+        uint256 deadline = block.timestamp + 1 hours;
+        bytes memory badSig = _signPriceWrite(params, otherPk, 0, deadline);
+        vm.expectRevert(FabricaAttributeOracle.InvalidSignature.selector);
+        oracle.writePriceRelayed(params, 0, deadline, badSig);
+    }
+
+    function test_writePriceRelayed_rejectsReplay() public {
+        uint256 publisherPk = 0xA11CE;
+        address publisherAddr = vm.addr(publisherPk);
+        vm.prank(owner);
+        oracle.setPricePublisher(VALIDATOR, publisherAddr, true);
+        FabricaAttributeOracle.Provenance memory prov = FabricaAttributeOracle.Provenance({
+            rawPayloadHash: keccak256("raw"),
+            inputsHash: keccak256("inputs"),
+            timestamp: uint64(block.timestamp),
+            signer: publisherAddr
+        });
+        FabricaAttributeOracle.PriceWriteParams memory params = _priceParams(TOKEN_A, SRC_PRYCD, PRICE_100K, 0, 1, prov);
+        uint256 deadline = block.timestamp + 1 hours;
+        bytes memory sig = _signPriceWrite(params, publisherPk, 0, deadline);
+        oracle.writePriceRelayed(params, 0, deadline, sig);
+        vm.expectRevert(abi.encodeWithSelector(FabricaAttributeOracle.InvalidNonce.selector, uint256(1), uint256(0)));
+        oracle.writePriceRelayed(params, 0, deadline, sig);
+    }
+
+    function test_writePriceRelayed_rejectsExpired() public {
+        uint256 publisherPk = 0xA11CE;
+        address publisherAddr = vm.addr(publisherPk);
+        vm.prank(owner);
+        oracle.setPricePublisher(VALIDATOR, publisherAddr, true);
+        FabricaAttributeOracle.Provenance memory prov = FabricaAttributeOracle.Provenance({
+            rawPayloadHash: keccak256("raw"),
+            inputsHash: keccak256("inputs"),
+            timestamp: uint64(block.timestamp),
+            signer: publisherAddr
+        });
+        FabricaAttributeOracle.PriceWriteParams memory params = _priceParams(TOKEN_A, SRC_PRYCD, PRICE_100K, 0, 1, prov);
+        uint256 deadline = block.timestamp - 1;
+        bytes memory sig = _signPriceWrite(params, publisherPk, 0, deadline);
+        vm.expectRevert(
+            abi.encodeWithSelector(FabricaAttributeOracle.ExpiredSignature.selector, deadline, block.timestamp)
+        );
+        oracle.writePriceRelayed(params, 0, deadline, sig);
     }
 
     function test_anchorRoot() public {
@@ -463,7 +592,7 @@ contract FabricaAttributeOracleTest is Test {
         });
     }
 
-    function _p(
+    function _priceParams(
         uint256 tokenId,
         uint8 sourceId,
         uint128 price,
@@ -485,6 +614,17 @@ contract FabricaAttributeOracleTest is Test {
 
     function _write(uint8 sourceId, uint128 price, uint64 cycle) internal {
         vm.prank(publisher);
-        oracle.writePrice(_p(TOKEN_A, sourceId, price, 0, cycle, _prov(publisher)));
+        oracle.writePrice(_priceParams(TOKEN_A, sourceId, price, 0, cycle, _prov(publisher)));
+    }
+
+    function _signPriceWrite(
+        FabricaAttributeOracle.PriceWriteParams memory params,
+        uint256 pk,
+        uint256 nonce,
+        uint256 deadline
+    ) internal view returns (bytes memory) {
+        bytes32 digest = oracle.hashPriceWrite(params, nonce, deadline);
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(pk, digest);
+        return abi.encodePacked(r, s, v);
     }
 }
