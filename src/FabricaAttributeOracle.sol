@@ -109,8 +109,6 @@ contract FabricaAttributeOracle is Ownable2Step, EIP712 {
     // -------------------------------------------------------------------------
 
     error ZeroAddress();
-    error InvalidValidator();
-    error InvalidSource();
     error InvalidPrice();
     error InvalidCycle();
     error InvalidRecoveryStatus(uint8 status);
@@ -128,6 +126,7 @@ contract FabricaAttributeOracle is Ownable2Step, EIP712 {
     error InvalidSignature();
     error InvalidNonce(uint256 expected, uint256 actual);
     error HistoryDepthZero();
+    error HistoryIndexOutOfBounds(uint256 index, uint256 length);
 
     // -------------------------------------------------------------------------
     // Events
@@ -346,38 +345,14 @@ contract FabricaAttributeOracle is Ownable2Step, EIP712 {
 
     /// @notice Owner-only dense-index registration (multisig). Starts registry seasoning clock.
     function register(uint256 validatorId, uint256 tokenId) external onlyOwner {
-        RegistryEntry storage entry = registry[validatorId][tokenId];
-        if (entry.registered) revert AlreadyRegistered(validatorId, tokenId);
-        uint32 index = nextIndex[validatorId] + 1;
-        nextIndex[validatorId] = index;
-        uint64 registeredAt = uint64(block.timestamp);
-        entry.registered = true;
-        entry.index = index;
-        entry.registeredAt = registeredAt;
-        // Fresh tokens default to Normal recovery until a writer sets otherwise.
-        if (_recoveryStatus[validatorId][tokenId] == 0) {
-            _recoveryStatus[validatorId][tokenId] = RECOVERY_NORMAL;
-        }
-        emit IndexAssigned(validatorId, tokenId, index, registeredAt);
+        _register(validatorId, tokenId);
     }
 
     /// @notice Batch register for backfill (owner-only).
     function registerBatch(uint256 validatorId, uint256[] calldata tokenIds) external onlyOwner {
         uint256 len = tokenIds.length;
         for (uint256 i; i < len; ++i) {
-            uint256 tokenId = tokenIds[i];
-            RegistryEntry storage entry = registry[validatorId][tokenId];
-            if (entry.registered) revert AlreadyRegistered(validatorId, tokenId);
-            uint32 index = nextIndex[validatorId] + 1;
-            nextIndex[validatorId] = index;
-            uint64 registeredAt = uint64(block.timestamp);
-            entry.registered = true;
-            entry.index = index;
-            entry.registeredAt = registeredAt;
-            if (_recoveryStatus[validatorId][tokenId] == 0) {
-                _recoveryStatus[validatorId][tokenId] = RECOVERY_NORMAL;
-            }
-            emit IndexAssigned(validatorId, tokenId, index, registeredAt);
+            _register(validatorId, tokenIds[i]);
         }
     }
 
@@ -523,7 +498,7 @@ contract FabricaAttributeOracle is Ownable2Step, EIP712 {
         uint256 count = _historyCount[validatorId][tokenId][sourceId];
         uint256 depth = historyDepth;
         uint256 len = count < depth ? count : depth;
-        require(index < len, "HISTORY_INDEX");
+        if (index >= len) revert HistoryIndexOutOfBounds(index, len);
         // Newest is at slot (count - 1) % depth; index 0 = newest.
         uint256 slot = (count - 1 - index) % depth;
         return _history[validatorId][tokenId][sourceId][slot];
@@ -537,6 +512,22 @@ contract FabricaAttributeOracle is Ownable2Step, EIP712 {
     // -------------------------------------------------------------------------
     // Internals
     // -------------------------------------------------------------------------
+
+    function _register(uint256 validatorId, uint256 tokenId) internal {
+        RegistryEntry storage entry = registry[validatorId][tokenId];
+        if (entry.registered) revert AlreadyRegistered(validatorId, tokenId);
+        uint32 index = nextIndex[validatorId] + 1;
+        nextIndex[validatorId] = index;
+        uint64 registeredAt = uint64(block.timestamp);
+        entry.registered = true;
+        entry.index = index;
+        entry.registeredAt = registeredAt;
+        // Fresh tokens default to Normal recovery until a writer sets otherwise.
+        if (_recoveryStatus[validatorId][tokenId] == 0) {
+            _recoveryStatus[validatorId][tokenId] = RECOVERY_NORMAL;
+        }
+        emit IndexAssigned(validatorId, tokenId, index, registeredAt);
+    }
 
     function _writePrice(PriceWriteParams calldata params) internal {
         if (!sourceEnabled[params.sourceId]) revert SourceNotEnabled(params.sourceId);
