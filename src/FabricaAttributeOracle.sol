@@ -65,6 +65,8 @@ contract FabricaAttributeOracle is Ownable2Step, EIP712 {
     struct HistoryEntry {
         uint128 priceUsdc6;
         uint64 valuedAt;
+        /// @notice Wall-clock time when this price was written on-chain.
+        uint64 lastWrittenAt;
         uint64 cycle;
     }
 
@@ -594,7 +596,12 @@ contract FabricaAttributeOracle is Ownable2Step, EIP712 {
                 params.validatorId,
                 params.tokenId,
                 params.sourceId,
-                HistoryEntry({priceUsdc6: current.priceUsdc6, valuedAt: current.valuedAt, cycle: current.cycle})
+                HistoryEntry({
+                    priceUsdc6: current.priceUsdc6,
+                    valuedAt: current.valuedAt,
+                    lastWrittenAt: current.lastWrittenAt,
+                    cycle: current.cycle
+                })
             );
         }
         current.priceUsdc6 = params.priceUsdc6;
