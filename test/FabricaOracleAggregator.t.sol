@@ -63,7 +63,9 @@ contract MockFactStore is IFabricaAttributeOracle {
     function pushHistory(uint256 vid, uint256 tokenId, uint8 sid, uint128 priceUsdc6, uint64 valuedAt, uint64 cycle)
         external
     {
-        _history[vid][tokenId][sid].push(HistoryEntry({priceUsdc6: priceUsdc6, valuedAt: valuedAt, lastWrittenAt: valuedAt, cycle: cycle}));
+        _history[vid][tokenId][sid].push(
+            HistoryEntry({priceUsdc6: priceUsdc6, valuedAt: valuedAt, lastWrittenAt: valuedAt, cycle: cycle})
+        );
     }
 
     function setAttribute(uint256 vid, uint256 tokenId, bytes32 id, bytes32 value, uint64 cycle) external {
@@ -133,8 +135,9 @@ contract FabricaOracleAggregatorTest is Test {
     function setUp() public {
         vm.warp(2_000_000);
         owner = makeAddr("owner");
-        usdc = makeAddr("usdc");
         store = new MockFactStore();
+        // usdc must be a contract address for renounce code.length checks.
+        usdc = address(store);
         store.setSourceEnabled(0, true);
         store.setSourceEnabled(1, true);
         store.setSourceEnabled(2, true);
@@ -356,6 +359,20 @@ contract FabricaOracleAggregatorTest is Test {
         assertEq(minSrc, 2);
         assertEq(keccak256(bytes(order)), keccak256("MIN-then-temporal"));
         assertEq(keccak256(bytes(evo)), keccak256("immutable-post-renounce; new-checks=new-aggregator-deploy"));
+    }
+
+    function test_breaker_invalidHistoryCycleDropsFeed() public {
+        // Two feeds only; history for both is cycle 1; bump minValidCycle so prior is invalid.
+        // Current prices at cycle 10 jump hard vs invalid history — must drop both → min sources fail.
+        store.setSourceEnabled(2, false);
+        uint64 nowTs = uint64(block.timestamp);
+        store.setPrice(VID, TOKEN, 0, 100_000e6, nowTs - 1, 1);
+        store.setPrice(VID, TOKEN, 1, 100_000e6, nowTs - 1, 1);
+        store.setPrice(VID, TOKEN, 0, 200_000e6, nowTs, 10);
+        store.setPrice(VID, TOKEN, 1, 200_000e6, nowTs, 10);
+        store.setMinValidCycle(VID, 5); // history cycle 1 invalid; current 10 valid
+        vm.expectRevert(abi.encodeWithSelector(FabricaOracleAggregator.CheckFailed.selector, agg.CHECK_MIN_SOURCES()));
+        _price();
     }
 
     function test_setSourceIds_rejectsDuplicates() public {

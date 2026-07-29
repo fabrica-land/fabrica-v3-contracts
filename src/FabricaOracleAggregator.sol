@@ -106,6 +106,7 @@ contract FabricaOracleAggregator is Ownable2Step, IPriceOracle {
         if (owner_ == address(0) || factStore_ == address(0) || usdc_ == address(0)) {
             revert ZeroAddress();
         }
+        if (factStore_.code.length == 0 || usdc_.code.length == 0) revert InvalidConfig();
         _setSourceIds(sourceIds_);
         _setKnobs(seasoningWindow_, maxJumpBps_, maxDispersionBps_, minLiveSources_);
         factStore = IFabricaAttributeOracle(factStore_);
@@ -150,6 +151,7 @@ contract FabricaOracleAggregator is Ownable2Step, IPriceOracle {
     function setFactStore(address factStore_) external onlyOwner {
         _requireNotRenounced();
         if (factStore_ == address(0)) revert ZeroAddress();
+        if (factStore_.code.length == 0) revert InvalidConfig();
         factStore = IFabricaAttributeOracle(factStore_);
         emit FactStoreSet(factStore_);
     }
@@ -157,6 +159,7 @@ contract FabricaOracleAggregator is Ownable2Step, IPriceOracle {
     function setUsdc(address usdc_) external onlyOwner {
         _requireNotRenounced();
         if (usdc_ == address(0)) revert ZeroAddress();
+        if (usdc_.code.length == 0) revert InvalidConfig();
         usdc = usdc_;
         emit UsdcSet(usdc_);
     }
@@ -192,6 +195,7 @@ contract FabricaOracleAggregator is Ownable2Step, IPriceOracle {
         _requireNotRenounced();
         // Permanent freeze: cannot leave minLiveSources > configured independent sources.
         if (_sourceIds.length < minLiveSources) revert InvalidConfig();
+        if (address(factStore).code.length == 0 || usdc.code.length == 0) revert InvalidConfig();
         renounced = true;
         address prev = owner();
         _transferOwnership(address(0));
@@ -273,8 +277,8 @@ contract FabricaOracleAggregator is Ownable2Step, IPriceOracle {
         if (gateFail != bytes32(0)) {
             return (false, gateFail, 0);
         }
-        (uint8 liveCount, uint128 currentMin, uint128 currentMax) = _collectLiveMinMax(tokenId);
-        if (liveCount < minLiveSources || currentMin == 0) {
+        (uint256 liveCount, uint128 currentMin, uint128 currentMax) = _collectLiveMinMax(tokenId);
+        if (liveCount < uint256(minLiveSources) || currentMin == 0) {
             return (false, CHECK_MIN_SOURCES, 0);
         }
         uint256 ratioBps = (uint256(currentMax) * uint256(BPS_DENOMINATOR)) / uint256(currentMin);
@@ -300,7 +304,7 @@ contract FabricaOracleAggregator is Ownable2Step, IPriceOracle {
     function _collectLiveMinMax(uint256 tokenId)
         internal
         view
-        returns (uint8 liveCount, uint128 currentMin, uint128 currentMax)
+        returns (uint256 liveCount, uint128 currentMin, uint128 currentMax)
     {
         IFabricaAttributeOracle store = factStore;
         uint256 vid = validatorId;
@@ -356,7 +360,8 @@ contract FabricaOracleAggregator is Ownable2Step, IPriceOracle {
         if (len == 0) return false; // first price: no prior — store MAX_FIRST_PRICE is the defense
         IFabricaAttributeOracle.HistoryEntry memory prev = store.getHistory(vid, tokenId, sid, 0);
         if (prev.priceUsdc6 == 0) return false;
-        if (!store.isCycleValid(vid, prev.cycle)) return false;
+        // No valid baseline after cycle kill → fail closed for this feed (do not skip breaker).
+        if (!store.isCycleValid(vid, prev.cycle)) return true;
         uint256 cur = uint256(current.priceUsdc6);
         uint256 prv = uint256(prev.priceUsdc6);
         uint256 hi = cur > prv ? cur : prv;
@@ -416,7 +421,7 @@ contract FabricaOracleAggregator is Ownable2Step, IPriceOracle {
     }
 
     function _setSourceIds(uint8[] memory sourceIds_) internal {
-        if (sourceIds_.length == 0) revert InvalidConfig();
+        if (sourceIds_.length == 0 || sourceIds_.length > 255) revert InvalidConfig();
         for (uint256 i; i < sourceIds_.length; ++i) {
             for (uint256 j = i + 1; j < sourceIds_.length; ++j) {
                 if (sourceIds_[i] == sourceIds_[j]) revert InvalidConfig();
