@@ -363,6 +363,14 @@ contract FabricaAttributeOracleTest is Test {
         oracle.heartbeat(VALIDATOR, 9);
     }
 
+    function test_heartbeat_cycleNotMonotonic() public {
+        vm.prank(publisher);
+        oracle.heartbeat(VALIDATOR, 5);
+        vm.prank(publisher);
+        vm.expectRevert(abi.encodeWithSelector(FabricaAttributeOracle.CycleNotMonotonic.selector, uint64(5), uint64(4)));
+        oracle.heartbeat(VALIDATOR, 4);
+    }
+
     function test_writePrice_piggybacksHeartbeat() public {
         _write(SRC_PRYCD, PRICE_100K, 1);
         assertTrue(oracle.isHeartbeatFresh(VALIDATOR));
@@ -459,6 +467,18 @@ contract FabricaAttributeOracleTest is Test {
         assertEq(oracle.getAttribute(VALIDATOR, TOKEN_A, attrId).provenance.signer, publisher);
     }
 
+    function test_writeAttribute_cycleNotMonotonic() public {
+        bytes32 attrId = keccak256("landUse");
+        FabricaAttributeOracle.Provenance memory prov = _prov(publisher);
+        vm.prank(publisher);
+        oracle.writeAttribute(VALIDATOR, TOKEN_A, attrId, keccak256("vacant"), 5, prov);
+        vm.prank(publisher);
+        vm.expectRevert(abi.encodeWithSelector(FabricaAttributeOracle.CycleNotMonotonic.selector, uint64(5), uint64(4)));
+        oracle.writeAttribute(VALIDATOR, TOKEN_A, attrId, keccak256("improved"), 4, prov);
+        assertEq(oracle.getAttribute(VALIDATOR, TOKEN_A, attrId).value, keccak256("vacant"));
+        assertEq(oracle.getAttribute(VALIDATOR, TOKEN_A, attrId).cycle, 5);
+    }
+
     function test_writeAttribute_notPublisher() public {
         vm.prank(stranger);
         vm.expectRevert(abi.encodeWithSelector(FabricaAttributeOracle.NotPricePublisher.selector, VALIDATOR, stranger));
@@ -470,12 +490,7 @@ contract FabricaAttributeOracleTest is Test {
         address publisherAddr = vm.addr(publisherPk);
         vm.prank(owner);
         oracle.setPricePublisher(VALIDATOR, publisherAddr, true);
-        FabricaAttributeOracle.Provenance memory prov = FabricaAttributeOracle.Provenance({
-            rawPayloadHash: keccak256("raw"),
-            inputsHash: keccak256("inputs"),
-            timestamp: uint64(block.timestamp),
-            signer: publisherAddr
-        });
+        FabricaAttributeOracle.Provenance memory prov = _prov(publisherAddr);
         FabricaAttributeOracle.PriceWriteParams memory params =
             _priceParams(TOKEN_A, SRC_PRYCD, PRICE_100K, 500, 1, prov);
         uint256 nonce = 0;
@@ -492,12 +507,7 @@ contract FabricaAttributeOracleTest is Test {
         address publisherAddr = vm.addr(publisherPk);
         vm.prank(owner);
         oracle.setPricePublisher(VALIDATOR, publisherAddr, true);
-        FabricaAttributeOracle.Provenance memory prov = FabricaAttributeOracle.Provenance({
-            rawPayloadHash: bytes32(0),
-            inputsHash: bytes32(0),
-            timestamp: uint64(block.timestamp),
-            signer: publisherAddr
-        });
+        FabricaAttributeOracle.Provenance memory prov = _prov(publisherAddr);
         FabricaAttributeOracle.PriceWriteParams memory params = _priceParams(TOKEN_A, SRC_PRYCD, PRICE_100K, 0, 1, prov);
         uint256 deadline = block.timestamp + 1 hours;
         bytes memory sig = _signPriceWrite(params, publisherPk, 1, deadline);
@@ -511,12 +521,7 @@ contract FabricaAttributeOracleTest is Test {
         address publisherAddr = vm.addr(publisherPk);
         vm.prank(owner);
         oracle.setPricePublisher(VALIDATOR, publisherAddr, true);
-        FabricaAttributeOracle.Provenance memory prov = FabricaAttributeOracle.Provenance({
-            rawPayloadHash: keccak256("raw"),
-            inputsHash: keccak256("inputs"),
-            timestamp: uint64(block.timestamp),
-            signer: publisherAddr
-        });
+        FabricaAttributeOracle.Provenance memory prov = _prov(publisherAddr);
         FabricaAttributeOracle.PriceWriteParams memory params = _priceParams(TOKEN_A, SRC_PRYCD, PRICE_100K, 0, 1, prov);
         uint256 deadline = block.timestamp + 1 hours;
         bytes memory badSig = _signPriceWrite(params, otherPk, 0, deadline);
@@ -529,12 +534,7 @@ contract FabricaAttributeOracleTest is Test {
         address publisherAddr = vm.addr(publisherPk);
         vm.prank(owner);
         oracle.setPricePublisher(VALIDATOR, publisherAddr, true);
-        FabricaAttributeOracle.Provenance memory prov = FabricaAttributeOracle.Provenance({
-            rawPayloadHash: keccak256("raw"),
-            inputsHash: keccak256("inputs"),
-            timestamp: uint64(block.timestamp),
-            signer: publisherAddr
-        });
+        FabricaAttributeOracle.Provenance memory prov = _prov(publisherAddr);
         FabricaAttributeOracle.PriceWriteParams memory params = _priceParams(TOKEN_A, SRC_PRYCD, PRICE_100K, 0, 1, prov);
         uint256 deadline = block.timestamp + 1 hours;
         bytes memory sig = _signPriceWrite(params, publisherPk, 0, deadline);
@@ -548,12 +548,7 @@ contract FabricaAttributeOracleTest is Test {
         address publisherAddr = vm.addr(publisherPk);
         vm.prank(owner);
         oracle.setPricePublisher(VALIDATOR, publisherAddr, true);
-        FabricaAttributeOracle.Provenance memory prov = FabricaAttributeOracle.Provenance({
-            rawPayloadHash: keccak256("raw"),
-            inputsHash: keccak256("inputs"),
-            timestamp: uint64(block.timestamp),
-            signer: publisherAddr
-        });
+        FabricaAttributeOracle.Provenance memory prov = _prov(publisherAddr);
         FabricaAttributeOracle.PriceWriteParams memory params = _priceParams(TOKEN_A, SRC_PRYCD, PRICE_100K, 0, 1, prov);
         uint256 deadline = block.timestamp - 1;
         bytes memory sig = _signPriceWrite(params, publisherPk, 0, deadline);

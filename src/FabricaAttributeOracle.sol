@@ -410,8 +410,14 @@ contract FabricaAttributeOracle is Ownable2Step, EIP712 {
         if (provenance.signer != msg.sender) {
             revert ProvenanceSignerMismatch(msg.sender, provenance.signer);
         }
-        _attributes[validatorId][tokenId][attributeId] =
-            AttributeFact({value: value, cycle: cycle, provenance: provenance});
+        AttributeFact storage existing = _attributes[validatorId][tokenId][attributeId];
+        // cycle == 0 means never written; subsequent writes must not regress cycle.
+        if (existing.cycle != 0 && cycle < existing.cycle) {
+            revert CycleNotMonotonic(existing.cycle, cycle);
+        }
+        existing.value = value;
+        existing.cycle = cycle;
+        existing.provenance = provenance;
         emit AttributeWritten(validatorId, tokenId, attributeId, value, cycle, _provenanceHash(provenance));
     }
 
@@ -652,6 +658,10 @@ contract FabricaAttributeOracle is Ownable2Step, EIP712 {
     }
 
     function _touchHeartbeat(uint256 validatorId, uint64 cycle) internal {
+        uint64 prev = lastHeartbeatCycle[validatorId];
+        if (prev != 0 && cycle < prev) {
+            revert CycleNotMonotonic(prev, cycle);
+        }
         uint64 ts = uint64(block.timestamp);
         lastHeartbeatAt[validatorId] = ts;
         lastHeartbeatCycle[validatorId] = cycle;
