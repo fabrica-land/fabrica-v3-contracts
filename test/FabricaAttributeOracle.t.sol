@@ -371,6 +371,19 @@ contract FabricaAttributeOracleTest is Test {
         oracle.heartbeat(VALIDATOR, 4);
     }
 
+    function test_writePrice_piggybackHeartbeatCycleNotMonotonic() public {
+        // Source 0 write at cycle 5 advances lastHeartbeatCycle via _touchHeartbeat.
+        _write(SRC_PRYCD, PRICE_100K, 5);
+        assertEq(oracle.lastHeartbeatCycle(VALIDATOR), 5);
+        // First write on source 1 at lower cycle must not regress validator heartbeat cycle.
+        vm.prank(publisher);
+        vm.expectRevert(abi.encodeWithSelector(FabricaAttributeOracle.CycleNotMonotonic.selector, uint64(5), uint64(4)));
+        oracle.writePrice(_priceParams(TOKEN_A, SRC_OPENAVM, PRICE_110K, 0, 4, _prov(publisher)));
+        assertEq(oracle.getSourcePrice(VALIDATOR, TOKEN_A, SRC_PRYCD).priceUsdc6, PRICE_100K);
+        assertEq(oracle.getSourcePrice(VALIDATOR, TOKEN_A, SRC_OPENAVM).priceUsdc6, 0);
+        assertEq(oracle.lastHeartbeatCycle(VALIDATOR), 5);
+    }
+
     function test_writePrice_piggybacksHeartbeat() public {
         _write(SRC_PRYCD, PRICE_100K, 1);
         assertTrue(oracle.isHeartbeatFresh(VALIDATOR));
