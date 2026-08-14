@@ -3,6 +3,7 @@ pragma solidity ^0.8.28;
 
 import {FabricaMarketplaceZone} from "../src/FabricaMarketplaceZone.sol";
 import {ForkTestBase} from "./ForkTestBase.sol";
+import {SafeLikeErc1271Signer} from "./FabricaMarketplaceZone.t.sol";
 import {ZoneParameters, SpentItem, ReceivedItem, ItemType} from "../lib/seaport-types/src/lib/ConsiderationStructs.sol";
 
 interface ISafe {
@@ -40,6 +41,11 @@ contract FabricaMarketplaceZoneSepoliaErc1271ForkTest is ForkTestBase {
     /// gate does NOT fire — see testFork_1of1 tests below.
     address internal constant SAFE_1_OF_1 = 0xF19896681Fe823a07044E8D58B2E25374771f3f2;
 
+    /// @dev CEILING: this block's timestamp is 1786725348 and EXPIRY is 1786727956, leaving 2608
+    /// seconds (~217 Sepolia blocks) of freshness. Bumping this past ~11_488_607 makes every
+    /// positive test revert "Oracle signature expired" PERMANENTLY — the owner keys are destroyed
+    /// at wrap-up, so nothing can ever be re-signed. Do not routinely bump it; retire this file
+    /// with item 2 instead.
     uint256 internal constant SEPOLIA_FORK_BLOCK = 11_488_390;
     uint256 internal constant TOKEN_ID = 298855539945321607;
     uint64 internal constant EXPIRY = 1786727956;
@@ -53,6 +59,12 @@ contract FabricaMarketplaceZoneSepoliaErc1271ForkTest is ForkTestBase {
     /// own address is part of its EIP-712 domain.
     bytes32 internal constant SAFE_MESSAGE_HASH_1_OF_1 =
         0x4b054134624fbc5d59e113557dec2fb88c7ecc204ad7219b55f9df42980deb61;
+    /// @dev The zone digest of an unrelated order, used to prove SIG_2OF2_FOR_OTHER_ORDER is a
+    /// genuine authorization somewhere before asserting it is not one here.
+    bytes32 internal constant OTHER_ZONE_DIGEST = 0x97849da5b911f7ab54c306eba9248ce0a17d94f9ae6ddebfa16a6988638f5c79;
+    bytes32 internal constant SAFE_FALLBACK_HANDLER_SLOT =
+        0x6c9a6c4a39284e37ed1cf53d337577d14212a4870fb976a4366c693b939918d5;
+    address internal constant SAFE_COMPATIBILITY_FALLBACK_HANDLER_1_4_1 = 0xfd0732Dc9E303f09fCEf3a7388Ad10A83459Ec99;
 
     string internal constant DEFINITION_URL = "ipfs://QmEng3687FregolottaZoneErc1271Proof";
     string internal constant DISCLOSURE_PACKAGE_ID = "e0036870-0000-4000-8000-000000003687";
@@ -113,6 +125,96 @@ contract FabricaMarketplaceZoneSepoliaErc1271ForkTest is ForkTestBase {
         assertEq(owners[0], SAFE_2_OF_2_OWNER_A, "owner A");
         assertEq(owners[1], SAFE_2_OF_2_OWNER_B, "owner B");
         assertEq(address(uint160(uint256(vm.load(SAFE_2_OF_2, bytes32(0))))), SAFE_SINGLETON_1_4_1, "singleton");
+        assertEq(
+            address(uint160(uint256(vm.load(SAFE_2_OF_2, SAFE_FALLBACK_HANDLER_SLOT)))),
+            SAFE_COMPATIBILITY_FALLBACK_HANDLER_1_4_1,
+            "fallback handler is load-bearing: a zero handler answers no ERC-1271 at all"
+        );
+    }
+
+    /// @dev The 1-of-1 control pair is only decisive if its premises hold: threshold really is 1
+    /// (so the length gate cannot fire) and its owner really is the key that signed both blobs.
+    function testFork_1of1SafeConfigurationMakesTheControlPairDecisive() public view {
+        assertEq(ISafe(SAFE_1_OF_1).getThreshold(), 1, "threshold must be 1 or the length gate fires");
+        address[] memory owners = ISafe(SAFE_1_OF_1).getOwners();
+        assertEq(owners.length, 1, "owner count");
+        assertEq(owners[0], SAFE_2_OF_2_OWNER_A, "owner");
+        assertEq(address(uint160(uint256(vm.load(SAFE_1_OF_1, bytes32(0))))), SAFE_SINGLETON_1_4_1, "singleton");
+        assertEq(
+            address(uint160(uint256(vm.load(SAFE_1_OF_1, SAFE_FALLBACK_HANDLER_SLOT)))),
+            SAFE_COMPATIBILITY_FALLBACK_HANDLER_1_4_1,
+            "fallback handler"
+        );
+        // both control blobs must come from that same owner, or GS026 is attributable to
+        // non-ownership rather than to the hash that was signed
+        assertEq(_recoverSingle(SIG_1OF1_VALID, SAFE_MESSAGE_HASH_1_OF_1), owners[0], "valid blob signer");
+        assertEq(_recoverSingle(SIG_1OF1_OVER_RAW_DIGEST, ZONE_DIGEST), owners[0], "raw-digest blob signer");
+    }
+
+    /// @dev Binds each pinned constant to the claim its name makes, so a typo degrades a control
+    /// into a failure rather than silently back into a vacuous pass.
+    function testFork_pinnedSignatureConstantsAreWhatTheyClaim() public view {
+        assertEq(_recoverAt(SIG_2OF2_VALID, 0, SAFE_MESSAGE_HASH_2_OF_2), SAFE_2_OF_2_OWNER_A, "valid[0]");
+        assertEq(_recoverAt(SIG_2OF2_VALID, 1, SAFE_MESSAGE_HASH_2_OF_2), SAFE_2_OF_2_OWNER_B, "valid[1]");
+        assertEq(_recoverAt(SIG_2OF2_OVER_RAW_DIGEST, 0, ZONE_DIGEST), SAFE_2_OF_2_OWNER_A, "raw-digest[0]");
+        assertEq(_recoverAt(SIG_2OF2_OVER_RAW_DIGEST, 1, ZONE_DIGEST), SAFE_2_OF_2_OWNER_B, "raw-digest[1]");
+    }
+
+    /// @dev SIG_2OF2_FOR_OTHER_ORDER is only an order-binding control if it is a REAL
+    /// authorization for some other order. Prove that first, then prove it does not authorize
+    /// this one — otherwise it is indistinguishable from arbitrary non-owner bytes.
+    function testFork_orderBindingControlIsAGenuineAuthorizationElsewhere() public view {
+        assertEq(
+            ISafe(SAFE_2_OF_2).isValidSignature(OTHER_ZONE_DIGEST, SIG_2OF2_FOR_OTHER_ORDER),
+            bytes4(0x1626ba7e),
+            "must be a valid 2-of-2 authorization for the other order"
+        );
+    }
+
+    /// @dev Pins SafeLikeErc1271Signer (the no-RPC model in FabricaMarketplaceZone.t.sol) to the
+    /// LIVE Safe's re-wrap formula. Without this the model validates only against itself and can
+    /// drift from upstream Safe silently.
+    function testFork_safeLikeModelMatchesTheLiveSafeReWrapFormula() public {
+        bytes32 domainTypehash = keccak256("EIP712Domain(uint256 chainId,address verifyingContract)");
+        bytes32 safeMsgTypehash = keccak256("SafeMessage(bytes message)");
+        bytes32 expectedForLiveSafe = keccak256(
+            abi.encodePacked(
+                bytes1(0x19),
+                bytes1(0x01),
+                keccak256(abi.encode(domainTypehash, block.chainid, SAFE_2_OF_2)),
+                keccak256(abi.encode(safeMsgTypehash, keccak256(abi.encode(ZONE_DIGEST))))
+            )
+        );
+        assertEq(ISafe(SAFE_2_OF_2).getMessageHash(abi.encode(ZONE_DIGEST)), expectedForLiveSafe, "live Safe formula");
+        address[] memory owners = new address[](1);
+        owners[0] = SAFE_2_OF_2_OWNER_A;
+        SafeLikeErc1271Signer model = new SafeLikeErc1271Signer(owners, 1);
+        bytes32 expectedForModel = keccak256(
+            abi.encodePacked(
+                bytes1(0x19),
+                bytes1(0x01),
+                keccak256(abi.encode(domainTypehash, block.chainid, address(model))),
+                keccak256(abi.encode(safeMsgTypehash, keccak256(abi.encode(ZONE_DIGEST))))
+            )
+        );
+        assertEq(model.getMessageHash(abi.encode(ZONE_DIGEST)), expectedForModel, "model implements the same formula");
+    }
+
+    function _recoverSingle(bytes memory signature, bytes32 signedHash) internal pure returns (address) {
+        return _recoverAt(signature, 0, signedHash);
+    }
+
+    function _recoverAt(bytes memory signature, uint256 index, bytes32 signedHash) internal pure returns (address) {
+        uint256 offset = index * 65;
+        bytes32 r;
+        bytes32 s;
+        uint8 v;
+        assembly {
+            r := mload(add(add(signature, 0x20), offset))
+            s := mload(add(add(signature, 0x40), offset))
+            v := byte(0, mload(add(add(signature, 0x60), offset)))
+        }
+        return ecrecover(signedHash, v, r, s);
     }
 
     /// @dev Pins the SafeMessage re-wrap itself: the Safe does NOT check signatures against the

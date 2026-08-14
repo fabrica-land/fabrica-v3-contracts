@@ -48,11 +48,14 @@ be configured into a deployed environment.
 
 Key disposition: the owner keys and the buyer key live only in this lane's
 scratchpad (mode `0600`, outside any git repository) and are destroyed at
-wrap-up along with the Foundry keystore created for the deployer. Consequence
-to record deliberately: once destroyed, Zone `0x892f9A70…` becomes permanently
-un-authorizable — nothing can ever produce a valid order authorization for it
-again. That is intended. It is also a second, independent reason the Zone must
-never be pointed at by a deployed environment.
+wrap-up along with the Foundry keystore created for the deployer. Two
+consequences to record deliberately. Once destroyed, Zone `0x892f9A70…` becomes
+permanently un-authorizable — nothing can ever produce a valid order
+authorization for it again; that is intended, and is a second independent reason
+the Zone must never be pointed at by a deployed environment. And because the
+buyer key is destroyed too, the one property-token unit it bought
+(`0xb52ED2Dc…` id `298855539945321607`) becomes permanently immobile on the
+canonical shared Sepolia token, in every environment that indexes Sepolia.
 
 Canonical Safe v1.4.1 contracts used (all pre-existing on Sepolia, verified
 non-empty bytecode before use):
@@ -110,15 +113,21 @@ it is not pinned):
 
 | Setting | Value |
 | --- | --- |
-| solc | `0.8.35+commit.47b9dedd` |
-| optimizer | enabled, `runs = 1` |
-| evm version | `osaka` |
+| solc | `0.8.35+commit.47b9dedd` (auto-detected, **not pinned**) |
+| optimizer | enabled, `runs = 1` (pinned in `foundry.toml`) |
+| evm version | `osaka` — **a forge-version default, not a configured setting** |
 
 The Sepolia Zone this replaces in `run-latest.json` was compiled with solc
-`0.8.28`. The two creation-code blobs are identical except for the CBOR
-metadata trailer and the constructor argument, so there is no behavioural
-drift here — but an unpinned compiler on a money-path deploy is a
-reproducibility risk that item 2's mainnet deploy should not inherit.
+`0.8.28`. The two creation-code blobs are identical up to the CBOR metadata
+trailer and the constructor argument, so there is no behavioural drift here.
+
+Two things item 2 should not inherit. `foundry.toml` sets `auto_detect_solc`
+but **no `evm_version` at all** — the `osaka` above is whatever the deploying
+machine's forge resolved, and CI pins `foundry-toolchain@v1` to v1.5.1, which
+resolves a different default. On Sepolia that is a reproducibility question; on
+mainnet an `evm_version` resolving ahead of the chain's active fork is a
+deployability question. Pin **both** `solc_version` and `evm_version` in
+`foundry.toml` before the mainnet deploy.
 
 Derived state read back after deploy:
 
@@ -142,7 +151,7 @@ cast code 0xb9c4179D0b25b813a641B5809E7b0fd05483eAD8 | wc -c
 | Deploy 2-of-2 Safe proxy | `0xb9c4179D0b25b813a641B5809E7b0fd05483eAD8` | `0xa0f4748f59c3faafc2db5bb13a2f9799b556a4a2e25d2992e9b3d4f50efb094d` | `11488271` | success |
 | Deploy `FabricaMarketplaceZone` | `0x892f9A7067a82Dbc49A3e557b08767C20fa1B061` | `0x6115e1328c4db228ef16c42cec067e31863687b04d43db1629a39121ccea4868` | `11488278` | success |
 | Mint fixture property token | `0xb52ED2Dc8EBD49877De57De3f454Fd71b75bc1fD` id `298855539945321607` | `0xa593ba6909200465d98414c3e2e0b64348a03ecb709815c5e844fdc237883835` | `11488287` | success |
-| Seller approves Seaport 1.6 | `0xb52ED2Dc8EBD49877De57De3f454Fd71b75bc1fD` | `0x92d938906c80b4fdb9c6a77c1355a5cffa815ce4d7c9a89e8e4f5501cea36f0b` | — | success |
+| Seller approves Seaport 1.6 | `0xb52ED2Dc8EBD49877De57De3f454Fd71b75bc1fD` | `0x92d938906c80b4fdb9c6a77c1355a5cffa815ce4d7c9a89e8e4f5501cea36f0b` | `11488303` | success |
 | **Fulfill order through the new Zone** | Seaport `0x0000000000000068F116a894984e2DB1123eB395` | `0xbec9380cae6c5bf8ef6383a483c75bfecc3cdbc7dd5004f201560bb6dddc9ddc` | `11488310` | success |
 | Deploy 1-of-1 control Safe | `0xF19896681Fe823a07044E8D58B2E25374771f3f2` | `0x7543c4dd68c207f2acae6e55af9775a03653d832a9f2132824b1f60be5a6b978` | `11488385` | success |
 
@@ -223,6 +232,17 @@ them rather than take the table on trust.
 `GS020` is Safe's "signatures data too short"; `GS026` its "invalid owner
 provided".
 
+Each of these rows is now **bound to the claim its name makes**, rather than
+resting on "it reverted". `testFork_pinnedSignatureConstantsAreWhatTheyClaim`
+ecrecovers every pinned blob against the hash it is supposed to have signed;
+`testFork_1of1SafeConfigurationMakesTheControlPairDecisive` asserts the 1-of-1
+Safe really is threshold 1 with that owner (without which its `GS026` would be
+attributable to non-ownership rather than to the hash); and
+`testFork_orderBindingControlIsAGenuineAuthorizationElsewhere` shows the
+"different order" blob returns `0x1626ba7e` against that other order's digest —
+otherwise it would be indistinguishable from arbitrary non-owner bytes, which is
+the same vacuity that sank the original EOA control.
+
 **Read the last two rows together — they are the load-bearing pair.** Same Safe,
 same owner, both 65 bytes; the *only* variable is which hash was signed. That
 isolates the SafeMessage domain wrap as the cause and rules out signature
@@ -244,14 +264,38 @@ on the Safe errors, not on `"Bad oracle sig"`.
 Two files, doing deliberately different jobs.
 
 `test/FabricaMarketplaceZone.t.sol` — **source-level coverage, runs in ordinary
-CI with no RPC.** Adds `SafeLikeErc1271Signer`, which models the two Safe
-behaviours that decide whether a Safe can serve as `oracleSigner`: the
-SafeMessage EIP-712 re-wrap and the length/ascending-owner check. The
-pre-existing `MockERC1271Signer` is a lookup table — it proves the Zone *calls*
-a contract signer, not that a real Safe would accept what we send. The new
-tests pin the item-2 finding as an executable claim, including
-`testSafeLikeSigner_RejectsEoaSignatureOverRawZoneDigest_EvenAtThresholdOne`,
-which uses threshold 1 so the rejection cannot be attributed to length.
+CI with no RPC.** Adds `SafeLikeErc1271Signer`, modelling the Safe behaviours
+that decide whether a Safe can serve as `oracleSigner`: the SafeMessage EIP-712
+re-wrap, the empty-signature `signedMessages` branch, the `GS020` length gate,
+strict ascending-owner ordering, and both ECDSA (`v` 27/28) and `eth_sign`
+(`v > 30`) owner types. The pre-existing `MockERC1271Signer` is a lookup table —
+it proves the Zone *calls* a contract signer and can return a non-magic value,
+not that a real Safe would accept what we send.
+
+Fidelity boundary, stated because it decides what the model's results are worth:
+it does **not** model contract-signature (`v == 0`) or pre-approved-hash
+(`v == 1`) owner slots, where a real Safe reverts `GS022`/`GS025` and the model
+reverts `GS026`. Acceptance results transfer to a real Safe; rejection results
+transfer only for the modelled branches. Hand-off finding 2 rests on source
+reading, not on any executed test. The model is pinned to the live Safe's re-wrap
+formula by `testFork_safeLikeModelMatchesTheLiveSafeReWrapFormula`, so drift from
+upstream Safe cannot be silent.
+
+**Non-vacuity, measured rather than asserted.** Two deliberate mutations of
+`src/FabricaMarketplaceZone.sol`, each run against the no-RPC suite:
+
+```text
+MUTATION A — _verify removed from validateOrder
+  before this round:  16 passed, 0 failed   <- the gap
+  after:              17 passed, 4 failed   <- caught
+
+MUTATION B — zone corrupts the digest before the ERC-1271 call
+  after:              16 passed, 5 failed   <- caught
+```
+
+Mutation A also passed all 17 fork tests, which is the cleanest possible
+demonstration that the fork file is an attestation and not regression coverage:
+it calls deployed immutable bytecode, so local source mutations cannot reach it.
 
 `test/FabricaMarketplaceZoneSepoliaErc1271Fork.t.sol` — **deployment
 attestation, not regression coverage.** Every assertion targets already-deployed
@@ -261,13 +305,22 @@ It uses `ForkTestBase._forkOrRequire`, so it skips when `SEPOLIA_RPC_URL` is
 absent (CI stays green) but fails loudly when `ENG3687_REQUIRE_FORK` is set, so
 a manual verification run cannot silently report a skipped proof.
 
-One limitation worth stating: the fork test re-derives `ZoneParameters` rather
-than replaying them byte-for-byte. The digest-relevant fields (`orderHash`,
-`expiry`, `definitionUrl`, `disclosurePackageId`) are the live values;
+Two limitations worth stating. The fork test re-derives `ZoneParameters` rather
+than replaying them byte-for-byte: the digest-relevant fields (`orderHash`,
+`expiry`, `definitionUrl`, `disclosurePackageId`) are the live values, while
 `fulfiller`, `offerer`, `consideration`, `startTime` and `endTime` are zeroed
-because `_verify` never reads them. A consequence: with an empty
-`consideration`, the consideration-side branch of `_verifyDefinitionUrl` (the
-buyer-bid path) is not exercised by this file.
+because `_verify` never reads them. And the consideration-side branch of
+`_verifyDefinitionUrl` (the buyer-bid path) has **no coverage anywhere in the
+repository** — not merely in this file — because every `ZoneParameters` builder
+in `test/`, pre-existing ones included, places the ERC-1155 item in `offer` and
+passes an empty `consideration`. That is a pre-existing gap this PR does not
+close.
+
+**Sunset.** This attestation's subject dies at wrap-up: once the owner keys are
+destroyed the Zone is permanently un-authorizable, and the pinned block sits
+2608 seconds (~217 blocks) below the authorization's expiry, so the fork block
+cannot be routinely bumped. Retire this file with the item-2 cutover rather than
+maintaining it.
 
 ## Where the Sepolia Zone address is consumed (the repoint surface)
 
@@ -290,9 +343,21 @@ Safe's **own** EIP-712 domain — `SafeMessage(bytes message)` over
 `abi.encode(zoneDigest)` — and runs `checkSignatures` against that hash. The
 API must fetch the Safe message hash and sign it with N owner keys concatenated
 in ascending owner-address order. Verified on-chain by the 1-of-1 control pair
-above. Item 2 must fund an `fabrica-v3-api` signing change (Safe message-hash
-derivation, multi-owner signing, key management for N owners) before **any**
-Safe custody works.
+above. Note the Safe message hash is a **pure local computation** from chainId,
+Safe address and digest — not a network fetch; the hardcoded
+`SAFE_MESSAGE_HASH_*` constants in the fork test are exactly that computation.
+
+Item 2 should weigh at least three designs rather than assume the first:
+
+| Option | API change | Custody delivered |
+| --- | --- | --- |
+| Safe + Safe-aware API signing | derive the SafeMessage hash, sign with N owner keys, concatenate ascending; manage N keys | full N-of-M |
+| Custom fallback handler on the Safe whose `isValidSignature` calls `checkSignatures` on the **raw zone digest** (no SafeMessage re-wrap) | concatenate N signatures over the digest the API already produces; no domain derivation | full N-of-M, at the cost of a bespoke unaudited handler |
+| Safe-owned ERC-1271 adapter holding a rotatable EOA signer | none | single-key authorization retained, but rotation becomes a Safe transaction |
+
+The third delivers finding 3's rotation benefit with zero API work and should be
+priced honestly against what it does *not* deliver. `SignMessageLib`/`approveHash`
+(finding 4) is also a *mechanism*, not only a risk.
 
 **2. A latent constraint in the extraData encoder, narrower than it looks.**
 `MarketplaceService.permissionToExtraData` asserts `signatureBytes[64]` is `27`
@@ -315,24 +380,50 @@ invisible on-chain to the Zone. Adopting a Safe therefore moves signer rotation
 from "redeploy the Zone" to "a Safe transaction" — the real benefit — while
 making order authorization depend on Safe owner governance.
 
-**4. A Safe introduces a second authorization channel the EOA path did not
-have.** The Zone's minimum `extraData` is 46 bytes, so the signature slice may
-be empty; Safe's `isValidSignature` branches on `signature.length == 0` to
-`require(safe.signedMessages(messageHash) != 0)`. Today that path is closed
-(nothing is pre-approved — probing it live returns `Hash not approved`), but
-under Safe custody a single `SignMessageLib` delegatecall would make an order
-fulfillable with **no signature bytes at all**, as a persistent on-chain
-approval that the Zone's 7-day freshness window does not bound in the same way.
-Item 2 should decide about this deliberately rather than inherit it.
+**4. A Safe introduces TWO pre-approval channels the EOA path did not have.**
 
-**5. Custody hardening does not shorten the bearer window.** The signed digest
-binds only `orderHash | expiry | definitionUrl | disclosurePackageId`, and
-`authorizeOrder` is a permissionless `external view`. An observed `extraData`
-blob is therefore a bearer authorization for that order until expiry — up to
-`MAX_AGE` 7 days, with the API currently issuing 5 days
-(`fulfillmentPermissionDurationSeconds`, carrying a `TODO` at
-`marketplace.service.ts:1460` to reduce it to two blocks). Moving the signer
-from an EOA to a Safe hardens key custody and does nothing about this.
+*Channel A — empty signature.* The Zone's minimum `extraData` is 46 bytes, so
+the signature slice may be empty; Safe's `isValidSignature` branches on
+`signature.length == 0` to `require(safe.signedMessages(messageHash) != 0)`.
+Today that path is closed — probing it live on both Safes returns
+`Hash not approved` — but under Safe custody a `SignMessageLib` delegatecall
+would make an order fulfillable with **no signature bytes at all**.
+
+*Channel B — `approveHash` / the `v == 1` owner slot.* Safe's `checkNSignatures`
+treats a 65-byte slot with `v == 1` as "owner `r` has pre-approved this hash",
+satisfied by `msg.sender == owner` or `approvedHashes[owner][hash] != 0`.
+`approveHash(bytes32)` is a public method any owner calls from their **own EOA**
+— no delegatecall and no Safe transaction. Probed live: a `v == 1` slot against
+the 1-of-1 Safe reverts `GS025` (the branch is reached, and fails only because
+nothing is approved); a `v == 0` contract-signature slot reverts `GS022`.
+Threshold is still enforced — each owner must approve individually — but this is
+materially cheaper and less auditable than channel A, and it is the channel a
+custody decision is most likely to overlook.
+
+**Correction:** an earlier revision claimed a pre-approval is "a persistent
+on-chain approval that the Zone's 7-day freshness window does not bound in the
+same way". That is **wrong**. The approved key is the SafeMessage wrap of the
+zone digest, and the zone digest commits to a specific `expiry`; `_verify` still
+runs `if (block.timestamp > expiry) revert("Oracle signature expired")` before
+ever calling the signer. A pre-approval and an issued signature are bounded
+identically. What pre-approval changes is *who* can authorize and *how visibly*,
+not *for how long*.
+
+**5. Custody hardening does not shorten the bearer window, and the window is
+effectively maximal today.** The signed digest binds only
+`orderHash | expiry | definitionUrl | disclosurePackageId`, and `authorizeOrder`
+is a permissionless `external view`. An observed `extraData` blob is therefore a
+bearer authorization for that order until expiry. `fulfillmentPermissionDurationSeconds`
+is **`604776` seconds in all six stage/network entries** of
+`fabrica-v3-api/config/{develop,staging,production}.json` — that is 6 d 23 h 59 m 36 s,
+i.e. **24 seconds** under the Zone's `MAX_AGE` of 604800. The API issues
+essentially the maximum the contract permits.
+
+An earlier revision of this document said "5 days", taken from the stale comment
+at `marketplace.service.ts:1461` ("we temporarily set expiry to five days to
+satisfy Coinflow") rather than from the config. The comment is wrong; the config
+is what runs. Moving the signer from an EOA to a Safe hardens key custody and
+does nothing about this window.
 
 **6. Cost.** The ERC-1271 branch adds a staticcall into the Safe on **both**
 `authorizeOrder` and `validateOrder` (`_verify` runs twice per fill). The
@@ -379,8 +470,25 @@ test keys, and — per hand-off finding 1 — could only ever exercise a degener
 case anyway, since the API cannot produce a Safe-valid signature at all. The
 e2e was therefore run directly against Sepolia.
 
-This substitution was escalated before any code was written and authorized by
-`brioche` (this lane's parent agent) over signed Wire IPC on 2026-08-14, which
-also directed that the API signing change be surfaced as its own decision
-rather than implemented here. The staging and production repoints belong to the
-item-2 cutover.
+This substitution was escalated before any code was written — Wire IPC seq
+`575622`, 2026-08-14 — and ruled on by `brioche`, this lane's parent agent, at
+seq `575628`, which also directed that the `fabrica-v3-api` signing change be
+surfaced as its own decision rather than implemented here.
+
+Stated precisely, because it matters for whether this ticket can close: that is
+an **agent-level ruling relayed by the lane's parent, not a recorded operator
+sign-off**, and this document should not be read as claiming otherwise. Two
+acceptance criteria therefore remain formally unmet and are flagged rather than
+closed:
+
+- *"run the staging e2e"* — substituted with a direct-Sepolia e2e.
+- *"repoint order construction/config at it"* — not attempted at any tier. The
+  spec sanctions a branch-level repoint without escalation, and that was not
+  done. The reason is finding 1: a config-only repoint cannot work for any Safe,
+  and the signing change that would make it work was explicitly ruled out of this
+  lane's scope. A branch carrying only an address swap would encode a change that
+  is known not to function.
+
+Both need an operator decision, and the `fabrica-v3-api` signing change needs a
+tracked destination issue, before ENG-3687 closes. The staging and production
+repoints belong to the item-2 cutover.
