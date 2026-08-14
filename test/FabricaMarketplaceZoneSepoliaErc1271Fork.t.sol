@@ -1,86 +1,142 @@
 // SPDX-License-Identifier: MIT
-pragma solidity ^0.8.24;
+pragma solidity ^0.8.28;
 
-import {Test} from "forge-std/Test.sol";
 import {FabricaMarketplaceZone} from "../src/FabricaMarketplaceZone.sol";
+import {ForkTestBase} from "./ForkTestBase.sol";
 import {ZoneParameters, SpentItem, ReceivedItem, ItemType} from "../lib/seaport-types/src/lib/ConsiderationStructs.sol";
 
 interface ISafe {
     function getOwners() external view returns (address[] memory);
     function getThreshold() external view returns (uint256);
+    function getMessageHash(bytes memory message) external view returns (bytes32);
     function isValidSignature(bytes32 hash, bytes calldata signature) external view returns (bytes4);
 }
 
-/// @notice ENG-3687: pins the LIVE Sepolia deployment of a FabricaMarketplaceZone whose
-/// `oracleSigner` is a 2-of-2 Safe, and re-plays the exact ERC-1271 authorization that was
-/// accepted on-chain by Seaport 1.6 in tx 0xbec9380c…dc9ddc.
-/// @dev Every literal below is a real value captured from that run — the zone digest, the
-/// Safe message hash, and the owner-signature blob are the same bytes the live fulfillment
-/// carried. The fork block is the block the fulfillment landed in, so `block.timestamp`
-/// sits inside the authorization's freshness window without any time manipulation.
-contract FabricaMarketplaceZoneSepoliaErc1271ForkTest is Test {
+/// @notice ENG-3687 DEPLOYMENT ATTESTATION for the Sepolia MarketplaceZone whose `oracleSigner`
+/// is a Safe rather than an EOA.
+/// @dev This is deliberately NOT regression coverage for `src/FabricaMarketplaceZone.sol`. Every
+/// assertion targets already-deployed, immutable bytecode at a pinned historical block, so no
+/// edit to the local source can ever make it fail. Its job is to attest that the ENG-3687
+/// deployment behaves as documented, and to pin the ERC-1271 facts the item-2 custody decision
+/// rests on. Source-level regression coverage for the same behaviour — including a Safe-shaped
+/// signer that runs with no RPC — lives in `FabricaMarketplaceZone.t.sol`.
+/// @dev The digest-relevant inputs (orderHash, expiry, definitionUrl, disclosurePackageId) are
+/// the exact values the live fulfillment carried in tx 0xbec9380c…dc9ddc. The remaining
+/// `ZoneParameters` fields are re-derived rather than replayed: `_verify` never reads them, and
+/// they are set to zero here. Consequence worth naming: with an empty `consideration`, the
+/// consideration-side branch of `_verifyDefinitionUrl` is not exercised by this file.
+contract FabricaMarketplaceZoneSepoliaErc1271ForkTest is ForkTestBase {
     address internal constant ZONE = 0x892f9A7067a82Dbc49A3e557b08767C20fa1B061;
-    address internal constant SAFE = 0xb9c4179D0b25b813a641B5809E7b0fd05483eAD8;
     address internal constant FABRICA_TOKEN = 0xb52ED2Dc8EBD49877De57De3f454Fd71b75bc1fD;
     address internal constant SAFE_SINGLETON_1_4_1 = 0x41675C099F32341bf84BFc5382aF534df5C7461a;
 
-    uint256 internal constant SEPOLIA_FORK_BLOCK = 11_488_310;
+    /// @dev The 2-of-2 Safe that signed the live fulfillment.
+    address internal constant SAFE_2_OF_2 = 0xb9c4179D0b25b813a641B5809E7b0fd05483eAD8;
+    address internal constant SAFE_2_OF_2_OWNER_A = 0x0af6aaDc74927B7A5cbd8Ab339834c38b10f3b3F;
+    address internal constant SAFE_2_OF_2_OWNER_B = 0xbC6718D825B41ED0Bdee0D8e269B3644e728EDeD;
+
+    /// @dev A second, 1-of-1 Safe. It exists solely so the "an EOA signature over the raw zone
+    /// digest cannot authenticate against a Safe" claim can be tested where the threshold length
+    /// gate does NOT fire — see testFork_1of1 tests below.
+    address internal constant SAFE_1_OF_1 = 0xF19896681Fe823a07044E8D58B2E25374771f3f2;
+
+    uint256 internal constant SEPOLIA_FORK_BLOCK = 11_488_390;
     uint256 internal constant TOKEN_ID = 298855539945321607;
     uint64 internal constant EXPIRY = 1786727956;
 
     bytes32 internal constant ORDER_HASH = 0x31ac743402a7daec3e3e10311a33b766806faf162c328d925a57d3a094b8347b;
     bytes32 internal constant ZONE_DIGEST = 0x085069988deaacd6b7f1fe9f5b79ae5a4eb1dac28d210d4fcbafaa7f58fcd81c;
-    bytes32 internal constant SAFE_MESSAGE_HASH = 0x2723e4acc561cd46a7e096d6d861cf04eca6c801a19201697c27908eb0a27352;
+    /// @dev What the 2-of-2 Safe re-wraps ZONE_DIGEST into before checking signatures.
+    bytes32 internal constant SAFE_MESSAGE_HASH_2_OF_2 =
+        0x2723e4acc561cd46a7e096d6d861cf04eca6c801a19201697c27908eb0a27352;
+    /// @dev The same re-wrap performed by the 1-of-1 Safe — a different value, because the Safe's
+    /// own address is part of its EIP-712 domain.
+    bytes32 internal constant SAFE_MESSAGE_HASH_1_OF_1 =
+        0x4b054134624fbc5d59e113557dec2fb88c7ecc204ad7219b55f9df42980deb61;
 
     string internal constant DEFINITION_URL = "ipfs://QmEng3687FregolottaZoneErc1271Proof";
     string internal constant DISCLOSURE_PACKAGE_ID = "e0036870-0000-4000-8000-000000003687";
 
-    /// @dev Both Safe owners, signing SAFE_MESSAGE_HASH, concatenated in ascending owner order.
-    bytes internal constant SIG_2_OF_2 =
+    /// @dev Both owners over SAFE_MESSAGE_HASH_2_OF_2, ascending owner order. The live blob.
+    bytes internal constant SIG_2OF2_VALID =
         hex"7a9f16f0f44f0599071a7bcd93122447e25429ca8f7f71ac695c07815f1b50bf400bbdbde4a1d86593e646909dff25724d6b821fc1fa88417f3c6ac76b3c9c351b249db12b73b2c673c54674db6360d942a3803ebe1152e6e4f5081c95f50b65297d12ab7e17018b5abb83ef3e5a4bff29d0bbd0ca143648d199cc41fcc32f05f41b";
-    /// @dev Only the lower-addressed owner — one signature short of the threshold.
-    bytes internal constant SIG_1_OF_2 =
-        hex"7a9f16f0f44f0599071a7bcd93122447e25429ca8f7f71ac695c07815f1b50bf400bbdbde4a1d86593e646909dff25724d6b821fc1fa88417f3c6ac76b3c9c351b";
-    /// @dev A single EOA signing the RAW zone digest — the scheme fabrica-v3-api uses today.
-    bytes internal constant SIG_EOA_OVER_RAW_DIGEST =
+    /// @dev Both owners, correct LENGTH, but signing the raw zone digest instead of the Safe
+    /// message hash. Passes the threshold length gate and fails on owner recovery — this is the
+    /// control that isolates domain-wrapping from length.
+    bytes internal constant SIG_2OF2_OVER_RAW_DIGEST =
+        hex"ec25ce6466503abb420c5937181a332dfc9ba619f40003a36ead9f4fbee776634eec92dd9e6302e12695d687b6bce3cbf75b3917b0aa1a13cfa99f67039acaa31c934964ca6c1c2d0fef5dfa6556bef17a9c1519b79307f5c358174447441a56a839c4f07dad65f680ca0b0b0d49a1dc4a3d28ec8527233a01ab8ed3a7d1e8db6d1c";
+    /// @dev Two well-formed signatures over the correct hash from keys that are not owners.
+    bytes internal constant SIG_2OF2_NON_OWNERS =
+        hex"b1a6c581390e5b3ed9e03f6e263ba450a663b9fd1802a604a76655eee60bfc5629aa1886e0c00e17325493ed2788d8008804f110fd70539e4f177db024584d061bb6443d0bd939b69d1054944047ad67158fa3b821a3bdc1a54be68a116eeb4a7920a67b97632c832e66dee5f1753f54197b861415e3ce9b441ec046a9b3b8dfd31b";
+    /// @dev A genuinely valid 2-of-2 authorization, but for a DIFFERENT order. Proves the
+    /// authorization is bound to its orderHash.
+    bytes internal constant SIG_2OF2_FOR_OTHER_ORDER =
+        hex"f7da3deb08f866ee21c028e59362621c7c97a630cdef009c8dca53a675795f5218583e0488ffc41405fe71d938b814c8ce5ad10ab630c58171309fda1d5daab91b9455e5e44fe0fd38945b6349e406d386c4a7660d20dad450eec430900bb30131460ff7c48437cc651402e62b7200a05690bba1b969709252cbc491f0b0057ee21b";
+    /// @dev Single owner over SAFE_MESSAGE_HASH_1_OF_1 — the shape a Safe-aware signer produces.
+    bytes internal constant SIG_1OF1_VALID =
+        hex"a372b1ad80b4143bd522ebccd013ff2cbb746cc476a14d952caf0ddd1288009d1285f81d2eb43819eb99f7aa9dd2813c34d0c8c5b0531c12e4ec7dc70cb58c7e1c";
+    /// @dev Single owner over the RAW zone digest — byte-for-byte the shape fabrica-v3-api emits
+    /// today. Same length as SIG_1OF1_VALID, so the length gate cannot explain the difference.
+    bytes internal constant SIG_1OF1_OVER_RAW_DIGEST =
         hex"ec25ce6466503abb420c5937181a332dfc9ba619f40003a36ead9f4fbee776634eec92dd9e6302e12695d687b6bce3cbf75b3917b0aa1a13cfa99f67039acaa31c";
 
     function setUp() public {
-        if (bytes(vm.envOr("SEPOLIA_RPC_URL", string(""))).length == 0) {
-            vm.skip(true);
-            return;
-        }
-        vm.createSelectFork("sepolia", SEPOLIA_FORK_BLOCK);
-        assertEq(block.chainid, 11155111, "SEPOLIA_RPC_URL must target Sepolia");
-        assertGt(ZONE.code.length, 0, "zone not deployed at fork block");
-        assertGt(SAFE.code.length, 0, "safe not deployed at fork block");
+        // requiredEnvVar lets a manual FV run fail loudly instead of silently reporting a skip.
+        _forkOrRequire(
+            ForkConfig({
+                rpcEnvVar: "SEPOLIA_RPC_URL",
+                rpcAlias: "sepolia",
+                blockNumber: SEPOLIA_FORK_BLOCK,
+                requiredEnvVar: "ENG3687_REQUIRE_FORK"
+            })
+        );
     }
 
     /// @dev The whole point of ENG-3687: the signer is a contract, so the zone takes its
     /// ERC-1271 branch instead of `ECDSA.recover`.
     function testFork_oracleSignerIsAContractSafe() public view {
-        assertEq(FabricaMarketplaceZone(ZONE).oracleSigner(), SAFE, "oracleSigner must be the Safe");
-        assertGt(SAFE.code.length, 0, "signer must have code to reach the ERC-1271 branch");
+        assertEq(FabricaMarketplaceZone(ZONE).oracleSigner(), SAFE_2_OF_2, "oracleSigner must be the Safe");
+        assertGt(SAFE_2_OF_2.code.length, 0, "signer must have code to reach the ERC-1271 branch");
+    }
+
+    /// @dev Freshness window is unchanged from the EOA-signer deployments.
+    function testFork_maxAgeIsUnchanged() public view {
         assertEq(FabricaMarketplaceZone(ZONE).MAX_AGE(), 7 days, "MAX_AGE must stay 7 days");
     }
 
-    function testFork_safeIsTwoOfTwo() public view {
-        assertEq(ISafe(SAFE).getThreshold(), 2, "threshold");
-        address[] memory owners = ISafe(SAFE).getOwners();
+    /// @dev Pins the Safe's configuration, not merely its owner count — a different 2-owner Safe
+    /// would otherwise satisfy this.
+    function testFork_safeIsTwoOfTwoWithTheDocumentedOwners() public view {
+        assertEq(ISafe(SAFE_2_OF_2).getThreshold(), 2, "threshold");
+        address[] memory owners = ISafe(SAFE_2_OF_2).getOwners();
         assertEq(owners.length, 2, "owner count");
+        assertEq(owners[0], SAFE_2_OF_2_OWNER_A, "owner A");
+        assertEq(owners[1], SAFE_2_OF_2_OWNER_B, "owner B");
+        assertEq(address(uint160(uint256(vm.load(SAFE_2_OF_2, bytes32(0))))), SAFE_SINGLETON_1_4_1, "singleton");
+    }
+
+    /// @dev Pins the SafeMessage re-wrap itself: the Safe does NOT check signatures against the
+    /// hash it is handed. This single fact is why fabrica-v3-api cannot authenticate to a Safe.
+    function testFork_safeReWrapsTheZoneDigestIntoItsOwnDomain() public view {
+        bytes32 wrapped = ISafe(SAFE_2_OF_2).getMessageHash(abi.encode(ZONE_DIGEST));
+        assertEq(wrapped, SAFE_MESSAGE_HASH_2_OF_2, "2-of-2 SafeMessage hash");
+        assertTrue(wrapped != ZONE_DIGEST, "the re-wrapped hash must differ from the zone digest");
+        bytes32 wrapped1 = ISafe(SAFE_1_OF_1).getMessageHash(abi.encode(ZONE_DIGEST));
+        assertEq(wrapped1, SAFE_MESSAGE_HASH_1_OF_1, "1-of-1 SafeMessage hash");
+        assertTrue(wrapped1 != wrapped, "each Safe wraps into its own domain");
     }
 
     function testFork_safeValidatesTheTwoOfTwoSignature() public view {
         assertEq(
-            ISafe(SAFE).isValidSignature(ZONE_DIGEST, SIG_2_OF_2),
+            ISafe(SAFE_2_OF_2).isValidSignature(ZONE_DIGEST, SIG_2OF2_VALID),
             bytes4(0x1626ba7e),
             "Safe must return the ERC-1271 magic value"
         );
     }
 
-    /// @dev Re-plays the authorization Seaport itself accepted on-chain.
+    /// @dev Re-derives the authorization Seaport itself accepted on-chain.
     function testFork_authorizeAndValidateOrderAcceptSafeSignature() public view {
-        ZoneParameters memory params = _zoneParameters(SIG_2_OF_2);
+        ZoneParameters memory params = _zoneParameters(SIG_2OF2_VALID);
         assertEq(
             FabricaMarketplaceZone(ZONE).authorizeOrder(params),
             FabricaMarketplaceZone.authorizeOrder.selector,
@@ -93,25 +149,69 @@ contract FabricaMarketplaceZoneSepoliaErc1271ForkTest is Test {
         );
     }
 
-    /// @dev Threshold is genuinely enforced through the zone, not just inside the Safe.
+    /// @dev Threshold is enforced through the zone. NOTE this reverts on Safe's LENGTH precheck
+    /// (`signatures.length >= threshold * 65`), before any signature is examined — which is
+    /// exactly why it cannot stand in for the domain-mismatch controls below.
     function testFork_rejectsSignatureBelowThreshold() public {
-        vm.expectRevert(bytes("GS020"));
-        FabricaMarketplaceZone(ZONE).authorizeOrder(_zoneParameters(SIG_1_OF_2));
+        _expectBothEntryPointsRevert(_truncateToOneSignature(SIG_2OF2_VALID), "GS020");
     }
 
-    /// @dev This is the ENG-3687 hand-off to item 2: the signature shape fabrica-v3-api
-    /// produces TODAY (one EOA signing the raw zone digest) does not authenticate against a
-    /// Safe, so a config-only zone repoint cannot work for any Safe — 1-of-1 included.
-    function testFork_rejectsEoaSignatureOverRawDigest() public {
-        vm.expectRevert(bytes("GS020"));
-        FabricaMarketplaceZone(ZONE).authorizeOrder(_zoneParameters(SIG_EOA_OVER_RAW_DIGEST));
+    /// @dev THE domain-mismatch control at threshold 2: correct length, so the length gate does
+    /// not fire and owner recovery actually runs.
+    function testFork_rejectsCorrectLengthSignatureOverRawZoneDigest() public {
+        _expectBothEntryPointsRevert(SIG_2OF2_OVER_RAW_DIGEST, "GS026");
+    }
+
+    /// @dev Well-formed signatures over the correct hash, from keys that are not owners.
+    function testFork_rejectsWellFormedNonOwnerSignatures() public {
+        _expectBothEntryPointsRevert(SIG_2OF2_NON_OWNERS, "GS026");
+    }
+
+    /// @dev A real, valid 2-of-2 authorization for a different order does not authorize this one.
+    function testFork_rejectsValidAuthorizationBoundToAnotherOrder() public {
+        _expectBothEntryPointsRevert(SIG_2OF2_FOR_OTHER_ORDER, "GS026");
     }
 
     function testFork_rejectsTamperedSignature() public {
-        bytes memory tampered = SIG_2_OF_2;
+        bytes memory tampered = SIG_2OF2_VALID;
         tampered[10] = bytes1(uint8(tampered[10]) ^ 0xFF);
+        _expectBothEntryPointsRevert(tampered, "GS026");
+    }
+
+    /// @dev The 1-of-1 control pair. Both blobs are 65 bytes, from the same owner, against the
+    /// same Safe — the ONLY difference is which hash was signed. Together they prove that the
+    /// failure is the SafeMessage domain wrap and not signature length, which is what lets the
+    /// item-2 hand-off say "no Safe works, 1-of-1 included".
+    function testFork_1of1SafeAcceptsSignatureOverItsOwnMessageHash() public view {
+        assertEq(
+            ISafe(SAFE_1_OF_1).isValidSignature(ZONE_DIGEST, SIG_1OF1_VALID),
+            bytes4(0x1626ba7e),
+            "1-of-1 Safe must accept a signature over its SafeMessage hash"
+        );
+    }
+
+    function testFork_1of1SafeRejectsSignatureOverRawZoneDigest() public {
+        assertEq(SIG_1OF1_VALID.length, SIG_1OF1_OVER_RAW_DIGEST.length, "controls must be the same length");
         vm.expectRevert(bytes("GS026"));
-        FabricaMarketplaceZone(ZONE).authorizeOrder(_zoneParameters(tampered));
+        ISafe(SAFE_1_OF_1).isValidSignature(ZONE_DIGEST, SIG_1OF1_OVER_RAW_DIGEST);
+    }
+
+    /// @dev Both zone entry points run the same `_verify` guard, so every negative case is
+    /// asserted against both — a divergence between them would otherwise go uncaught.
+    function _expectBothEntryPointsRevert(bytes memory signature, string memory reason) internal {
+        ZoneParameters memory params = _zoneParameters(signature);
+        vm.expectRevert(bytes(reason));
+        FabricaMarketplaceZone(ZONE).authorizeOrder(params);
+        vm.expectRevert(bytes(reason));
+        FabricaMarketplaceZone(ZONE).validateOrder(params);
+    }
+
+    function _truncateToOneSignature(bytes memory signature) internal pure returns (bytes memory) {
+        bytes memory one = new bytes(65);
+        for (uint256 i = 0; i < 65; i++) {
+            one[i] = signature[i];
+        }
+        return one;
     }
 
     /// @dev extraData layout: expiry(8) | defUrlLen(2) | defUrl(N) | dpId(36) | signature.
