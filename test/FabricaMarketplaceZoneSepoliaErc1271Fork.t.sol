@@ -4,8 +4,8 @@ pragma solidity ^0.8.28;
 import {FabricaMarketplaceZone} from "../src/FabricaMarketplaceZone.sol";
 import {ForkTestBase} from "./ForkTestBase.sol";
 import {ZoneAuthorizationFixture} from "./ZoneAuthorizationFixture.sol";
-import {SafeLikeErc1271Signer} from "./FabricaMarketplaceZone.t.sol";
-import {ZoneParameters, SpentItem, ReceivedItem, ItemType} from "../lib/seaport-types/src/lib/ConsiderationStructs.sol";
+import {SafeLikeErc1271Signer} from "./SafeLikeErc1271Signer.sol";
+import {ZoneParameters} from "../lib/seaport-types/src/lib/ConsiderationStructs.sol";
 
 interface ISafe {
     function getOwners() external view returns (address[] memory);
@@ -16,9 +16,11 @@ interface ISafe {
 
 /// @notice ENG-3687 DEPLOYMENT ATTESTATION for the Sepolia MarketplaceZone whose `oracleSigner`
 /// is a Safe rather than an EOA.
-/// @dev This is deliberately NOT regression coverage for `src/FabricaMarketplaceZone.sol`. Every
-/// assertion targets already-deployed, immutable bytecode at a pinned historical block, so no
-/// edit to the local source can ever make it fail. Its job is to attest that the ENG-3687
+/// @dev This is deliberately NOT regression coverage for `src/FabricaMarketplaceZone.sol`. Its
+/// zone assertions target already-deployed, immutable bytecode at a pinned historical block, so
+/// no edit to `src/FabricaMarketplaceZone.sol` can make them fail. (One test here is not of that
+/// kind by design: `testFork_safeLikeModelMatchesTheLiveSafeReWrapFormula` deliberately compares
+/// the LOCAL SafeLikeErc1271Signer against the live Safe, and will fail if that model drifts.) Its job is to attest that the ENG-3687
 /// deployment behaves as documented, and to pin the ERC-1271 facts the item-2 custody decision
 /// rests on. Source-level regression coverage for the same behaviour — including a Safe-shaped
 /// signer that runs with no RPC — lives in `FabricaMarketplaceZone.t.sol`.
@@ -40,13 +42,21 @@ contract FabricaMarketplaceZoneSepoliaErc1271ForkTest is ForkTestBase {
     /// @dev A second, 1-of-1 Safe. It exists solely so the "an EOA signature over the raw zone
     /// digest cannot authenticate against a Safe" claim can be tested where the threshold length
     /// gate does NOT fire — see testFork_1of1 tests below.
+    /// @dev Its sole owner is SAFE_2_OF_2_OWNER_A — the SAME key, deliberately. That is what makes
+    /// the control pair decisive: the only variable between the two 65-byte blobs is which hash
+    /// was signed, not who signed it.
     address internal constant SAFE_1_OF_1 = 0xF19896681Fe823a07044E8D58B2E25374771f3f2;
 
-    /// @dev CEILING: this block's timestamp is 1786725348 and EXPIRY is 1786727956, leaving 2608
-    /// seconds (~217 Sepolia blocks) of freshness. Bumping this past ~11_488_607 makes every
-    /// positive test revert "Oracle signature expired" PERMANENTLY — the owner keys are destroyed
-    /// at wrap-up, so nothing can ever be re-signed. Do not routinely bump it; retire this file
-    /// with item 2 instead.
+    /// @dev USABLE WINDOW is [11_488_385, ~11_488_607] and BOTH ends bite.
+    /// Upper: this block's timestamp is 1786725348 and EXPIRY is 1786727956, leaving 2608 seconds
+    /// (~217 Sepolia blocks). Past the ceiling the positive tests revert "Oracle signature
+    /// expired" and the zone-level NEGATIVE tests fail too, because they assert GS020/GS026 and
+    /// would instead see the expiry revert. The owner keys are destroyed at wrap-up, so nothing
+    /// can ever be re-signed.
+    /// Lower: the 1-of-1 control Safe was deployed at block 11_488_385, so pinning below that
+    /// makes every testFork_1of1* call a non-contract.
+    /// Do not routinely bump this; retire the file with item 2 instead. setUp asserts the upper
+    /// bound so a bump fails loudly rather than mysteriously.
     uint256 internal constant SEPOLIA_FORK_BLOCK = 11_488_390;
     uint256 internal constant TOKEN_ID = 298855539945321607;
     uint64 internal constant EXPIRY = 1786727956;
@@ -60,8 +70,10 @@ contract FabricaMarketplaceZoneSepoliaErc1271ForkTest is ForkTestBase {
     /// own address is part of its EIP-712 domain.
     bytes32 internal constant SAFE_MESSAGE_HASH_1_OF_1 =
         0x4b054134624fbc5d59e113557dec2fb88c7ecc204ad7219b55f9df42980deb61;
-    /// @dev The zone digest of an unrelated order, used to prove SIG_2OF2_FOR_OTHER_ORDER is a
-    /// genuine authorization somewhere before asserting it is not one here.
+    /// @dev A digest for an unrelated message, used to prove SIG_2OF2_FOR_OTHER_ORDER is a
+    /// genuine Safe authorization somewhere before asserting it is not one here. Provenance:
+    /// keccak256("eng3687-some-other-order-digest"), asserted below so it is derived rather than
+    /// magic, and asserted distinct from ZONE_DIGEST.
     bytes32 internal constant OTHER_ZONE_DIGEST = 0x97849da5b911f7ab54c306eba9248ce0a17d94f9ae6ddebfa16a6988638f5c79;
     bytes32 internal constant SAFE_FALLBACK_HANDLER_SLOT =
         0x6c9a6c4a39284e37ed1cf53d337577d14212a4870fb976a4366c693b939918d5;
@@ -103,6 +115,11 @@ contract FabricaMarketplaceZoneSepoliaErc1271ForkTest is ForkTestBase {
                 requiredEnvVar: "ENG3687_REQUIRE_FORK"
             })
         );
+        if (block.number == 0) {
+            return;
+        }
+        assertLt(block.timestamp, EXPIRY, "fork block is past the authorization expiry - see USABLE WINDOW");
+        assertGe(block.number, 11_488_385, "fork block is below the 1-of-1 control Safe's deploy block");
     }
 
     /// @dev The whole point of ENG-3687: the signer is a contract, so the zone takes its
@@ -159,6 +176,26 @@ contract FabricaMarketplaceZoneSepoliaErc1271ForkTest is ForkTestBase {
         assertEq(_recoverAt(SIG_2OF2_VALID, 1, SAFE_MESSAGE_HASH_2_OF_2), SAFE_2_OF_2_OWNER_B, "valid[1]");
         assertEq(_recoverAt(SIG_2OF2_OVER_RAW_DIGEST, 0, ZONE_DIGEST), SAFE_2_OF_2_OWNER_A, "raw-digest[0]");
         assertEq(_recoverAt(SIG_2OF2_OVER_RAW_DIGEST, 1, ZONE_DIGEST), SAFE_2_OF_2_OWNER_B, "raw-digest[1]");
+        // the non-owner control: without this its GS026 is equally consistent with garbage bytes
+        // recovering to address(0), which is the vacuity this board caught three times
+        address nonOwnerA = _recoverAt(SIG_2OF2_NON_OWNERS, 0, SAFE_MESSAGE_HASH_2_OF_2);
+        address nonOwnerB = _recoverAt(SIG_2OF2_NON_OWNERS, 1, SAFE_MESSAGE_HASH_2_OF_2);
+        assertTrue(nonOwnerA != address(0) && nonOwnerB != address(0), "non-owner sigs must be well formed");
+        assertTrue(nonOwnerA < nonOwnerB, "non-owner sigs must be in ascending order");
+        assertTrue(nonOwnerA != SAFE_2_OF_2_OWNER_A && nonOwnerA != SAFE_2_OF_2_OWNER_B, "slot 0 must not be an owner");
+        assertTrue(nonOwnerB != SAFE_2_OF_2_OWNER_A && nonOwnerB != SAFE_2_OF_2_OWNER_B, "slot 1 must not be an owner");
+    }
+
+    /// @dev The attestation must be sensitive to the bytes it actually sends. Without this,
+    /// changing the shared extraData builder leaves this file passing while the CI suite fails.
+    function testFork_extraDataIsTheDocumentedTwoHundredEighteenBytes() public view {
+        ZoneParameters memory params = _zoneParameters(SIG_2OF2_VALID);
+        assertEq(params.extraData.length, 218, "expiry(8)|defUrlLen(2)|defUrl(42)|dpId(36)|sig(130)");
+    }
+
+    function testFork_otherZoneDigestProvenance() public pure {
+        assertEq(OTHER_ZONE_DIGEST, keccak256("eng3687-some-other-order-digest"), "derived, not magic");
+        assertTrue(OTHER_ZONE_DIGEST != ZONE_DIGEST, "must differ from the order under test");
     }
 
     /// @dev SIG_2OF2_FOR_OTHER_ORDER is only an order-binding control if it is a REAL
@@ -206,16 +243,7 @@ contract FabricaMarketplaceZoneSepoliaErc1271ForkTest is ForkTestBase {
     }
 
     function _recoverAt(bytes memory signature, uint256 index, bytes32 signedHash) internal pure returns (address) {
-        uint256 offset = index * 65;
-        bytes32 r;
-        bytes32 s;
-        uint8 v;
-        assembly {
-            r := mload(add(add(signature, 0x20), offset))
-            s := mload(add(add(signature, 0x40), offset))
-            v := byte(0, mload(add(add(signature, 0x60), offset)))
-        }
-        return ecrecover(signedHash, v, r, s);
+        return ZoneAuthorizationFixture.recoverOwnerAt(signature, index, signedHash);
     }
 
     /// @dev Pins the SafeMessage re-wrap itself: the Safe does NOT check signatures against the

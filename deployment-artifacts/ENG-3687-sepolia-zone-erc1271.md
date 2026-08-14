@@ -146,14 +146,19 @@ cast code 0xb9c4179D0b25b813a641B5809E7b0fd05483eAD8 | wc -c
 
 ## Deployment summary
 
-| Step | Address | Tx | Block | Status |
-| --- | --- | --- | --- | --- |
-| Deploy 2-of-2 Safe proxy | `0xb9c4179D0b25b813a641B5809E7b0fd05483eAD8` | `0xa0f4748f59c3faafc2db5bb13a2f9799b556a4a2e25d2992e9b3d4f50efb094d` | `11488271` | success |
-| Deploy `FabricaMarketplaceZone` | `0x892f9A7067a82Dbc49A3e557b08767C20fa1B061` | `0x6115e1328c4db228ef16c42cec067e31863687b04d43db1629a39121ccea4868` | `11488278` | success |
-| Mint fixture property token | `0xb52ED2Dc8EBD49877De57De3f454Fd71b75bc1fD` id `298855539945321607` | `0xa593ba6909200465d98414c3e2e0b64348a03ecb709815c5e844fdc237883835` | `11488287` | success |
-| Seller approves Seaport 1.6 | `0xb52ED2Dc8EBD49877De57De3f454Fd71b75bc1fD` | `0x92d938906c80b4fdb9c6a77c1355a5cffa815ce4d7c9a89e8e4f5501cea36f0b` | `11488303` | success |
-| **Fulfill order through the new Zone** | Seaport `0x0000000000000068F116a894984e2DB1123eB395` | `0xbec9380cae6c5bf8ef6383a483c75bfecc3cdbc7dd5004f201560bb6dddc9ddc` | `11488310` | success |
-| Deploy 1-of-1 control Safe | `0xF19896681Fe823a07044E8D58B2E25374771f3f2` | `0x7543c4dd68c207f2acae6e55af9775a03653d832a9f2132824b1f60be5a6b978` | `11488385` | success |
+The columns are deliberately split: "Created" is a contract this lane brought
+into existence, "Called" is a pre-existing contract it sent a transaction to.
+An earlier revision folded both into one "Address" column, which made three
+different kinds of answer look alike.
+
+| Step | Created | Called | Tx | Block | Status |
+| --- | --- | --- | --- | --- | --- |
+| Deploy 2-of-2 Safe proxy | `0xb9c4179D0b25b813a641B5809E7b0fd05483eAD8` | factory `0x4e1DCf7A…` | `0xa0f4748f59c3faafc2db5bb13a2f9799b556a4a2e25d2992e9b3d4f50efb094d` | `11488271` | success |
+| Deploy `FabricaMarketplaceZone` | `0x892f9A7067a82Dbc49A3e557b08767C20fa1B061` | — | `0x6115e1328c4db228ef16c42cec067e31863687b04d43db1629a39121ccea4868` | `11488278` | success |
+| Mint fixture property token | — | `0xb52ED2Dc…` (token id `298855539945321607`) | `0xa593ba6909200465d98414c3e2e0b64348a03ecb709815c5e844fdc237883835` | `11488287` | success |
+| Seller approves Seaport 1.6 | — | `0xb52ED2Dc…` | `0x92d938906c80b4fdb9c6a77c1355a5cffa815ce4d7c9a89e8e4f5501cea36f0b` | `11488303` | success |
+| **Fulfill order through the new Zone** | — | Seaport `0x00000000…eB395` | `0xbec9380cae6c5bf8ef6383a483c75bfecc3cdbc7dd5004f201560bb6dddc9ddc` | `11488310` | success |
+| Deploy 1-of-1 control Safe | `0xF19896681Fe823a07044E8D58B2E25374771f3f2` | factory `0x4e1DCf7A…` | `0x7543c4dd68c207f2acae6e55af9775a03653d832a9f2132824b1f60be5a6b978` | `11488385` | success |
 
 Only the Zone deploy went through `forge script`, so it is the only step with a
 committed Foundry broadcast record
@@ -164,12 +169,17 @@ by transaction hash on Sepolia.
 The Zone is Etherscan-verified:
 <https://sepolia.etherscan.io/address/0x892f9a7067a82dbc49a3e557b08767c20fa1b061>
 
-⚠️ **`broadcast/FabricaMarketplaceZone.s.sol/11155111/run-latest.json` now points
-at a throwaway.** That file is the conventional "latest deployment on this chain"
-lookup, and this PR moves it from `0xa02015acdc…` (the production-stage Sepolia
-zone) to `0x892f9a70…`, whose signer is a Safe controlled by keys that are
-destroyed at wrap-up. The superseded record is preserved verbatim at
-`run-1768927198066.json`. Do not read `run-latest` as "the Sepolia Zone".
+**`run-latest.json` is deliberately NOT advanced by this PR.** Foundry rewrote it
+to point at `0x892f9a70…` during the broadcast, and that would have made the
+conventional "latest deployment on this chain" lookup resolve to a Zone whose
+signing keys are destroyed at wrap-up — a footgun for any future engineer or
+script that greps it. Nothing is lost by reverting it: `git hash-object` shows
+the rewritten `run-latest.json` was **byte-identical** to the timestamped
+`run-1786724003768.json` committed alongside it (`f658c5d5…` for both), so the
+timestamped file is the complete record of this deploy. The tracked
+`run-latest.json` therefore still points at `0xa02015acdc…`. This is a
+deliberate non-advance of a derived convenience pointer, not a gap in the
+broadcast history.
 
 ## End-to-end proof
 
@@ -259,12 +269,23 @@ internally instead of returning a non-magic value, so the Zone's comparison
 branch is never reached. Anyone writing alerting against this path should match
 on the Safe errors, not on `"Bad oracle sig"`.
 
+The EOA path has a **third** surface, worth stating because the obvious
+assumption is wrong there too: a malformed-length signature reverts with OZ's
+`ECDSAInvalidSignatureLength(uint256)` **custom error**, not with any string.
+The Zone's minimum `extraData` is 46 bytes and everything past it becomes the
+signature slice regardless of length, so this is reachable in production on
+every EOA-signer Zone. Covered by
+`testRevert_MalformedSignatureLengthOnEoaPathRevertsWithOzCustomError`.
+
 ## Test coverage
 
 Two files, doing deliberately different jobs.
 
-`test/FabricaMarketplaceZone.t.sol` — **source-level coverage, runs in ordinary
-CI with no RPC.** Adds `SafeLikeErc1271Signer`, modelling the Safe behaviours
+`test/SafeLikeErc1271Signer.sol` + `test/FabricaMarketplaceZone.t.sol` —
+**source-level coverage, runs in ordinary CI with no RPC.** The model lives in
+its own file rather than inside a `.t.sol`, so retiring the attestation (which
+carries a sunset) cannot silently delete permanent CI coverage. It models the
+Safe behaviours
 that decide whether a Safe can serve as `oracleSigner`: the SafeMessage EIP-712
 re-wrap, the empty-signature `signedMessages` branch, the `GS020` length gate,
 strict ascending-owner ordering, and both ECDSA (`v` 27/28) and `eth_sign`
@@ -277,23 +298,44 @@ it does **not** model contract-signature (`v == 0`) or pre-approved-hash
 (`v == 1`) owner slots, where a real Safe reverts `GS022`/`GS025` and the model
 reverts `GS026`. Acceptance results transfer to a real Safe; rejection results
 transfer only for the modelled branches. Hand-off finding 2 rests on source
-reading, not on any executed test. The model is pinned to the live Safe's re-wrap
-formula by `testFork_safeLikeModelMatchesTheLiveSafeReWrapFormula`, so drift from
-upstream Safe cannot be silent.
+reading, not on any executed test. Two further divergences understate real Safe's
+*cost* rather than its behaviour: `markMessageSigned` is unauthenticated where a
+real Safe requires a threshold-gated `SignMessageLib` delegatecall, and the
+`eth_sign` branch is verified against Safe v1.4.1 source only — unlike the
+re-wrap formula it has no live differential pin, because no `eth_sign`-owner Safe
+is among the pinned fixtures. The re-wrap formula itself IS pinned to the live
+Safe by `testFork_safeLikeModelMatchesTheLiveSafeReWrapFormula`, so drift there
+cannot be silent.
+
+**A better shape for item 2, recorded rather than deferred.** Safe v1.4.1 is
+canonical, published, immutable bytecode whose singleton and fallback-handler
+addresses this PR already pins. `vm.etch` of that runtime (or adding
+`safe-smart-account` as a pinned dependency) would give a *real* Safe in no-RPC
+CI at higher fidelity and less code, deleting the model, this fidelity boundary
+and the anti-drift test in one move. That is the right end state and it belongs
+with item 2, where a Safe dependency is needed anyway; doing it here would mean
+committing ~47 KB of etched bytecode or a new pinned dependency to replace test
+scaffolding whose load-bearing claim is already attested on-chain against a real
+1-of-1 Safe. The model's own fidelity defects found by the board — the
+`GS203`/`GS204` adjacency fold, `GS201`/`GS202` threshold codes, the missing
+`eth_sign` and `signedMessages` branches — were **fixed in this PR**, not
+deferred.
 
 **Non-vacuity, measured rather than asserted.** Two deliberate mutations of
 `src/FabricaMarketplaceZone.sol`, each run against the no-RPC suite:
 
 ```text
 MUTATION A — _verify removed from validateOrder
-  before this round:  16 passed, 0 failed   <- the gap
-  after:              17 passed, 4 failed   <- caught
+  before the fix:  16 passed,  0 failed   <- the gap
+  after:           23 passed,  4 failed   <- caught
 
 MUTATION B — zone corrupts the digest before the ERC-1271 call
-  after:              16 passed, 5 failed   <- caught
+  after:           22 passed,  5 failed   <- caught
 ```
 
-Mutation A also passed all 17 fork tests, which is the cleanest possible
+Independently reproduced by three review seats in their own worktree copies.
+
+Mutation A also passed all 19 fork tests, which is the cleanest possible
 demonstration that the fork file is an attestation and not regression coverage:
 it calls deployed immutable bytecode, so local source mutations cannot reach it.
 
@@ -309,18 +351,51 @@ Two limitations worth stating. The fork test re-derives `ZoneParameters` rather
 than replaying them byte-for-byte: the digest-relevant fields (`orderHash`,
 `expiry`, `definitionUrl`, `disclosurePackageId`) are the live values, while
 `fulfiller`, `offerer`, `consideration`, `startTime` and `endTime` are zeroed
-because `_verify` never reads them. And the consideration-side branch of
-`_verifyDefinitionUrl` (the buyer-bid path) has **no coverage anywhere in the
-repository** — not merely in this file — because every `ZoneParameters` builder
-in `test/`, pre-existing ones included, places the ERC-1155 item in `offer` and
-passes an empty `consideration`. That is a pre-existing gap this PR does not
-close.
+because `_verify` never reads them. The consideration-side branch of `_verifyDefinitionUrl` (the buyer-bid path) had
+**no coverage anywhere in the repository** before this PR, because every
+`ZoneParameters` builder in `test/` placed the ERC-1155 item in `offer`. Since
+centralising the builders was the cheapest moment to fix that, this PR adds
+`buildBidZoneParameters` and closes it —
+`testAuthorizeOrder_VerifiesDefinitionUrlOnTheConsiderationSideBid` and
+`testRevert_ConsiderationSideDefinitionUrlMismatch` now exercise the loop and its
+mismatch revert. It remains unexercised by the fork attestation, which pins an
+offer-side order.
 
 **Sunset.** This attestation's subject dies at wrap-up: once the owner keys are
 destroyed the Zone is permanently un-authorizable, and the pinned block sits
 2608 seconds (~217 blocks) below the authorization's expiry, so the fork block
 cannot be routinely bumped. Retire this file with the item-2 cutover rather than
 maintaining it.
+
+## Static analysis: what actually ran
+
+Recorded because "no findings" and "no run" are different claims, and the
+history here is not what a single snapshot suggests.
+
+**slither** was genuinely unavailable when this board started — a sibling lane
+measured `which slither` as not found at 16:51Z. It was installed (0.11.6) at
+~16:54Z under ENG-3801, and the round-3 solidity-security seat then ran it to
+completion against this repo: **14 contracts, 81 detectors, 5 results** in one
+seat's invocation, 84 results repo-wide in another. On
+`src/FabricaMarketplaceZone.sol` specifically: 0 high, 0 medium, and the
+informational `missing-zero-check` now carried as hand-off finding 8, plus
+timestamp-comparison and assembly-usage findings that are inherent to the
+contract's documented design and predate this PR. A separate, real second
+failure mode is worth recording for the next lane: invoking slither on a bare
+`.sol` file makes crytic-compile shell out to a system solc (0.8.20 here) which
+then rejects `pragma ^0.8.24`; point it at the Foundry project instead.
+
+**evmbench** remains unavailable. Its CLI and queue layer work — jobs were
+accepted and ran — but the detection backend returned `failed` with no error
+detail on every attempt (`a6b706d1-1d94-4586-9351-45f0dcc416d3`,
+`22a33e77-6a4a-4a76-ab58-6b506faed0a9`, `9c1a7eac-7280-47e9-919c-2009ffb8dd8f`,
+`728c3123-b49b-4f51-9752-510af3144672`). Tracked as ENG-3802. For evmbench this
+artifact records **0 findings OBTAINED, not 0 findings EXISTING** — its absence
+is not evidence of a clean baseline.
+
+**markdownlint** is not executable in an agent lane (the Node package runner is
+blocked by a repo hook and no local binary exists), so the markdown gates
+(MD022/MD032/MD040/MD058) were checked by manual pass rather than by tool.
 
 ## Where the Sepolia Zone address is consumed (the repoint surface)
 
@@ -335,9 +410,12 @@ maintaining it.
 
 **1. A config-only zone repoint cannot work for any Safe — 1-of-1 included.**
 `fabrica-v3-api` signs the fulfillment permission with a single EOA over the
-**Zone's** EIP-712 digest (`marketplace.service.ts` L1468-1471 builds
-`new Wallet(fulfillmentPermissionPrivateKey)`; L1506-1507 calls
-`_signTypedData` with `domain.verifyingContract` = the zone). A Safe does not
+**Zone's** EIP-712 digest. In `MarketplaceService.getFulfillmentPermission`:
+`new Wallet(fulfillmentPermissionPrivateKey)` at L1468-1471, the domain's
+`verifyingContract: order.seaportOrder.zone` at L1476, and the
+`wallet._signTypedData(...)` call at L1507. (Symbols are the durable anchor —
+line numbers are accurate at `fabrica-v3-api` `1c0ec1eb` and will drift.)
+A Safe does not
 accept that. Safe v1.4.1's `isValidSignature` re-wraps the incoming hash in the
 Safe's **own** EIP-712 domain — `SafeMessage(bytes message)` over
 `abi.encode(zoneDigest)` — and runs `checkSignatures` against that hash. The
@@ -387,7 +465,11 @@ the signature slice may be empty; Safe's `isValidSignature` branches on
 `signature.length == 0` to `require(safe.signedMessages(messageHash) != 0)`.
 Today that path is closed — probing it live on both Safes returns
 `Hash not approved` — but under Safe custody a `SignMessageLib` delegatecall
-would make an order fulfillable with **no signature bytes at all**.
+would make an order fulfillable with **no signature bytes at all**. Threshold is
+still enforced to *establish* the pre-approval: the delegatecall goes through
+`execTransaction`, which itself requires threshold owner signatures. What changes
+is that once established, the authorization needs no signature bytes in
+`extraData` at all.
 
 *Channel B — `approveHash` / the `v == 1` owner slot.* Safe's `checkNSignatures`
 treats a 65-byte slot with `v == 1` as "owner `r` has pre-approved this hash",
@@ -430,8 +512,31 @@ does nothing about this window.
 observed fill cost 233561 gas total on Sepolia; item 2 should price the
 per-fill delta on mainnet against the EOA path.
 
-None of these changes are implemented here — items 1, 2, 4 and 5 are
-`fabrica-v3-api` money-path signing code and out of scope for this lane.
+**7. EIP-7702 can flip the branch on a live EOA-signer Zone and brick it
+permanently.** `_verify` evaluates `oracleSigner.code.length` **per call**, not at
+construction. Post-Pectra (live on Sepolia and mainnet), an EOA that signs a 7702
+delegation has non-zero `EXTCODESIZE`, so the Zone silently stops taking the
+`ECDSA.recover` path and staticcalls `isValidSignature` on the delegate instead.
+Every order authorization on that Zone then fails permanently, and because
+`oracleSigner` is immutable the only remedy is a Zone redeploy plus a repoint of
+every consumer. The holder of `fulfillmentPermissionPrivateKey` can trigger this
+unilaterally on develop/staging/production **today**. This is the exact mirror of
+finding 3 on the side this hand-off otherwise treats as the safe baseline, and it
+argues for the migration rather than against it. Tracked separately.
+
+**8. The Zone constructor has no zero-address check on `_oracleSigner`.** Slither
+reports `missing-zero-check`; the parameter is immutable, so on mainnet a
+mistyped constructor argument produces a permanently dead Zone with only this
+document's parameter-review table standing between the two outcomes. It fails
+closed rather than open (address(0) takes the EOA branch and OZ ECDSA v5 reverts
+rather than recovering address(0)), so it is a bricking footgun, not an auth
+bypass. Cheap to add before the mainnet deploy.
+
+Findings 1, 2, 4 and 5 are `fabrica-v3-api` money-path signing code and out of
+scope for this lane; they are tracked on **ENG-3806** (`fabrica-v3-api`: sign
+Zone fulfillment permissions for a Safe/ERC-1271 `oracleSigner`), which carries
+the full evidence and the option table. Findings 3, 6, 7 and 8 are contract- and
+deploy-side inputs for the item-2 decision itself.
 
 ## Correction to the ticket's on-chain facts
 
@@ -489,6 +594,6 @@ closed:
   lane's scope. A branch carrying only an address swap would encode a change that
   is known not to function.
 
-Both need an operator decision, and the `fabrica-v3-api` signing change needs a
-tracked destination issue, before ENG-3687 closes. The staging and production
+Both need an operator decision before ENG-3687 closes. The `fabrica-v3-api`
+signing change now has a tracked destination: **ENG-3806**. The staging and production
 repoints belong to the item-2 cutover.
