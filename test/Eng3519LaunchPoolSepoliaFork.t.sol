@@ -63,7 +63,7 @@ interface ILaunchPool {
  * `Tick.decode` applies `oraclePrice` ONLY to Ratio-limit ticks; for an Absolute tick
  * the price is discarded. So a borrow sourced purely from Absolute ticks is
  * arithmetically INDEPENDENT of what the oracle returns — it proves the oracle is on
- * the borrow path and did not revert, nothing more. `test_oraclePriceMovesRatioCapacity`
+ * the borrow path and did not revert, nothing more. `test_oraclePriceMovesRatioCapacityButNotAbsolute`
  * is the test that actually binds price to dollars; the Absolute case is deliberately
  * kept alongside it to demonstrate the price-independence that ENG-3519's tick-policy
  * recommendation relies on.
@@ -119,7 +119,13 @@ contract Eng3519LaunchPoolSepoliaForkTest is ForkTestBase {
        discriminating — it cannot be satisfied by "first write" or "lowest source id"
        semantics. Every step below is inside the fact store's write band
        (maxUpBps 1500 / maxDownBps 5000 against the previous value for that source). */
-    uint128 internal constant PRICE_SEASONED = 80_000e6;
+    /* Two seasoned values, deliberately UNEQUAL and with the lower one on the higher
+       source id, so the floor's own MIN-over-sources is discriminating too — an
+       aggregator that took MAX anywhere in the chain would produce 84_000e6, not
+       80_000e6, and acceptance (a) would go red. */
+    uint128 internal constant PRICE_SEASONED_PRYCD = 84_000e6;
+    uint128 internal constant PRICE_SEASONED_OPENAVM = 80_000e6;
+    uint128 internal constant PRICE_SEASONED = PRICE_SEASONED_OPENAVM;
     /* +15% from seasoned: exactly maxUpBps, which _enforceBand permits. */
     uint128 internal constant PRICE_PRYCD = 92_000e6;
     /* +10% from seasoned, and the live MIN. */
@@ -136,12 +142,23 @@ contract Eng3519LaunchPoolSepoliaForkTest is ForkTestBase {
     uint128 internal constant TICK_ABSOLUTE = uint128(uint256(50_000e18) << 8);
     /* Ratio-limit tick: 5000 bps = 50% LTV, durIdx 0, rateIdx 0, type Ratio(1). */
     uint128 internal constant TICK_RATIO = uint128((uint256(5000) << 8) | 1);
+    /* ILiquidity.InsufficientLiquidity() — the only revert the capacity bisection may treat
+       as "boundary reached". Declared locally: ILiquidity lives in metastreet-contracts-v2. */
+    bytes4 internal constant INSUFFICIENT_LIQUIDITY_SELECTOR = bytes4(keccak256("InsufficientLiquidity()"));
+    uint24 internal constant CONFIDENCE_SCORE = 9000;
+    uint64 internal constant CYCLE = 1;
     uint256 internal constant LP_DEPOSIT = 10_000e6;
     /* Sized ABOVE both tick limits at both oracle prices (ratio limit is 44,000 then
        22,000 USDC; absolute limit is 50,000) so capacity is gated by the TICK, not by
        available liquidity. With a 10,000 deposit both ticks are liquidity-bound and
        the price coupling is invisible. */
     uint256 internal constant COUPLING_DEPOSIT = 60_000e6;
+    /* The coupling fixture disables the temporal floor so the usable price is exactly the
+       live MIN and the halving arithmetic is exact. Under the merged 24h window the price
+       moves 80,000 -> 44,000 (45%, not 50%), which is why the exact-halving assertion is
+       written against this fixture and the SHIPPED config is covered by the
+       cross-multiplied proportionality assertion in the same test. */
+    uint64 internal constant COUPLING_SEASONING_WINDOW = 0;
     uint256 internal constant PRINCIPAL = 1_000e6;
 
     FabricaAttributeOracle internal factStore;
@@ -243,7 +260,7 @@ contract Eng3519LaunchPoolSepoliaForkTest is ForkTestBase {
            (x1e12 for 6dp USDC) to it, so type(uint256).max overflows before any pool
            logic runs. Quote first, then bound the borrow by it. */
         uint256 quoted =
-            ILaunchPool(launchPool).quote(PRINCIPAL, BORROW_DURATION(), FABRICA_TOKEN, COLLATERAL_TOKEN_ID, ticks, "");
+            ILaunchPool(launchPool).quote(PRINCIPAL, _borrowDuration(), FABRICA_TOKEN, COLLATERAL_TOKEN_ID, ticks, "");
         console.log("acceptance(a): quoted repayment =", quoted);
         vm.startPrank(COLLATERAL_HOLDER);
         IERC1155(FABRICA_TOKEN).setApprovalForAll(launchPool, true);
@@ -251,7 +268,7 @@ contract Eng3519LaunchPoolSepoliaForkTest is ForkTestBase {
         /* options = "" => BorrowLogic._getOptionsData(OracleContext) yields EMPTY bytes. */
         uint256 repayment = ILaunchPool(launchPool)
             .borrow(
-                COLLATERAL_HOLDER, PRINCIPAL, BORROW_DURATION(), FABRICA_TOKEN, COLLATERAL_TOKEN_ID, quoted, ticks, ""
+                COLLATERAL_HOLDER, PRINCIPAL, _borrowDuration(), FABRICA_TOKEN, COLLATERAL_TOKEN_ID, quoted, ticks, ""
             );
         vm.stopPrank();
         assertEq(repayment, quoted, "borrow repayment matches the quote");
@@ -281,10 +298,21 @@ contract Eng3519LaunchPoolSepoliaForkTest is ForkTestBase {
         assertEq(basePrice, EXPECTED_LIVE_MIN, "floor disabled: usable price is the live MIN");
         uint256 ratioBefore = _maxBorrowable(couplingPool, TICK_RATIO, COUPLING_DEPOSIT);
         uint256 absoluteBefore = _maxBorrowable(couplingPool, TICK_ABSOLUTE, COUPLING_DEPOSIT);
+        /* Pin the ABSOLUTE values the report publishes, and pin the fixture invariant the
+           whole proof rests on: both capacities must be TICK-bound, not deposit-bound.
+           Without these, `assertEq(absoluteAfter, absoluteBefore)` is satisfied by 0 == 0
+           and by cap-clamping, and the published 44,000 / 22,000 / 50,000 figures are
+           backed only by console.log. */
+        assertEq(ratioBefore, (basePrice * 5000) / 10_000, "ratio depth == oraclePrice * bps");
+        assertEq(ratioBefore, 44_000e6, "published ratio capacity");
+        assertEq(absoluteBefore, 50_000e6, "published absolute capacity == the tick's absolute limit");
         assertGt(ratioBefore, 0, "ratio tick must fund something before the price moves");
+        assertGt(absoluteBefore, 0, "absolute tick must fund something before the price moves");
+        assertLt(ratioBefore, COUPLING_DEPOSIT, "ratio capacity must be tick-bound, not deposit-bound");
+        assertLt(absoluteBefore, COUPLING_DEPOSIT, "absolute capacity must be tick-bound, not deposit-bound");
         /* Halve each source against its own previous value: exactly maxDownBps, which
            _enforceBand permits (it reverts only on strictly-below). */
-        vm.warp(block.timestamp + factStoreKnobs().minWriteInterval + 1);
+        vm.warp(block.timestamp + factStore.minWriteInterval() + 1);
         _writePrice(SOURCE_PRYCD, PRICE_PRYCD / 2);
         _writePrice(SOURCE_OPENAVM, PRICE_OPENAVM / 2);
         uint256 halvedPrice =
@@ -296,7 +324,14 @@ contract Eng3519LaunchPoolSepoliaForkTest is ForkTestBase {
            This is the assertion acceptance (a) cannot make, and it is also the
            executable form of the tick-policy recommendation in the ENG-3519 report. */
         assertEq(ratioAfter, ratioBefore / 2, "Ratio capacity scales with oracle price");
+        assertEq(ratioAfter, (halvedPrice * 5000) / 10_000, "ratio depth still == oraclePrice * bps");
         assertEq(absoluteAfter, absoluteBefore, "Absolute capacity is price-independent");
+        assertEq(absoluteAfter, 50_000e6, "absolute capacity unchanged in absolute terms");
+        /* Cross-multiplied form, which holds under ANY seasoningWindow — including the
+           merged 24h config this fixture disables. Under the launch config the price
+           moves 80,000 -> 44,000 (the floor makes the first step sticky), so the exact
+           halving above would not hold, but this proportionality does. */
+        assertEq(ratioAfter * basePrice, ratioBefore * halvedPrice, "ratio depth is proportional to oracle price");
         console.log("coupling: oracle price   before/after =", basePrice, halvedPrice);
         console.log("coupling: RATIO capacity before/after =", ratioBefore, ratioAfter);
         console.log("coupling: ABS   capacity before/after =", absoluteBefore, absoluteAfter);
@@ -308,7 +343,7 @@ contract Eng3519LaunchPoolSepoliaForkTest is ForkTestBase {
        ===================================================================== */
     function test_acceptanceB_deadHeartbeatRefusesNewBorrows() public {
         assertTrue(factStore.isHeartbeatFresh(VALIDATOR_ID), "heartbeat fresh pre-warp");
-        uint64 maxSilence = factStore.defaultKnobs().maxSilence;
+        uint64 maxSilence = factStore.maxSilence();
         vm.warp(block.timestamp + maxSilence + 1);
         assertFalse(factStore.isHeartbeatFresh(VALIDATOR_ID), "heartbeat dead post-warp");
         bytes memory expectedRevert =
@@ -328,7 +363,7 @@ contract Eng3519LaunchPoolSepoliaForkTest is ForkTestBase {
             .borrow(
                 COLLATERAL_HOLDER,
                 PRINCIPAL,
-                BORROW_DURATION(),
+                _borrowDuration(),
                 FABRICA_TOKEN,
                 COLLATERAL_TOKEN_ID,
                 PRINCIPAL * 2,
@@ -366,7 +401,7 @@ contract Eng3519LaunchPoolSepoliaForkTest is ForkTestBase {
 
     function _quotable(address pool, uint128[] memory ticks, uint256 principal) internal view returns (bool) {
         try ILaunchPool(pool)
-            .quote(principal, BORROW_DURATION(), FABRICA_TOKEN, COLLATERAL_TOKEN_ID, ticks, "") returns (
+            .quote(principal, _borrowDuration(), FABRICA_TOKEN, COLLATERAL_TOKEN_ID, ticks, "") returns (
             uint256
         ) {
             return true;
@@ -375,26 +410,14 @@ contract Eng3519LaunchPoolSepoliaForkTest is ForkTestBase {
         }
     }
 
-    /* Second aggregator + pool with the temporal floor disabled (seasoningWindow = 0),
-       so the coupling test observes live MIN directly. All other knobs are merged values. */
+    /* Second aggregator + pool with the temporal floor disabled, so the coupling test
+       observes the live MIN directly. All other knobs are the merged values. */
     function _deployCouplingFixture() internal returns (address pool) {
-        uint8[] memory sourceIds = new uint8[](2);
-        sourceIds[0] = SOURCE_PRYCD;
-        sourceIds[1] = SOURCE_OPENAVM;
-        couplingAggregator = new FabricaOracleAggregator(
-            oracleOwner,
-            address(factStore),
-            USDC,
-            VALIDATOR_ID,
-            sourceIds,
-            0,
-            MAX_JUMP_BPS,
-            MAX_DISPERSION_BPS,
-            MIN_LIVE_SOURCES
-        );
-        vm.prank(oracleOwner);
-        couplingAggregator.renounceAggregator();
+        couplingAggregator = _deployRenouncedAggregator(COUPLING_SEASONING_WINDOW);
+        assertEq(couplingAggregator.seasoningWindow(), 0, "coupling fixture disables the temporal floor");
+        assertTrue(couplingAggregator.renounced(), "coupling aggregator renounced");
         pool = _createLaunchPool(address(couplingAggregator));
+        assertEq(ILaunchPool(pool).priceOracle(), address(couplingAggregator), "coupling pool wired");
         _fundAndDepositAmount(pool, COUPLING_DEPOSIT);
     }
 
@@ -402,9 +425,10 @@ contract Eng3519LaunchPoolSepoliaForkTest is ForkTestBase {
         /* defaultKnobs() is `external pure`, so it needs an instance to call but its
            result does not depend on that instance's config. Deploy a throwaway with
            deliberately non-default bootstrap values, read the canonical defaults off it,
-           then deploy the real store with those. This keeps ZERO hand-copied duplicate
-           of the merged defaults in this file (the sibling copy in
-           FabricaAttributeOracle.t.sol has already drifted: historyDepth 8 vs 48). */
+           then deploy the real store with those. This keeps ZERO hand-copied duplicate of
+           the merged defaults in this file. (`historyDepth` is constructor-immutable and
+           `setKnobs` does not cover it, so the defaults cannot be reconstructed
+           post-deploy — hence the throwaway rather than a setter.) */
         FabricaAttributeOracle bootstrap = new FabricaAttributeOracle(oracleOwner, _bootstrapKnobs());
         factStore = new FabricaAttributeOracle(oracleOwner, bootstrap.defaultKnobs());
         vm.startPrank(oracleOwner);
@@ -414,11 +438,11 @@ contract Eng3519LaunchPoolSepoliaForkTest is ForkTestBase {
         factStore.register(VALIDATOR_ID, COLLATERAL_TOKEN_ID);
         vm.stopPrank();
         /* Clear registrySeasonDelay so isRegistrySeasoned() passes. */
-        vm.warp(block.timestamp + factStoreKnobs().registrySeasonDelay + 1);
+        vm.warp(block.timestamp + factStore.registrySeasonDelay() + 1);
         /* Seed a seasoned observation first, then warp a full seasoning window so the
            temporal floor has something older than `now - seasoningWindow` to find. */
-        _writePrice(SOURCE_PRYCD, PRICE_SEASONED);
-        _writePrice(SOURCE_OPENAVM, PRICE_SEASONED);
+        _writePrice(SOURCE_PRYCD, PRICE_SEASONED_PRYCD);
+        _writePrice(SOURCE_OPENAVM, PRICE_SEASONED_OPENAVM);
         vm.warp(block.timestamp + SEASONING_WINDOW + 1);
         _writePrice(SOURCE_PRYCD, PRICE_PRYCD);
         _writePrice(SOURCE_OPENAVM, PRICE_OPENAVM);
@@ -449,25 +473,31 @@ contract Eng3519LaunchPoolSepoliaForkTest is ForkTestBase {
     }
 
     function _deployAndRenounceAggregator() internal {
+        /* Renounce BEFORE the pool points at it — the launch invariant. */
+        aggregator = _deployRenouncedAggregator(SEASONING_WINDOW);
+        assertTrue(aggregator.renounced(), "aggregator renounced");
+        assertEq(aggregator.owner(), address(0), "renounce clears ownership");
+    }
+
+    /* Single construction site for the aggregator so the launch fixture and the coupling
+       fixture cannot drift apart on the eight knobs they must share. */
+    function _deployRenouncedAggregator(uint64 seasoningWindow) internal returns (FabricaOracleAggregator agg) {
         uint8[] memory sourceIds = new uint8[](2);
         sourceIds[0] = SOURCE_PRYCD;
         sourceIds[1] = SOURCE_OPENAVM;
-        aggregator = new FabricaOracleAggregator(
+        agg = new FabricaOracleAggregator(
             oracleOwner,
             address(factStore),
             USDC,
             VALIDATOR_ID,
             sourceIds,
-            SEASONING_WINDOW,
+            seasoningWindow,
             MAX_JUMP_BPS,
             MAX_DISPERSION_BPS,
             MIN_LIVE_SOURCES
         );
-        /* Renounce BEFORE the pool points at it — the launch invariant. */
         vm.prank(oracleOwner);
-        aggregator.renounceAggregator();
-        assertTrue(aggregator.renounced(), "aggregator renounced");
-        assertEq(aggregator.owner(), address(0), "renounce clears ownership");
+        agg.renounceAggregator();
     }
 
     function _createLaunchPool(address priceOracle) internal returns (address) {
@@ -508,8 +538,10 @@ contract Eng3519LaunchPoolSepoliaForkTest is ForkTestBase {
         arr[0] = value;
     }
 
-    /* The merged defaults, read off the deployed store — never mirrored locally. */
-    function factStoreKnobs() internal view returns (FabricaAttributeOracle.KnobConfig memory) {
+    /* The merged defaults as DOCUMENTED by the contract. `defaultKnobs()` is `external
+       pure`, so this is the canonical table, NOT the deployed store's configuration —
+       use the live getters below for anything that must track the actual deployment. */
+    function _mergedDefaultKnobs() internal view returns (FabricaAttributeOracle.KnobConfig memory) {
         return factStore.defaultKnobs();
     }
 
@@ -532,12 +564,9 @@ contract Eng3519LaunchPoolSepoliaForkTest is ForkTestBase {
     /* The tick's durIdx — not this value — selects the rate tier: TICK_ABSOLUTE and
        TICK_RATIO both encode durIdx 0 / rateIdx 0, so rates[0] applies even though the
        borrow duration is the shortest tier. */
-    function BORROW_DURATION() internal pure returns (uint64) {
+    function _borrowDuration() internal pure returns (uint64) {
         return _launchDurations()[7];
     }
-
-    uint24 internal constant CONFIDENCE_SCORE = 9000;
-    uint64 internal constant CYCLE = 1;
 
     /* Launch durations/rates, verbatim from metastreet-contracts-v2's
        script/FabricaLendingPoolCreateWithAggregator.s.sol. Cross-repo, so they cannot
