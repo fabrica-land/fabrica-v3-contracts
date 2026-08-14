@@ -3,6 +3,7 @@ pragma solidity ^0.8.28;
 
 import {FabricaMarketplaceZone} from "../src/FabricaMarketplaceZone.sol";
 import {ForkTestBase} from "./ForkTestBase.sol";
+import {ZoneAuthorizationFixture} from "./ZoneAuthorizationFixture.sol";
 import {SafeLikeErc1271Signer} from "./FabricaMarketplaceZone.t.sol";
 import {ZoneParameters, SpentItem, ReceivedItem, ItemType} from "../lib/seaport-types/src/lib/ConsiderationStructs.sol";
 
@@ -316,27 +317,14 @@ contract FabricaMarketplaceZoneSepoliaErc1271ForkTest is ForkTestBase {
         return one;
     }
 
-    /// @dev extraData layout: expiry(8) | defUrlLen(2) | defUrl(N) | dpId(36) | signature.
     function _zoneParameters(bytes memory signature) internal pure returns (ZoneParameters memory) {
-        bytes memory definitionUrl = bytes(DEFINITION_URL);
-        bytes memory extraData = abi.encodePacked(
-            EXPIRY, uint16(definitionUrl.length), definitionUrl, bytes(DISCLOSURE_PACKAGE_ID), signature
+        return ZoneAuthorizationFixture.buildZoneParameters(
+            ORDER_HASH,
+            ZoneAuthorizationFixture.buildExtraData(EXPIRY, DEFINITION_URL, DISCLOSURE_PACKAGE_ID, signature),
+            FABRICA_TOKEN,
+            TOKEN_ID,
+            0,
+            0
         );
-        SpentItem[] memory offer = new SpentItem[](1);
-        offer[0] = SpentItem({itemType: ItemType.ERC1155, token: FABRICA_TOKEN, identifier: TOKEN_ID, amount: 1});
-        bytes32[] memory orderHashes = new bytes32[](1);
-        orderHashes[0] = ORDER_HASH;
-        return ZoneParameters({
-            orderHash: ORDER_HASH,
-            fulfiller: address(0),
-            offerer: address(0),
-            offer: offer,
-            consideration: new ReceivedItem[](0),
-            extraData: extraData,
-            orderHashes: orderHashes,
-            startTime: 0,
-            endTime: 0,
-            zoneHash: bytes32(0)
-        });
     }
 }

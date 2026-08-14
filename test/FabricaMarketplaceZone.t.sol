@@ -3,6 +3,7 @@ pragma solidity ^0.8.24;
 
 import "forge-std/Test.sol";
 import {FabricaMarketplaceZone} from "../src/FabricaMarketplaceZone.sol";
+import {ZoneAuthorizationFixture} from "./ZoneAuthorizationFixture.sol";
 import {ZoneParameters, SpentItem, ReceivedItem, ItemType} from "../lib/seaport-types/src/lib/ConsiderationStructs.sol";
 
 // Mock FabricaToken for testing
@@ -235,11 +236,7 @@ contract FabricaMarketplaceZoneTest is Test {
         string memory disclosurePackageId,
         bytes memory signature
     ) internal pure returns (bytes memory) {
-        bytes memory defUrlBytes = bytes(definitionUrl);
-        bytes memory dpIdBytes = bytes(disclosurePackageId);
-
-        // expiry (8 bytes) + defUrlLen (2 bytes) + defUrl (N bytes) + dpId (36 bytes) + sig
-        return abi.encodePacked(expiry, uint16(defUrlBytes.length), defUrlBytes, dpIdBytes, signature);
+        return ZoneAuthorizationFixture.buildExtraData(expiry, definitionUrl, disclosurePackageId, signature);
     }
 
     function _buildZoneParameters(bytes32 orderHash, bytes memory extraData, address tokenAddress, uint256 tokenId)
@@ -247,26 +244,9 @@ contract FabricaMarketplaceZoneTest is Test {
         view
         returns (ZoneParameters memory)
     {
-        // Build offer with ERC1155 item
-        SpentItem[] memory offer = new SpentItem[](1);
-        offer[0] = SpentItem({itemType: ItemType.ERC1155, token: tokenAddress, identifier: tokenId, amount: 1});
-
-        ReceivedItem[] memory consideration = new ReceivedItem[](0);
-        bytes32[] memory orderHashes = new bytes32[](1);
-        orderHashes[0] = orderHash;
-
-        return ZoneParameters({
-            orderHash: orderHash,
-            fulfiller: address(0),
-            offerer: address(0),
-            offer: offer,
-            consideration: consideration,
-            extraData: extraData,
-            orderHashes: orderHashes,
-            startTime: block.timestamp,
-            endTime: block.timestamp + 1 days,
-            zoneHash: bytes32(0)
-        });
+        return ZoneAuthorizationFixture.buildZoneParameters(
+            orderHash, extraData, tokenAddress, tokenId, block.timestamp, block.timestamp + 1 days
+        );
     }
 
     function testAuthorizeOrder_ValidSignatureNoDefinitionUrl() public {
