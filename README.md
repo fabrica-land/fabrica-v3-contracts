@@ -111,3 +111,7 @@ forge script \
     --sig "run(address)" \
     "$ORACLE_SIGNER_ADDRESS"
 ```
+
+## License
+
+[MIT](LICENSE)
