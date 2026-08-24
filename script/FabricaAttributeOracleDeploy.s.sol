@@ -4,10 +4,20 @@ pragma solidity ^0.8.24;
 import {Script, console2} from "forge-std/Script.sol";
 import {FabricaAttributeOracle} from "../src/FabricaAttributeOracle.sol";
 
-contract FabricaAttributeOracleDeployScript is Script {
+abstract contract RuntimeDefaultsReader is Script {
+    error DefaultsRuntimeUnavailable();
+
+    function _etchRuntimeReader(string memory artifact, address reader) internal returns (address) {
+        bytes memory runtime = vm.getDeployedCode(artifact);
+        if (runtime.length == 0) revert DefaultsRuntimeUnavailable();
+        vm.etch(reader, runtime);
+        return reader;
+    }
+}
+
+contract FabricaAttributeOracleDeployScript is RuntimeDefaultsReader {
     error InvalidAttributeOracleOwner();
     error AttributeOracleOwnerMustBeContract();
-    error DefaultsRuntimeUnavailable();
     error DefaultKnobsReadbackMismatch();
 
     address internal constant DEFAULTS_READER = 0x00000000000000000000000000000000Fa0D0001;
@@ -33,10 +43,8 @@ contract FabricaAttributeOracleDeployScript is Script {
     }
 
     function _defaultKnobsFromContractRuntime() internal returns (FabricaAttributeOracle.KnobConfig memory knobs) {
-        bytes memory runtime = vm.getDeployedCode("src/FabricaAttributeOracle.sol:FabricaAttributeOracle");
-        if (runtime.length == 0) revert DefaultsRuntimeUnavailable();
-        vm.etch(DEFAULTS_READER, runtime);
-        return FabricaAttributeOracle(DEFAULTS_READER).defaultKnobs();
+        address reader = _etchRuntimeReader("src/FabricaAttributeOracle.sol:FabricaAttributeOracle", DEFAULTS_READER);
+        return FabricaAttributeOracle(reader).defaultKnobs();
     }
 
     function _logKnobs(string memory label, FabricaAttributeOracle.KnobConfig memory knobs) internal pure {

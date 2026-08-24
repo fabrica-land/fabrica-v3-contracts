@@ -1,16 +1,16 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity ^0.8.24;
 
-import {Script, console2} from "forge-std/Script.sol";
+import {console2} from "forge-std/Script.sol";
+import {RuntimeDefaultsReader} from "./FabricaAttributeOracleDeploy.s.sol";
 import {FabricaOracleAggregator} from "../src/FabricaOracleAggregator.sol";
 
 interface ICurrencyTokenPool {
     function currencyToken() external view returns (address);
 }
 
-contract FabricaOracleAggregatorDeployScript is Script {
+contract FabricaOracleAggregatorDeployScript is RuntimeDefaultsReader {
     error InvalidBroadcastSigner();
-    error DefaultsRuntimeUnavailable();
     error InvalidFactStore();
     error InvalidUsdc();
     error InvalidCanonicalUsdc(address configuredUsdc);
@@ -141,11 +141,9 @@ contract FabricaOracleAggregatorDeployScript is Script {
         internal
         returns (uint64 seasoningWindow, uint16 maxJumpBps, uint16 maxDispersionBps, uint8 minLiveSources)
     {
-        bytes memory runtime = vm.getDeployedCode("src/FabricaOracleAggregator.sol:FabricaOracleAggregator");
-        if (runtime.length == 0) revert DefaultsRuntimeUnavailable();
-        vm.etch(DEFAULTS_READER, runtime);
+        address reader = _etchRuntimeReader("src/FabricaOracleAggregator.sol:FabricaOracleAggregator", DEFAULTS_READER);
         (seasoningWindow, maxJumpBps, maxDispersionBps, minLiveSources,,) =
-            FabricaOracleAggregator(DEFAULTS_READER).designReviewDefaults();
+            FabricaOracleAggregator(reader).designReviewDefaults();
     }
 
     function _sourceIds() internal view returns (uint8[] memory ids) {
