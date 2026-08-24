@@ -16,6 +16,7 @@ contract FabricaOracleAggregatorDeployScript is RuntimeDefaultsReader {
     error InvalidCanonicalUsdc(address configuredUsdc);
     error InvalidTargetPool();
     error InvalidSourceId(uint256 sourceId);
+    error DuplicateSourceId(uint8 sourceId);
     error InvalidUint64(uint256 value);
     error InvalidMinLiveSources(uint256 minLiveSources);
     error InvalidBps(uint256 bps);
@@ -129,6 +130,7 @@ contract FabricaOracleAggregatorDeployScript is RuntimeDefaultsReader {
         if (params.usdc == address(0) || params.usdc.code.length == 0) revert InvalidUsdc();
         _validateCanonicalUsdc(params.usdc);
         if (params.targetPool == address(0) || params.targetPool.code.length == 0) revert InvalidTargetPool();
+        _validateUniqueSourceIds(params.sourceIds);
         if (params.sourceIds.length < params.minLiveSources) revert InvalidMinLiveSources(params.minLiveSources);
     }
 
@@ -152,6 +154,15 @@ contract FabricaOracleAggregatorDeployScript is RuntimeDefaultsReader {
         for (uint256 i; i < configured.length; ++i) {
             if (configured[i] > type(uint8).max) revert InvalidSourceId(configured[i]);
             ids[i] = uint8(configured[i]);
+        }
+        _validateUniqueSourceIds(ids);
+    }
+
+    function _validateUniqueSourceIds(uint8[] memory sourceIds) internal pure {
+        for (uint256 i; i < sourceIds.length; ++i) {
+            for (uint256 j = i + 1; j < sourceIds.length; ++j) {
+                if (sourceIds[i] == sourceIds[j]) revert DuplicateSourceId(sourceIds[i]);
+            }
         }
     }
 
