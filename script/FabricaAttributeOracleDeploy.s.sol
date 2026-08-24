@@ -6,9 +6,11 @@ import {FabricaAttributeOracle} from "../src/FabricaAttributeOracle.sol";
 
 contract FabricaAttributeOracleDeployScript is Script {
     error InvalidAttributeOracleOwner();
+    error MainnetAttributeOracleOwnerMustBeContract();
     error DefaultsRuntimeUnavailable();
     error DefaultKnobsReadbackMismatch();
 
+    uint256 internal constant MAINNET_CHAIN_ID = 1;
     address internal constant DEFAULTS_READER = 0x00000000000000000000000000000000Fa0D0001;
 
     function run() external returns (FabricaAttributeOracle oracle) {
@@ -17,12 +19,15 @@ contract FabricaAttributeOracleDeployScript is Script {
 
     function _deploy(address owner) internal returns (FabricaAttributeOracle oracle) {
         if (owner == address(0)) revert InvalidAttributeOracleOwner();
+        if (block.chainid == MAINNET_CHAIN_ID && owner.code.length == 0) {
+            revert MainnetAttributeOracleOwnerMustBeContract();
+        }
 
         FabricaAttributeOracle.KnobConfig memory knobs = _defaultKnobsFromContractRuntime();
 
         console2.log("FabricaAttributeOracle owner:", owner);
         _logKnobs("Default knobs:", knobs);
-        console2.log("Sepolia owner may be an EOA; mainnet owner must be a Safe.");
+        console2.log("Sepolia owner may be an EOA; mainnet owner must be a Safe/contract.");
 
         vm.startBroadcast();
         oracle = new FabricaAttributeOracle(owner, knobs);

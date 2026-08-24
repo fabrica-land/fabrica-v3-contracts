@@ -405,8 +405,12 @@ contract Eng3519LaunchPoolSepoliaForkTest is ForkTestBase {
             uint256
         ) {
             return true;
-        } catch {
-            return false;
+        } catch (bytes memory err) {
+            // forge-lint: disable-next-line(unsafe-typecast)
+            if (err.length >= 4 && bytes4(err) == INSUFFICIENT_LIQUIDITY_SELECTOR) {
+                return false;
+            }
+            revert("unexpected quote revert during capacity bisection");
         }
     }
 
@@ -536,13 +540,6 @@ contract Eng3519LaunchPoolSepoliaForkTest is ForkTestBase {
     function _singleton(uint256 value) internal pure returns (uint256[] memory arr) {
         arr = new uint256[](1);
         arr[0] = value;
-    }
-
-    /* The merged defaults as DOCUMENTED by the contract. `defaultKnobs()` is `external
-       pure`, so this is the canonical table, NOT the deployed store's configuration —
-       use the live getters below for anything that must track the actual deployment. */
-    function _mergedDefaultKnobs() internal view returns (FabricaAttributeOracle.KnobConfig memory) {
-        return factStore.defaultKnobs();
     }
 
     /* Deliberately NOT the merged defaults: only used to construct the throwaway

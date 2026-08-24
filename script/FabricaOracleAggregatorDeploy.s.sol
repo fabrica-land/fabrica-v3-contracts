@@ -10,6 +10,7 @@ interface ICurrencyTokenPool {
 
 contract FabricaOracleAggregatorDeployScript is Script {
     error InvalidBroadcastSigner();
+    error DefaultsRuntimeUnavailable();
     error InvalidFactStore();
     error InvalidUsdc();
     error InvalidTargetPool();
@@ -21,15 +22,26 @@ contract FabricaOracleAggregatorDeployScript is Script {
     error AggregatorNotRenounced();
     error AggregatorReadbackMismatch();
 
+    address internal constant DEFAULTS_READER = 0x00000000000000000000000000000000FA0D0002;
+
     function run() external returns (FabricaOracleAggregator aggregator) {
         address factStore = vm.envAddress("FABRICA_ATTRIBUTE_ORACLE");
         address usdc = vm.envAddress("FABRICA_LENDING_USDC");
         address targetPool = vm.envAddress("FABRICA_LENDING_TARGET_POOL");
         uint256 validatorId = vm.envUint("FABRICA_VALIDATOR_ID");
-        uint64 seasoningWindow = _uint64(vm.envOr("FABRICA_AGGREGATOR_SEASONING_WINDOW", uint256(1 days)));
-        uint16 maxJumpBps = _bps(vm.envOr("FABRICA_AGGREGATOR_MAX_JUMP_BPS", uint256(5000)));
-        uint16 maxDispersionBps = _bps(vm.envOr("FABRICA_AGGREGATOR_MAX_DISPERSION_BPS", uint256(20_000)));
-        uint8 minLiveSources = _uint8MinLiveSources(vm.envOr("FABRICA_AGGREGATOR_MIN_LIVE_SOURCES", uint256(2)));
+        (
+            uint64 defaultSeasoningWindow,
+            uint16 defaultMaxJumpBps,
+            uint16 defaultMaxDispersionBps,
+            uint8 defaultMinLiveSources
+        ) = _designReviewDefaultsFromContractRuntime();
+        uint64 seasoningWindow =
+            _uint64(vm.envOr("FABRICA_AGGREGATOR_SEASONING_WINDOW", uint256(defaultSeasoningWindow)));
+        uint16 maxJumpBps = _bps(vm.envOr("FABRICA_AGGREGATOR_MAX_JUMP_BPS", uint256(defaultMaxJumpBps)));
+        uint16 maxDispersionBps =
+            _bps(vm.envOr("FABRICA_AGGREGATOR_MAX_DISPERSION_BPS", uint256(defaultMaxDispersionBps)));
+        uint8 minLiveSources =
+            _uint8MinLiveSources(vm.envOr("FABRICA_AGGREGATOR_MIN_LIVE_SOURCES", uint256(defaultMinLiveSources)));
         uint8[] memory sourceIds = _sourceIds();
 
         return _deploy(
@@ -120,6 +132,18 @@ contract FabricaOracleAggregatorDeployScript is Script {
         if (usdc == address(0) || usdc.code.length == 0) revert InvalidUsdc();
         if (targetPool == address(0) || targetPool.code.length == 0) revert InvalidTargetPool();
         if (sourceIds.length < minLiveSources) revert InvalidMinLiveSources(minLiveSources);
+    }
+
+    function _designReviewDefaultsFromContractRuntime()
+        internal
+        returns (uint64 seasoningWindow, uint16 maxJumpBps, uint16 maxDispersionBps, uint8 minLiveSources)
+    {
+        bytes memory runtime = vm.getDeployedCode("src/FabricaOracleAggregator.sol:FabricaOracleAggregator");
+        if (runtime.length == 0) revert DefaultsRuntimeUnavailable();
+
+        vm.etch(DEFAULTS_READER, runtime);
+        (seasoningWindow, maxJumpBps, maxDispersionBps, minLiveSources,,) =
+            FabricaOracleAggregator(DEFAULTS_READER).designReviewDefaults();
     }
 
     function _sourceIds() internal view returns (uint8[] memory ids) {
