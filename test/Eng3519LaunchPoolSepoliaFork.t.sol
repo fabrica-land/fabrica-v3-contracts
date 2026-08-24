@@ -147,7 +147,9 @@ contract Eng3519LaunchPoolSepoliaForkTest is ForkTestBase {
     bytes4 internal constant INSUFFICIENT_LIQUIDITY_SELECTOR = bytes4(keccak256("InsufficientLiquidity()"));
     uint24 internal constant CONFIDENCE_SCORE = 9000;
     uint64 internal constant CYCLE = 1;
-    uint256 internal constant LP_DEPOSIT = 10_000e6;
+    /* Large enough that Ratio capacity on the launch pool is oracle-bound, not
+       deposit-bound. This keeps acceptance (a) from becoming oracle-inert. */
+    uint256 internal constant LP_DEPOSIT = 60_000e6;
     /* Sized ABOVE both tick limits at both oracle prices (ratio limit is 44,000 then
        22,000 USDC; absolute limit is 50,000) so capacity is gated by the TICK, not by
        available liquidity. With a 10,000 deposit both ticks are liquidity-bound and
@@ -254,7 +256,14 @@ contract Eng3519LaunchPoolSepoliaForkTest is ForkTestBase {
         assertEq(oraclePrice, EXPECTED_USABLE_PRICE, "temporal floor over MIN of live sources");
         assertLt(EXPECTED_USABLE_PRICE, EXPECTED_LIVE_MIN, "fixture: the floor must actually bind");
         console.log("acceptance(a): aggregator.price with empty context =", oraclePrice);
-        uint128[] memory ticks = _ticks(TICK_ABSOLUTE);
+        uint128[] memory ticks = _ticks(TICK_RATIO);
+        uint256 ratioCapacityBefore = _maxBorrowable(launchPool, TICK_RATIO, LP_DEPOSIT);
+        assertEq(
+            ratioCapacityBefore, (oraclePrice * 5000) / 10_000, "acceptance(a): Ratio capacity must be oracle-priced"
+        );
+        assertEq(ratioCapacityBefore, 40_000e6, "acceptance(a): published ratio capacity at usable price");
+        assertGt(ratioCapacityBefore, PRINCIPAL, "acceptance(a): principal fits inside oracle-priced Ratio cap");
+        assertLt(ratioCapacityBefore, LP_DEPOSIT, "acceptance(a): capacity is oracle-bound, not deposit-bound");
         uint256 borrowerUsdcBefore = IERC20(USDC).balanceOf(COLLATERAL_HOLDER);
         /* maxRepayment must stay well inside uint256 — Pool.borrow applies _scale()
            (x1e12 for 6dp USDC) to it, so type(uint256).max overflows before any pool
@@ -278,8 +287,22 @@ contract Eng3519LaunchPoolSepoliaForkTest is ForkTestBase {
         );
         assertEq(IERC1155(FABRICA_TOKEN).balanceOf(COLLATERAL_HOLDER, COLLATERAL_TOKEN_ID), 0, "collateral escrowed");
         assertTrue(_sawLoanOriginated(vm.getRecordedLogs(), launchPool), "LoanOriginated emitted by the launch pool");
+        vm.warp(block.timestamp + factStore.minWriteInterval() + 1);
+        _writePrice(SOURCE_PRYCD, PRICE_PRYCD / 2);
+        _writePrice(SOURCE_OPENAVM, PRICE_OPENAVM / 2);
+        uint256 oraclePriceAfter = _price();
+        uint256 ratioCapacityAfter = _maxBorrowable(launchPool, TICK_RATIO, LP_DEPOSIT);
+        assertEq(oraclePriceAfter, PRICE_OPENAVM / 2, "acceptance(a): oracle price moved after source halving");
+        assertEq(
+            ratioCapacityAfter,
+            (oraclePriceAfter * 5000) / 10_000,
+            "acceptance(a): Ratio capacity still tracks oracle price"
+        );
+        assertLt(ratioCapacityAfter, ratioCapacityBefore, "acceptance(a): lower oracle price reduces Ratio capacity");
+        assertLt(ratioCapacityAfter, 30_000e6, "acceptance(a): mutation would reject a now-over-cap borrow");
         console.log("acceptance(a): principal  =", PRINCIPAL);
         console.log("acceptance(a): repayment  =", repayment);
+        console.log("acceptance(a): RATIO capacity before/after =", ratioCapacityBefore, ratioCapacityAfter);
     }
 
     /* =====================================================================
@@ -355,7 +378,7 @@ contract Eng3519LaunchPoolSepoliaForkTest is ForkTestBase {
         /* And therefore the BORROW is refused — the acceptance as stated.
            maxRepayment is an in-range value so the oracle check is the only thing
            that can revert this call. */
-        uint128[] memory ticks = _ticks(TICK_ABSOLUTE);
+        uint128[] memory ticks = _ticks(TICK_RATIO);
         vm.startPrank(COLLATERAL_HOLDER);
         IERC1155(FABRICA_TOKEN).setApprovalForAll(launchPool, true);
         vm.expectRevert(expectedRevert);
