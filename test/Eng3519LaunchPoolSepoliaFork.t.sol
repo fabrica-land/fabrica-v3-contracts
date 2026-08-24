@@ -250,59 +250,19 @@ contract Eng3519LaunchPoolSepoliaForkTest is ForkTestBase {
        oracle with EMPTY oracleContext.
        ===================================================================== */
     function test_acceptanceA_originatesLoanWithEmptyOracleContext() public {
-        uint256 oraclePrice = _price();
-        /* MIN of the live sources, floored by the seasoned observation. Both halves of
-           WP-A's "MIN + temporal floor" rule are load-bearing in this fixture. */
-        assertEq(oraclePrice, EXPECTED_USABLE_PRICE, "temporal floor over MIN of live sources");
-        assertLt(EXPECTED_USABLE_PRICE, EXPECTED_LIVE_MIN, "fixture: the floor must actually bind");
-        console.log("acceptance(a): aggregator.price with empty context =", oraclePrice);
+        uint256 oraclePrice = _assertLaunchOraclePrice();
         uint128[] memory ticks = _ticks(TICK_RATIO);
-        uint256 ratioCapacityBefore = _maxBorrowable(launchPool, TICK_RATIO, LP_DEPOSIT);
-        assertEq(
-            ratioCapacityBefore, (oraclePrice * 5000) / 10_000, "acceptance(a): Ratio capacity must be oracle-priced"
+        uint256 ratioCapacityBefore = _assertLaunchRatioCapacityBefore(oraclePrice);
+        uint256 absoluteCapacityBefore = _assertLaunchAbsoluteCapacity();
+        uint256 repayment = _originateLaunchLoan(ticks);
+        (uint256 oraclePriceAfter, uint256 ratioCapacityAfter, uint256 absoluteCapacityAfter) =
+            _halveSourcesAndReadCapacities();
+        _assertLaunchCapacitiesAfterHalving(
+            oraclePriceAfter, ratioCapacityBefore, ratioCapacityAfter, absoluteCapacityBefore, absoluteCapacityAfter
         );
-        assertEq(ratioCapacityBefore, 40_000e6, "acceptance(a): published ratio capacity at usable price");
-        assertGt(ratioCapacityBefore, PRINCIPAL, "acceptance(a): principal fits inside oracle-priced Ratio cap");
-        assertLt(ratioCapacityBefore, LP_DEPOSIT, "acceptance(a): capacity is oracle-bound, not deposit-bound");
-        uint256 borrowerUsdcBefore = IERC20(USDC).balanceOf(COLLATERAL_HOLDER);
-        /* maxRepayment must stay well inside uint256 — Pool.borrow applies _scale()
-           (x1e12 for 6dp USDC) to it, so type(uint256).max overflows before any pool
-           logic runs. Quote first, then bound the borrow by it. */
-        uint256 quoted =
-            ILaunchPool(launchPool).quote(PRINCIPAL, _borrowDuration(), FABRICA_TOKEN, COLLATERAL_TOKEN_ID, ticks, "");
-        console.log("acceptance(a): quoted repayment =", quoted);
-        vm.startPrank(COLLATERAL_HOLDER);
-        IERC1155(FABRICA_TOKEN).setApprovalForAll(launchPool, true);
-        vm.recordLogs();
-        /* options = "" => BorrowLogic._getOptionsData(OracleContext) yields EMPTY bytes. */
-        uint256 repayment = ILaunchPool(launchPool)
-            .borrow(
-                COLLATERAL_HOLDER, PRINCIPAL, _borrowDuration(), FABRICA_TOKEN, COLLATERAL_TOKEN_ID, quoted, ticks, ""
-            );
-        vm.stopPrank();
-        assertEq(repayment, quoted, "borrow repayment matches the quote");
-        assertGt(repayment, PRINCIPAL, "repayment accrues interest over principal");
-        assertEq(
-            IERC20(USDC).balanceOf(COLLATERAL_HOLDER) - borrowerUsdcBefore, PRINCIPAL, "borrower received principal"
+        _logAcceptanceA(
+            repayment, ratioCapacityBefore, ratioCapacityAfter, absoluteCapacityBefore, absoluteCapacityAfter
         );
-        assertEq(IERC1155(FABRICA_TOKEN).balanceOf(COLLATERAL_HOLDER, COLLATERAL_TOKEN_ID), 0, "collateral escrowed");
-        assertTrue(_sawLoanOriginated(vm.getRecordedLogs(), launchPool), "LoanOriginated emitted by the launch pool");
-        vm.warp(block.timestamp + factStore.minWriteInterval() + 1);
-        _writePrice(SOURCE_PRYCD, PRICE_PRYCD / 2);
-        _writePrice(SOURCE_OPENAVM, PRICE_OPENAVM / 2);
-        uint256 oraclePriceAfter = _price();
-        uint256 ratioCapacityAfter = _maxBorrowable(launchPool, TICK_RATIO, LP_DEPOSIT);
-        assertEq(oraclePriceAfter, PRICE_OPENAVM / 2, "acceptance(a): oracle price moved after source halving");
-        assertEq(
-            ratioCapacityAfter,
-            (oraclePriceAfter * 5000) / 10_000,
-            "acceptance(a): Ratio capacity still tracks oracle price"
-        );
-        assertLt(ratioCapacityAfter, ratioCapacityBefore, "acceptance(a): lower oracle price reduces Ratio capacity");
-        assertLt(ratioCapacityAfter, 30_000e6, "acceptance(a): mutation would reject a now-over-cap borrow");
-        console.log("acceptance(a): principal  =", PRINCIPAL);
-        console.log("acceptance(a): repayment  =", repayment);
-        console.log("acceptance(a): RATIO capacity before/after =", ratioCapacityBefore, ratioCapacityAfter);
     }
 
     /* =====================================================================
@@ -382,17 +342,7 @@ contract Eng3519LaunchPoolSepoliaForkTest is ForkTestBase {
         vm.startPrank(COLLATERAL_HOLDER);
         IERC1155(FABRICA_TOKEN).setApprovalForAll(launchPool, true);
         vm.expectRevert(expectedRevert);
-        ILaunchPool(launchPool)
-            .borrow(
-                COLLATERAL_HOLDER,
-                PRINCIPAL,
-                _borrowDuration(),
-                FABRICA_TOKEN,
-                COLLATERAL_TOKEN_ID,
-                PRINCIPAL * 2,
-                ticks,
-                ""
-            );
+        _borrowLaunchPool(ticks, PRINCIPAL * 2);
         vm.stopPrank();
         console.log("acceptance(b): borrow refused with CheckFailed(heartbeat); maxSilence =", maxSilence);
     }
@@ -402,6 +352,95 @@ contract Eng3519LaunchPoolSepoliaForkTest is ForkTestBase {
        ===================================================================== */
     function _price() internal view returns (uint256) {
         return aggregator.price(FABRICA_TOKEN, USDC, _singleton(COLLATERAL_TOKEN_ID), _singleton(1), "");
+    }
+
+    function _assertLaunchOraclePrice() internal view returns (uint256 oraclePrice) {
+        oraclePrice = _price();
+        /* MIN of the live sources, floored by the seasoned observation. Both halves of
+           WP-A's "MIN + temporal floor" rule are load-bearing in this fixture. */
+        assertEq(oraclePrice, EXPECTED_USABLE_PRICE, "temporal floor over MIN of live sources");
+        assertLt(EXPECTED_USABLE_PRICE, EXPECTED_LIVE_MIN, "fixture: the floor must actually bind");
+        console.log("acceptance(a): aggregator.price with empty context =", oraclePrice);
+    }
+
+    function _assertLaunchRatioCapacityBefore(uint256 oraclePrice) internal view returns (uint256 ratioCapacityBefore) {
+        ratioCapacityBefore = _maxBorrowable(launchPool, TICK_RATIO, LP_DEPOSIT);
+        assertEq(
+            ratioCapacityBefore, (oraclePrice * 5000) / 10_000, "acceptance(a): Ratio capacity must be oracle-priced"
+        );
+        assertEq(ratioCapacityBefore, 40_000e6, "acceptance(a): published ratio capacity at usable price");
+        assertGt(ratioCapacityBefore, PRINCIPAL, "acceptance(a): principal fits inside oracle-priced Ratio cap");
+        assertLt(ratioCapacityBefore, LP_DEPOSIT, "acceptance(a): capacity is oracle-bound, not deposit-bound");
+    }
+
+    function _assertLaunchAbsoluteCapacity() internal view returns (uint256 absoluteCapacity) {
+        absoluteCapacity = _maxBorrowable(launchPool, TICK_ABSOLUTE, LP_DEPOSIT);
+        assertEq(absoluteCapacity, 50_000e6, "acceptance(a): absolute capacity equals the tick limit");
+        assertLt(absoluteCapacity, LP_DEPOSIT, "acceptance(a): absolute capacity is tick-bound, not deposit-bound");
+    }
+
+    function _originateLaunchLoan(uint128[] memory ticks) internal returns (uint256 repayment) {
+        uint256 borrowerUsdcBefore = IERC20(USDC).balanceOf(COLLATERAL_HOLDER);
+        /* maxRepayment must stay well inside uint256 — Pool.borrow applies _scale()
+           (x1e12 for 6dp USDC) to it, so type(uint256).max overflows before any pool
+           logic runs. Quote first, then bound the borrow by it. */
+        uint256 quoted = _quoteLaunchPool(ticks, PRINCIPAL);
+        console.log("acceptance(a): quoted repayment =", quoted);
+        vm.startPrank(COLLATERAL_HOLDER);
+        IERC1155(FABRICA_TOKEN).setApprovalForAll(launchPool, true);
+        vm.recordLogs();
+        repayment = _borrowLaunchPool(ticks, quoted);
+        vm.stopPrank();
+        assertEq(repayment, quoted, "borrow repayment matches the quote");
+        assertGt(repayment, PRINCIPAL, "repayment accrues interest over principal");
+        assertEq(
+            IERC20(USDC).balanceOf(COLLATERAL_HOLDER) - borrowerUsdcBefore, PRINCIPAL, "borrower received principal"
+        );
+        assertEq(IERC1155(FABRICA_TOKEN).balanceOf(COLLATERAL_HOLDER, COLLATERAL_TOKEN_ID), 0, "collateral escrowed");
+        assertTrue(_sawLoanOriginated(vm.getRecordedLogs(), launchPool), "LoanOriginated emitted by the launch pool");
+    }
+
+    function _halveSourcesAndReadCapacities()
+        internal
+        returns (uint256 oraclePriceAfter, uint256 ratioCapacityAfter, uint256 absoluteCapacityAfter)
+    {
+        vm.warp(block.timestamp + factStore.minWriteInterval() + 1);
+        _writePrice(SOURCE_PRYCD, PRICE_PRYCD / 2);
+        _writePrice(SOURCE_OPENAVM, PRICE_OPENAVM / 2);
+        oraclePriceAfter = _price();
+        ratioCapacityAfter = _maxBorrowable(launchPool, TICK_RATIO, LP_DEPOSIT);
+        absoluteCapacityAfter = _maxBorrowable(launchPool, TICK_ABSOLUTE, LP_DEPOSIT);
+    }
+
+    function _assertLaunchCapacitiesAfterHalving(
+        uint256 oraclePriceAfter,
+        uint256 ratioCapacityBefore,
+        uint256 ratioCapacityAfter,
+        uint256 absoluteCapacityBefore,
+        uint256 absoluteCapacityAfter
+    ) internal pure {
+        assertEq(oraclePriceAfter, PRICE_OPENAVM / 2, "acceptance(a): oracle price moved after source halving");
+        assertEq(
+            ratioCapacityAfter,
+            (oraclePriceAfter * 5000) / 10_000,
+            "acceptance(a): Ratio capacity still tracks oracle price"
+        );
+        assertLt(ratioCapacityAfter, ratioCapacityBefore, "acceptance(a): lower oracle price reduces Ratio capacity");
+        assertLt(ratioCapacityAfter, 30_000e6, "acceptance(a): mutation would reject a now-over-cap borrow");
+        assertEq(absoluteCapacityAfter, absoluteCapacityBefore, "acceptance(a): absolute capacity ignores oracle price");
+    }
+
+    function _logAcceptanceA(
+        uint256 repayment,
+        uint256 ratioCapacityBefore,
+        uint256 ratioCapacityAfter,
+        uint256 absoluteCapacityBefore,
+        uint256 absoluteCapacityAfter
+    ) internal pure {
+        console.log("acceptance(a): principal  =", PRINCIPAL);
+        console.log("acceptance(a): repayment  =", repayment);
+        console.log("acceptance(a): RATIO capacity before/after =", ratioCapacityBefore, ratioCapacityAfter);
+        console.log("acceptance(a): ABS   capacity before/after =", absoluteCapacityBefore, absoluteCapacityAfter);
     }
 
     /* Largest principal `pool` will source from `tick`, found by bisection on quote().
@@ -435,6 +474,26 @@ contract Eng3519LaunchPoolSepoliaForkTest is ForkTestBase {
             }
             revert("unexpected quote revert during capacity bisection");
         }
+    }
+
+    function _quoteLaunchPool(uint128[] memory ticks, uint256 principal) internal view returns (uint256) {
+        return
+            ILaunchPool(launchPool).quote(principal, _borrowDuration(), FABRICA_TOKEN, COLLATERAL_TOKEN_ID, ticks, "");
+    }
+
+    function _borrowLaunchPool(uint128[] memory ticks, uint256 maxRepayment) internal returns (uint256) {
+        /* options = "" => BorrowLogic._getOptionsData(OracleContext) yields EMPTY bytes. */
+        return ILaunchPool(launchPool)
+            .borrow(
+                COLLATERAL_HOLDER,
+                PRINCIPAL,
+                _borrowDuration(),
+                FABRICA_TOKEN,
+                COLLATERAL_TOKEN_ID,
+                maxRepayment,
+                ticks,
+                ""
+            );
     }
 
     /* Second aggregator + pool with the temporal floor disabled, so the coupling test

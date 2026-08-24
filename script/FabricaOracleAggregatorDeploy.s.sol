@@ -13,6 +13,7 @@ contract FabricaOracleAggregatorDeployScript is Script {
     error DefaultsRuntimeUnavailable();
     error InvalidFactStore();
     error InvalidUsdc();
+    error InvalidCanonicalUsdc(address configuredUsdc);
     error InvalidTargetPool();
     error InvalidSourceId(uint256 sourceId);
     error InvalidUint64(uint256 value);
@@ -22,13 +23,25 @@ contract FabricaOracleAggregatorDeployScript is Script {
     error AggregatorNotRenounced();
     error AggregatorReadbackMismatch();
 
+    uint256 internal constant MAINNET_CHAIN_ID = 1;
+    uint256 internal constant SEPOLIA_CHAIN_ID = 11155111;
+    address internal constant MAINNET_USDC = 0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48;
+    address internal constant SEPOLIA_USDC = 0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238;
     address internal constant DEFAULTS_READER = 0x00000000000000000000000000000000FA0D0002;
 
+    struct DeployParams {
+        address factStore;
+        address usdc;
+        address targetPool;
+        uint256 validatorId;
+        uint8[] sourceIds;
+        uint64 seasoningWindow;
+        uint16 maxJumpBps;
+        uint16 maxDispersionBps;
+        uint8 minLiveSources;
+    }
+
     function run() external returns (FabricaOracleAggregator aggregator) {
-        address factStore = vm.envAddress("FABRICA_ATTRIBUTE_ORACLE");
-        address usdc = vm.envAddress("FABRICA_LENDING_USDC");
-        address targetPool = vm.envAddress("FABRICA_LENDING_TARGET_POOL");
-        uint256 validatorId = vm.envUint("FABRICA_VALIDATOR_ID");
         (
             uint64 defaultSeasoningWindow,
             uint16 defaultMaxJumpBps,
@@ -42,96 +55,86 @@ contract FabricaOracleAggregatorDeployScript is Script {
             _bps(vm.envOr("FABRICA_AGGREGATOR_MAX_DISPERSION_BPS", uint256(defaultMaxDispersionBps)));
         uint8 minLiveSources =
             _uint8MinLiveSources(vm.envOr("FABRICA_AGGREGATOR_MIN_LIVE_SOURCES", uint256(defaultMinLiveSources)));
-        uint8[] memory sourceIds = _sourceIds();
-
-        return _deploy(
-            factStore,
-            usdc,
-            targetPool,
-            validatorId,
-            sourceIds,
-            seasoningWindow,
-            maxJumpBps,
-            maxDispersionBps,
-            minLiveSources
-        );
+        DeployParams memory params = DeployParams({
+            factStore: vm.envAddress("FABRICA_ATTRIBUTE_ORACLE"),
+            usdc: vm.envAddress("FABRICA_LENDING_USDC"),
+            targetPool: vm.envAddress("FABRICA_LENDING_TARGET_POOL"),
+            validatorId: vm.envUint("FABRICA_VALIDATOR_ID"),
+            sourceIds: _sourceIds(),
+            seasoningWindow: seasoningWindow,
+            maxJumpBps: maxJumpBps,
+            maxDispersionBps: maxDispersionBps,
+            minLiveSources: minLiveSources
+        });
+        return _deploy(params);
     }
 
-    function _deploy(
-        address factStore,
-        address usdc,
-        address targetPool,
-        uint256 validatorId,
-        uint8[] memory sourceIds,
-        uint64 seasoningWindow,
-        uint16 maxJumpBps,
-        uint16 maxDispersionBps,
-        uint8 minLiveSources
-    ) internal returns (FabricaOracleAggregator aggregator) {
-        _validateInputs(factStore, usdc, targetPool, sourceIds, minLiveSources);
+    function _deploy(DeployParams memory params) internal returns (FabricaOracleAggregator aggregator) {
+        _validateInputs(params);
+        address poolCurrency = ICurrencyTokenPool(params.targetPool).currencyToken();
+        if (poolCurrency != params.usdc) revert TargetPoolCurrencyMismatch(poolCurrency, params.usdc);
+        _logConfig(params, poolCurrency);
+        aggregator = _broadcastDeployAndRenounce(params);
+        _assertRenounced(aggregator);
+        _assertReadback(aggregator, params);
+    }
 
-        address poolCurrency = ICurrencyTokenPool(targetPool).currencyToken();
-        if (poolCurrency != usdc) revert TargetPoolCurrencyMismatch(poolCurrency, usdc);
-
-        console2.log("Fact store:", factStore);
-        console2.log("USDC:", usdc);
-        console2.log("Target pool:", targetPool);
-        console2.log("Target pool currency:", poolCurrency);
-        console2.log("Validator id:", validatorId);
-        console2.log("Source ids:", _sourceIdsCsv(sourceIds));
-        console2.log("Seasoning window:", seasoningWindow);
-        console2.log("Max jump bps:", maxJumpBps);
-        console2.log("Max dispersion bps:", maxDispersionBps);
-        console2.log("Min live sources:", minLiveSources);
-        console2.log("Note: minLiveSources=2 with two source ids has zero source redundancy.");
-        console2.log("Aggregator owner is the broadcast signer only until renounceAggregator() in this same script.");
-
+    function _broadcastDeployAndRenounce(DeployParams memory params)
+        internal
+        returns (FabricaOracleAggregator aggregator)
+    {
         vm.startBroadcast();
         (, address owner,) = vm.readCallers();
         if (owner == address(0)) revert InvalidBroadcastSigner();
         console2.log("Transient aggregator owner / broadcast signer:", owner);
         aggregator = new FabricaOracleAggregator(
             owner,
-            factStore,
-            usdc,
-            validatorId,
-            sourceIds,
-            seasoningWindow,
-            maxJumpBps,
-            maxDispersionBps,
-            minLiveSources
+            params.factStore,
+            params.usdc,
+            params.validatorId,
+            params.sourceIds,
+            params.seasoningWindow,
+            params.maxJumpBps,
+            params.maxDispersionBps,
+            params.minLiveSources
         );
         aggregator.renounceAggregator();
         vm.stopBroadcast();
+    }
 
+    function _assertRenounced(FabricaOracleAggregator aggregator) internal view {
         console2.log("FabricaOracleAggregator:", address(aggregator));
         console2.log("Renounced:", aggregator.renounced());
         console2.log("Owner:", aggregator.owner());
         if (!aggregator.renounced() || aggregator.owner() != address(0)) revert AggregatorNotRenounced();
-        _assertReadback(
-            aggregator,
-            factStore,
-            usdc,
-            validatorId,
-            sourceIds,
-            seasoningWindow,
-            maxJumpBps,
-            maxDispersionBps,
-            minLiveSources
-        );
     }
 
-    function _validateInputs(
-        address factStore,
-        address usdc,
-        address targetPool,
-        uint8[] memory sourceIds,
-        uint8 minLiveSources
-    ) internal view {
-        if (factStore == address(0) || factStore.code.length == 0) revert InvalidFactStore();
-        if (usdc == address(0) || usdc.code.length == 0) revert InvalidUsdc();
-        if (targetPool == address(0) || targetPool.code.length == 0) revert InvalidTargetPool();
-        if (sourceIds.length < minLiveSources) revert InvalidMinLiveSources(minLiveSources);
+    function _logConfig(DeployParams memory params, address poolCurrency) internal view {
+        console2.log("Fact store:", params.factStore);
+        console2.log("USDC:", params.usdc);
+        console2.log("Target pool:", params.targetPool);
+        console2.log("Target pool currency:", poolCurrency);
+        console2.log("Validator id:", params.validatorId);
+        console2.log("Source ids:", _sourceIdsCsv(params.sourceIds));
+        console2.log("Seasoning window:", params.seasoningWindow);
+        console2.log("Max jump bps:", params.maxJumpBps);
+        console2.log("Max dispersion bps:", params.maxDispersionBps);
+        console2.log("Min live sources:", params.minLiveSources);
+        console2.log("Note: minLiveSources=2 with two source ids has zero source redundancy.");
+        console2.log("Aggregator owner is the broadcast signer only until renounceAggregator() in this same script.");
+    }
+
+    function _validateInputs(DeployParams memory params) internal view {
+        if (params.factStore == address(0) || params.factStore.code.length == 0) revert InvalidFactStore();
+        if (params.usdc == address(0) || params.usdc.code.length == 0) revert InvalidUsdc();
+        _validateCanonicalUsdc(params.usdc);
+        if (params.targetPool == address(0) || params.targetPool.code.length == 0) revert InvalidTargetPool();
+        if (params.sourceIds.length < params.minLiveSources) revert InvalidMinLiveSources(params.minLiveSources);
+    }
+
+    function _validateCanonicalUsdc(address usdc) internal view {
+        if (block.chainid == MAINNET_CHAIN_ID && usdc != MAINNET_USDC) revert InvalidCanonicalUsdc(usdc);
+        if (block.chainid == SEPOLIA_CHAIN_ID && usdc != SEPOLIA_USDC) revert InvalidCanonicalUsdc(usdc);
     }
 
     function _designReviewDefaultsFromContractRuntime()
@@ -140,7 +143,6 @@ contract FabricaOracleAggregatorDeployScript is Script {
     {
         bytes memory runtime = vm.getDeployedCode("src/FabricaOracleAggregator.sol:FabricaOracleAggregator");
         if (runtime.length == 0) revert DefaultsRuntimeUnavailable();
-
         vm.etch(DEFAULTS_READER, runtime);
         (seasoningWindow, maxJumpBps, maxDispersionBps, minLiveSources,,) =
             FabricaOracleAggregator(DEFAULTS_READER).designReviewDefaults();
@@ -161,41 +163,32 @@ contract FabricaOracleAggregatorDeployScript is Script {
         ids[1] = 1;
     }
 
-    function _assertReadback(
-        FabricaOracleAggregator aggregator,
-        address factStore,
-        address usdc,
-        uint256 validatorId,
-        uint8[] memory sourceIds,
-        uint64 seasoningWindow,
-        uint16 maxJumpBps,
-        uint16 maxDispersionBps,
-        uint8 minLiveSources
-    ) internal view {
+    function _assertReadback(FabricaOracleAggregator aggregator, DeployParams memory params) internal view {
         if (
-            address(aggregator.factStore()) != factStore || aggregator.usdc() != usdc
-                || aggregator.validatorId() != validatorId || aggregator.seasoningWindow() != seasoningWindow
-                || aggregator.maxJumpBps() != maxJumpBps || aggregator.maxDispersionBps() != maxDispersionBps
-                || aggregator.minLiveSources() != minLiveSources
+            address(aggregator.factStore()) != params.factStore || aggregator.usdc() != params.usdc
+                || aggregator.validatorId() != params.validatorId
+                || aggregator.seasoningWindow() != params.seasoningWindow
+                || aggregator.maxJumpBps() != params.maxJumpBps
+                || aggregator.maxDispersionBps() != params.maxDispersionBps
+                || aggregator.minLiveSources() != params.minLiveSources
         ) {
             revert AggregatorReadbackMismatch();
         }
-
         uint8[] memory deployedSourceIds = aggregator.sourceIds();
-        if (deployedSourceIds.length != sourceIds.length) revert AggregatorReadbackMismatch();
-        for (uint256 i; i < sourceIds.length; ++i) {
-            if (deployedSourceIds[i] != sourceIds[i]) revert AggregatorReadbackMismatch();
+        if (deployedSourceIds.length != params.sourceIds.length) revert AggregatorReadbackMismatch();
+        for (uint256 i; i < params.sourceIds.length; ++i) {
+            if (deployedSourceIds[i] != params.sourceIds[i]) revert AggregatorReadbackMismatch();
         }
     }
 
     function _sourceIdsCsv(uint8[] memory sourceIds) internal view returns (string memory csv) {
         if (sourceIds.length == 0) return "";
-        bytes memory out;
+        bytes memory csvBytes;
         for (uint256 i; i < sourceIds.length; ++i) {
-            if (i != 0) out = abi.encodePacked(out, ",");
-            out = abi.encodePacked(out, vm.toString(sourceIds[i]));
+            if (i != 0) csvBytes = abi.encodePacked(csvBytes, ",");
+            csvBytes = abi.encodePacked(csvBytes, vm.toString(sourceIds[i]));
         }
-        return string(out);
+        return string(csvBytes);
     }
 
     function _uint64(uint256 value) internal pure returns (uint64) {
