@@ -245,7 +245,7 @@ contract FabricaTokenStorageLayoutTest is Test {
     }
 
     function test_mainnetUpgradePath_V4thenV5thenV6() public {
-        // Mainnet/Base Sepolia (ENG-3145) path: V4 (owner migration) + V5 + V6 (version bumps).
+        // Mainnet (ENG-3145) path: V4 (owner migration) + V5 + V6 (version bumps).
         address expectedOwner = makeAddr("expectedOwner");
         (FabricaToken freshToken, address freshProxyAddr) = _freshTokenWithLegacyOwner(expectedOwner);
         // Deploy new implementation and upgrade with V4 (owner migration).
