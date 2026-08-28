@@ -61,9 +61,8 @@ contract FabricaToken is
 
     // Migrates owner from OZ v4 linear storage (slot 101) to OZ v5 ERC-7201 namespaced storage.
     // Preconditions enforced here: reinitializer(4) admits any proxy whose stored version is < 4,
-    // and the require below rejects any proxy whose legacy slot 101 is empty. So this runs only on
-    // a proxy that still carries an un-migrated OZ v4 owner. The narrower `_initialized == 0`
-    // check is a script gate in runWithV4, not a constraint of this function.
+    // and the require below rejects any proxy whose legacy slot 101 is empty. The narrower
+    // `_initialized == 0` check is a script gate in runWithV4, not a constraint of this function.
     // For which chains have already consumed V4, see UPGRADE-RUNBOOK.md.
     function initializeV4() public onlyProxyAdmin reinitializer(4) {
         address oldOwner;
@@ -75,19 +74,18 @@ contract FabricaToken is
     }
 
     // Consumed during the __legacy_gap storage fix upgrade. No runtime migration needed —
-    // the gap fix is structural (compiled into the bytecode). Historical only: this reinitializer
-    // is the version stamp for that rollout, not a step in any current upgrade path. A proxy
-    // already at 5 advances with initializeV6; a proxy at 6 upgrades with empty data.
+    // the gap fix is structural (compiled into the bytecode). A proxy already at 5 advances with
+    // initializeV6; a proxy at 6 upgrades with empty data.
     function initializeV5() public onlyProxyAdmin reinitializer(5) {}
 
     // ENG-3145 (burn-remint guard). Empty version-stamp reinitializer — mirrors initializeV5.
     // The burn-remint fix is pure runtime logic (the mint uniqueness guard now keys off the
     // permanent `_property[id].definition` marker) with NO storage migration, so there is nothing
     // to initialize. Its purpose is to (1) stamp `_initialized = 6` as "running the burn-remint
-    // build" (distinct from 5 = the __legacy_gap build), (2) make the upgrade ceremony one-shot —
-    // a re-submitted `upgradeToAndCall(impl, initializeV6)` reverts with InvalidInitialization —
-    // and (3) bring every live proxy to the same version. The ENG-3145 rollout has completed; for
-    // the per-chain history of which reinitializers ran where, see UPGRADE-RUNBOOK.md.
+    // build" (distinct from 5 = the __legacy_gap build) and (2) make the upgrade ceremony
+    // one-shot — a re-submitted `upgradeToAndCall(impl, initializeV6)` reverts with
+    // InvalidInitialization. For the per-chain history of which reinitializers ran where, see
+    // UPGRADE-RUNBOOK.md.
     function initializeV6() public onlyProxyAdmin reinitializer(6) {}
 
     // Struct needed to avoid stack too deep error

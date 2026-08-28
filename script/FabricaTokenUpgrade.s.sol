@@ -65,12 +65,12 @@ contract FabricaTokenUpgradeScript is Script {
         });
     }
 
-    // Sepolia-like environments still at _initialized = 5: upgrade impl + run V6 (no-op, 5 -> 6).
+    // Requires _initialized == 5: upgrade impl + run V6 (no-op, 5 -> 6).
     function run(TokenProxy tokenProxy, TokenImplementation newImplementation) public {
         _upgradeWithInitializer(tokenProxy, newImplementation, abi.encodeCall(FabricaToken.initializeV6, ()), 5);
     }
 
-    // Current Sepolia: already at _initialized = 6. Upgrade impl only.
+    // Requires _initialized == 6: upgrade impl only.
     function runNoInit(TokenProxy tokenProxy, TokenImplementation newImplementation) public {
         _upgradeWithInitializer(tokenProxy, newImplementation, "", 6);
     }
