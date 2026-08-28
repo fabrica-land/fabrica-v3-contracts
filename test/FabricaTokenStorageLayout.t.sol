@@ -245,7 +245,11 @@ contract FabricaTokenStorageLayoutTest is Test {
     }
 
     function test_mainnetUpgradePath_V4thenV5thenV6() public {
-        // Legacy-proxy (_initialized == 0) path (ENG-3145): V4 (owner migration) + V5 + V6 (version bumps).
+        // Un-migrated legacy-owner path (ENG-3145): V4 (owner migration) + V5 + V6 (version bumps).
+        // The proxy here is at _initialized == 1 — reinitializer(4) admits any version < 4, so V4 is
+        // reachable without forcing the slot to 0. The stricter _initialized == 0 requirement belongs
+        // to the runWithV4 script gate, covered by
+        // test_runWithV4_scriptHelper_ownerMigrationRequiresFreshV5InitializerSlot.
         address expectedOwner = makeAddr("expectedOwner");
         (FabricaToken freshToken, address freshProxyAddr) = _freshTokenWithLegacyOwner(expectedOwner);
         // Deploy new implementation and upgrade with V4 (owner migration).

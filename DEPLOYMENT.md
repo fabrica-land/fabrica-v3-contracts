@@ -142,7 +142,7 @@ MAINNET_RPC_URL=https://mainnet.infura.io/v3/replace-with-project-id
 SEPOLIA_RPC_URL=https://sepolia.infura.io/v3/replace-with-project-id
 # BASE_SEPOLIA_RPC_URL retired 2026-08-27 per Tim (ENG-3853)
 
-# Etherscan / Basescan API key for contract verification
+# Etherscan API key for contract verification
 ETHERSCAN_API_KEY=replace-with-api-key
 
 # Deployer private key. ONLY for dev/sepolia. Mainnet deploys use Safe
@@ -331,7 +331,8 @@ deploys, omit it and check status manually.
   verifying many contracts in sequence. Either upgrade the key or
   space deploys out.
 - **`--legacy` for non-EIP-1559 networks**: some sidechains require it.
-  Mainnet and sepolia don't. (base-sepolia retired 2026-08-27 per Tim — ENG-3853.)
+  Mainnet and sepolia don't. (base-sepolia retired 2026-08-27 per Tim —
+  ENG-3853.)
 - **Foundry version drift**: `foundry.lock` pins the toolchain. Always
   `foundryup --version $(cat foundry.lock | jq -r .version)` (or
   equivalent) before deploying. Don't deploy with a newer-than-locked

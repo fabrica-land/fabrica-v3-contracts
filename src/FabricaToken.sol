@@ -60,9 +60,11 @@ contract FabricaToken is
     }
 
     // Migrates owner from OZ v4 linear storage (slot 101) to OZ v5 ERC-7201 namespaced storage.
-    // Consumed on Sepolia (2025-02-12) and on mainnet (both proxies read _initialized = 6
-    // on-chain, 2026-08-28); applies only to a proxy still at _initialized == 0.
-    // (base-sepolia retired 2026-08-27 per Tim — ENG-3853.)
+    // Preconditions enforced here: reinitializer(4) admits any proxy whose stored version is < 4,
+    // and the require below rejects any proxy whose legacy slot 101 is empty. So this runs only on
+    // a proxy that still carries an un-migrated OZ v4 owner. The narrower `_initialized == 0`
+    // check is a script gate in runWithV4, not a constraint of this function.
+    // For which chains have already consumed V4, see UPGRADE-RUNBOOK.md.
     function initializeV4() public onlyProxyAdmin reinitializer(4) {
         address oldOwner;
         assembly {
@@ -73,8 +75,9 @@ contract FabricaToken is
     }
 
     // Consumed during the __legacy_gap storage fix upgrade. No runtime migration needed —
-    // the gap fix is structural (compiled into the bytecode). On Sepolia, V4 already ran
-    // (Feb 2025), so only V5 was called during that upgrade.
+    // the gap fix is structural (compiled into the bytecode). Historical only: this reinitializer
+    // is the version stamp for that rollout, not a step in any current upgrade path. A proxy
+    // already at 5 advances with initializeV6; a proxy at 6 upgrades with empty data.
     function initializeV5() public onlyProxyAdmin reinitializer(5) {}
 
     // ENG-3145 (burn-remint guard). Empty version-stamp reinitializer — mirrors initializeV5.
@@ -83,8 +86,8 @@ contract FabricaToken is
     // to initialize. Its purpose is to (1) stamp `_initialized = 6` as "running the burn-remint
     // build" (distinct from 5 = the __legacy_gap build), (2) make the upgrade ceremony one-shot —
     // a re-submitted `upgradeToAndCall(impl, initializeV6)` reverts with InvalidInitialization —
-    // and (3) keep mainnet and Sepolia at the same version. Run order: Sepolia (already at 5)
-    // bumps 5->6 via this call; mainnet runs V4 (owner migration) -> V5 -> V6.
+    // and (3) bring every live proxy to the same version. The ENG-3145 rollout has completed; for
+    // the per-chain history of which reinitializers ran where, see UPGRADE-RUNBOOK.md.
     function initializeV6() public onlyProxyAdmin reinitializer(6) {}
 
     // Struct needed to avoid stack too deep error
