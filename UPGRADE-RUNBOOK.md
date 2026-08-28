@@ -10,7 +10,9 @@ fork instead — this doc covers the FabricaToken UUPS upgrade path only.
 |---------|--------------------|
 | Ethereum Mainnet | `0x5cbeb7A0df7Ed85D82a472FD56d81ed550f3Ea95` |
 | Sepolia | `0xb52ED2Dc8EBD49877De57De3f454Fd71b75bc1fD` |
-| Base Sepolia | `0xCE53C17A82bd67aD835d3e2ADBD3e062058B8F81` |
+
+(base-sepolia retired 2026-08-27 per Tim — ENG-3853; its proxy is no longer
+an upgrade target.)
 
 ## Role Separation
 
@@ -39,8 +41,9 @@ FabricaToken has versioned initializers:
 Reinitializers can be skipped — `reinitializer(N)` only requires the stored
 version to be < N. Sepolia is already at V6 after the 2026-07-06 rollout, so
 future implementation-only Sepolia upgrades use empty upgrade data unless a new
-reinitializer is added. On mainnet and Base Sepolia, V4 must run first (owner
-migration), then V5 and V6 bump the version to match the current chain.
+reinitializer is added. On mainnet, V4 must run first (owner migration), then
+V5 and V6 bump the version to match the current chain. (base-sepolia retired
+2026-08-27 per Tim — ENG-3853.)
 
 ## OZ v4→v5 Storage Migration
 
@@ -301,49 +304,10 @@ forge script script/FabricaTokenUpgrade.s.sol \
 If a future Sepolia-like environment is still at `_initialized = 5`, use
 `run(address,address)` to upgrade and call `initializeV6()`.
 
-**Base Sepolia** (V4 not yet consumed — call V4 for owner migration, then V5
-and V6 to match the current initialized version):
-
-```bash
-set -a
-. ./.env
-set +a
-
-: "${CHAIN_ID:?set CHAIN_ID}"
-: "${PROXY_ADDRESS:?set PROXY_ADDRESS}"
-: "${NEW_IMPL_ADDRESS:?set NEW_IMPL_ADDRESS}"
-: "${CURRENT_IMPL_ADDRESS:?set CURRENT_IMPL_ADDRESS}"
-: "${RPC_NETWORK_NAME:?set RPC_NETWORK_NAME}"
-: "${TESTNET_PROXY_ADMIN_ACCOUNT:?set TESTNET_PROXY_ADMIN_ACCOUNT}"
-export EXPECTED_CHAIN_ID="$CHAIN_ID"
-export EXPECTED_TOKEN_PROXY="$PROXY_ADDRESS"
-export EXPECTED_TOKEN_IMPLEMENTATION="$NEW_IMPL_ADDRESS"
-export EXPECTED_CURRENT_IMPLEMENTATION="$CURRENT_IMPL_ADDRESS"
-unset TESTNET_DEPLOYER_PRIVATE_KEY TESTNET_PROXY_ADMIN_PRIVATE_KEY FOUNDRY_KEYSTORE_PASSWORD
-
-# First upgrade: deploy new impl + run V4 (owner migration)
-forge script script/FabricaTokenUpgrade.s.sol \
-  --sig "runWithV4(address,address)" "$PROXY_ADDRESS" "$NEW_IMPL_ADDRESS" \
-  --rpc-url "$RPC_NETWORK_NAME" \
-  --broadcast \
-  --account "$TESTNET_PROXY_ADMIN_ACCOUNT"
-
-export EXPECTED_CURRENT_IMPLEMENTATION="$NEW_IMPL_ADDRESS"
-
-# Then run V5 (no-op, bumps version from 4 to 5)
-forge script script/FabricaTokenUpgrade.s.sol \
-  --sig "runV5Only(address)" "$PROXY_ADDRESS" \
-  --rpc-url "$RPC_NETWORK_NAME" \
-  --broadcast \
-  --account "$TESTNET_PROXY_ADMIN_ACCOUNT"
-
-# Finally run V6 (no-op, bumps version from 5 to 6)
-forge script script/FabricaTokenUpgrade.s.sol \
-  --sig "runV6Only(address)" "$PROXY_ADDRESS" \
-  --rpc-url "$RPC_NETWORK_NAME" \
-  --broadcast \
-  --account "$TESTNET_PROXY_ADMIN_ACCOUNT"
-```
+(base-sepolia retired 2026-08-27 per Tim — ENG-3853. Its upgrade path —
+V4 owner migration, then V5/V6 version bumps via `runWithV4`/`runV5Only`/
+`runV6Only` — was removed with it. The mainnet flow below still runs V4 first
+for the same reason: V4 has not been consumed there.)
 
 **Mainnet** uses the Fabrica Safe multisig. Do not broadcast from a local
 account. Generate the calldata for each Safe transaction, fork-test the exact
