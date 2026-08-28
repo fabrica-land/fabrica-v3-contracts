@@ -10,7 +10,10 @@ fork instead — this doc covers the FabricaToken UUPS upgrade path only.
 |---------|--------------------|
 | Ethereum Mainnet | `0x5cbeb7A0df7Ed85D82a472FD56d81ed550f3Ea95` |
 | Sepolia | `0xb52ED2Dc8EBD49877De57De3f454Fd71b75bc1fD` |
-| Base Sepolia | `0xCE53C17A82bd67aD835d3e2ADBD3e062058B8F81` |
+
+(base-sepolia retired 2026-08-27 per Tim — ENG-3853; its proxy
+`0xCE53C17A82bd67aD835d3e2ADBD3e062058B8F81` remains deployed on-chain but is
+no longer an upgrade target.)
 
 ## Role Separation
 
@@ -32,15 +35,24 @@ FabricaToken has versioned initializers:
 | 1 | `initialize()` | `initializer` | Initial setup (ERC165, UUPS, Ownable, Pausable) |
 | 2 | `initializeV2()` | `onlyProxyAdmin reinitializer(2)` | (Migration code removed — no-op) |
 | 3 | `initializeV3()` | `onlyProxyAdmin reinitializer(3)` | Emits `TraitMetadataURIUpdated` |
-| 4 | `initializeV4()` | `onlyProxyAdmin reinitializer(4)` | **OZ v4→v5 owner migration** — reads slot 101, writes ERC-7201 slot. Deployed on Sepolia 2025-02-12. |
+| 4 | `initializeV4()` | `onlyProxyAdmin reinitializer(4)` | **OZ v4→v5 owner migration** — reads slot 101, writes ERC-7201 slot. Consumed on Sepolia 2025-02-12 and on mainnet (both verified on-chain 2026-08-28). |
 | 5 | `initializeV5()` | `onlyProxyAdmin reinitializer(5)` | **No-op** — consumed during `__legacy_gap` storage fix upgrade. Bumps version only. |
 | 6 | `initializeV6()` | `onlyProxyAdmin reinitializer(6)` | **No-op** — consumed during the ENG-3145 version-stamp rollout. Bumps version only. |
 
 Reinitializers can be skipped — `reinitializer(N)` only requires the stored
 version to be < N. Sepolia is already at V6 after the 2026-07-06 rollout, so
 future implementation-only Sepolia upgrades use empty upgrade data unless a new
-reinitializer is added. On mainnet and Base Sepolia, V4 must run first (owner
-migration), then V5 and V6 bump the version to match the current chain.
+reinitializer is added. Mainnet is also at `_initialized = 6`, so V4/V5/V6
+cannot be re-run there. Verified on-chain 2026-08-28: the ERC-7201
+`Initializable` slot reads `6`, and the ERC-7201 `Ownable` slot holds
+`0x769586A65825B028b005176F1ebbd3B82bB07Fb0` — the same address as legacy slot
+101 and as `owner()` — which is what establishes that V4's owner migration
+already ran. Note that `initializeV4` itself is gated by `reinitializer(4)`
+(stored version < 4) plus a non-zero legacy slot 101; it is *not* gated on
+`_initialized == 0`. The exact-zero check belongs to the `runWithV4` script
+helper. (base-sepolia retired 2026-08-27 per Tim — ENG-3853; as of 2026-08-28
+that proxy reads `_initialized = 3` with slot 101 empty, so it is the slot-101
+guard, not the version guard, that would block V4 there.)
 
 ## OZ v4→v5 Storage Migration
 
@@ -301,8 +313,14 @@ forge script script/FabricaTokenUpgrade.s.sol \
 If a future Sepolia-like environment is still at `_initialized = 5`, use
 `run(address,address)` to upgrade and call `initializeV6()`.
 
-**Base Sepolia** (V4 not yet consumed — call V4 for owner migration, then V5
-and V6 to match the current initialized version):
+**Legacy OZ-v4-era proxy at `_initialized == 0`** (owner still in legacy slot
+101 — call V4 to migrate it, then V5 and V6 to reach the current initialized
+version; `runWithV4` requires exactly `_initialized == 0` and reverts on any
+other value. As of 2026-08-28 no chain is in this state. Add the network to
+both `[rpc_endpoints]` and `[etherscan]` in `foundry.toml` before running —
+Step 1 passes `--verifier etherscan --verify`, which needs the `[etherscan]`
+entry. See DEPLOYMENT.md. base-sepolia retired 2026-08-27 per Tim —
+ENG-3853.):
 
 ```bash
 set -a

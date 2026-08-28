@@ -140,9 +140,9 @@ must contain at least:
 # RPC endpoints — one per network you intend to deploy to
 MAINNET_RPC_URL=https://mainnet.infura.io/v3/replace-with-project-id
 SEPOLIA_RPC_URL=https://sepolia.infura.io/v3/replace-with-project-id
-BASE_SEPOLIA_RPC_URL=https://sepolia.base.org
+# BASE_SEPOLIA_RPC_URL retired 2026-08-27 per Tim (ENG-3853)
 
-# Etherscan / Basescan API key for contract verification
+# Etherscan API key for contract verification
 ETHERSCAN_API_KEY=replace-with-api-key
 
 # Deployer private key. ONLY for dev/sepolia. Mainnet deploys use Safe
@@ -154,8 +154,9 @@ FOUNDRY_KEYSTORE_PASSWORD=replace-with-keystore-password
 ```
 
 `foundry.toml`'s `[rpc_endpoints]` block declares the network names that
-`--rpc-url <name>` resolves to. Currently: `mainnet`, `sepolia`,
-`base-sepolia`. Add a new entry when introducing a new network.
+`--rpc-url <name>` resolves to. Currently: `mainnet`, `sepolia`.
+(base-sepolia retired 2026-08-27 per Tim — ENG-3853.) Add a new entry when
+introducing a new network.
 
 ## Script conventions
 
@@ -272,7 +273,7 @@ When a deploy lands, record the new address in:
      address registry
    - `fabrica-v3-subgraph` — subgraph data sources for indexed events
 
-## Verification on Etherscan / Basescan
+## Verification on Etherscan
 
 `--verify` automates Etherscan verification at deploy time. If it fails
 (network hiccup, API rate limit, missing constructor args):
@@ -330,7 +331,8 @@ deploys, omit it and check status manually.
   verifying many contracts in sequence. Either upgrade the key or
   space deploys out.
 - **`--legacy` for non-EIP-1559 networks**: some sidechains require it.
-  Mainnet, sepolia, base-sepolia don't.
+  Mainnet and sepolia don't. (base-sepolia retired 2026-08-27 per Tim —
+  ENG-3853.)
 - **Foundry version drift**: `foundry.lock` pins the toolchain. Always
   `foundryup --version $(cat foundry.lock | jq -r .version)` (or
   equivalent) before deploying. Don't deploy with a newer-than-locked

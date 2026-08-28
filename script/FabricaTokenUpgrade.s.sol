@@ -65,18 +65,19 @@ contract FabricaTokenUpgradeScript is Script {
         });
     }
 
-    // Sepolia-like environments still at _initialized = 5: upgrade impl + run V6 (no-op, 5 -> 6).
+    // Requires _initialized == 5: upgrade impl + run V6 (no-op, 5 -> 6).
     function run(TokenProxy tokenProxy, TokenImplementation newImplementation) public {
         _upgradeWithInitializer(tokenProxy, newImplementation, abi.encodeCall(FabricaToken.initializeV6, ()), 5);
     }
 
-    // Current Sepolia: already at _initialized = 6. Upgrade impl only.
+    // Requires _initialized == 6: upgrade impl only.
     function runNoInit(TokenProxy tokenProxy, TokenImplementation newImplementation) public {
         _upgradeWithInitializer(tokenProxy, newImplementation, "", 6);
     }
 
-    // Mainnet / Base Sepolia (ENG-3145): V4 not yet consumed. Step 1 of the V4 -> V5 -> V6
-    // ceremony — upgrade impl + run V4 (owner migration). Follow with runV5Only then runV6Only.
+    // Legacy OZ-v4-era proxy with _initialized == 0 (ENG-3145): V4 not yet consumed. Step 1
+    // of the V4 -> V5 -> V6 ceremony — upgrade impl + run V4 (owner migration). Follow with
+    // runV5Only then runV6Only.
     function runWithV4(TokenProxy tokenProxy, TokenImplementation newImplementation) public {
         _upgradeWithInitializer(tokenProxy, newImplementation, abi.encodeCall(FabricaToken.initializeV4, ()), 0);
     }
@@ -165,14 +166,16 @@ contract FabricaTokenUpgradeScript is Script {
         return _expectedCurrentImplementation();
     }
 
-    // Mainnet step 2 (after runWithV4): run V5 (no-op, version bump 4 -> 5).
+    // Step 2 of the V4 -> V5 -> V6 ceremony (after runWithV4): run V5 (no-op, version bump 4 -> 5).
+    // Requires _initialized == 4 and reverts on any other value.
     function runV5Only(address tokenProxy) public {
         _runInitializer(
             tokenProxy, "Running initializeV5 (no-op, version bump)", abi.encodeCall(FabricaToken.initializeV5, ()), 4
         );
     }
 
-    // Mainnet step 3 (after runV5Only): run V6 (ENG-3145 no-op version stamp, 5 -> 6).
+    // Step 3 of the V4 -> V5 -> V6 ceremony (after runV5Only): run V6 (ENG-3145 no-op version
+    // stamp, 5 -> 6). Requires _initialized == 5 and reverts on any other value.
     function runV6Only(address tokenProxy) public {
         _runInitializer(
             tokenProxy, "Running initializeV6 (no-op, version bump)", abi.encodeCall(FabricaToken.initializeV6, ()), 5
