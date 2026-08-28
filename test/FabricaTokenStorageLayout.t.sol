@@ -245,7 +245,7 @@ contract FabricaTokenStorageLayoutTest is Test {
     }
 
     function test_mainnetUpgradePath_V4thenV5thenV6() public {
-        // Mainnet (ENG-3145) path: V4 (owner migration) + V5 + V6 (version bumps).
+        // Legacy-proxy (_initialized == 0) path (ENG-3145): V4 (owner migration) + V5 + V6 (version bumps).
         address expectedOwner = makeAddr("expectedOwner");
         (FabricaToken freshToken, address freshProxyAddr) = _freshTokenWithLegacyOwner(expectedOwner);
         // Deploy new implementation and upgrade with V4 (owner migration).

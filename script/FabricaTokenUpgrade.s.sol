@@ -75,8 +75,9 @@ contract FabricaTokenUpgradeScript is Script {
         _upgradeWithInitializer(tokenProxy, newImplementation, "", 6);
     }
 
-    // Mainnet (ENG-3145): V4 not yet consumed. Step 1 of the V4 -> V5 -> V6
-    // ceremony — upgrade impl + run V4 (owner migration). Follow with runV5Only then runV6Only.
+    // Legacy OZ-v4-era proxy with _initialized == 0 (ENG-3145): V4 not yet consumed. Step 1
+    // of the V4 -> V5 -> V6 ceremony — upgrade impl + run V4 (owner migration). Follow with
+    // runV5Only then runV6Only.
     function runWithV4(TokenProxy tokenProxy, TokenImplementation newImplementation) public {
         _upgradeWithInitializer(tokenProxy, newImplementation, abi.encodeCall(FabricaToken.initializeV4, ()), 0);
     }

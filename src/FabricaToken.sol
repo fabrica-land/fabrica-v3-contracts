@@ -60,8 +60,9 @@ contract FabricaToken is
     }
 
     // Migrates owner from OZ v4 linear storage (slot 101) to OZ v5 ERC-7201 namespaced storage.
-    // Deployed on Sepolia 2025-02-12. Must still run on mainnet. (base-sepolia retired
-    // 2026-08-27 per Tim — ENG-3853.)
+    // Consumed on Sepolia (2025-02-12) and on mainnet (both proxies read _initialized = 6
+    // on-chain, 2026-08-28); applies only to a proxy still at _initialized == 0.
+    // (base-sepolia retired 2026-08-27 per Tim — ENG-3853.)
     function initializeV4() public onlyProxyAdmin reinitializer(4) {
         address oldOwner;
         assembly {
@@ -73,8 +74,7 @@ contract FabricaToken is
 
     // Consumed during the __legacy_gap storage fix upgrade. No runtime migration needed —
     // the gap fix is structural (compiled into the bytecode). On Sepolia, V4 already ran
-    // (Feb 2025), so only V5 is called during upgrade. On mainnet, V4 runs first (owner
-    // migration), then V5 bumps the version.
+    // (Feb 2025), so only V5 was called during that upgrade.
     function initializeV5() public onlyProxyAdmin reinitializer(5) {}
 
     // ENG-3145 (burn-remint guard). Empty version-stamp reinitializer — mirrors initializeV5.

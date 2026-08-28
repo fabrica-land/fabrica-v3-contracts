@@ -42,9 +42,11 @@ FabricaToken has versioned initializers:
 Reinitializers can be skipped — `reinitializer(N)` only requires the stored
 version to be < N. Sepolia is already at V6 after the 2026-07-06 rollout, so
 future implementation-only Sepolia upgrades use empty upgrade data unless a new
-reinitializer is added. On mainnet, V4 must run first (owner migration), then
-V5 and V6 bump the version to match the current chain. (base-sepolia retired
-2026-08-27 per Tim — ENG-3853.)
+reinitializer is added. Mainnet is also at `_initialized = 6` (verified
+on-chain 2026-08-28: the ERC-7201 slot reads 6 and the owner is migrated), so
+V4/V5/V6 cannot be re-run there; V4 applies only to a legacy OZ-v4-era proxy
+still at `_initialized == 0`. (base-sepolia retired 2026-08-27 per Tim —
+ENG-3853.)
 
 ## OZ v4→v5 Storage Migration
 
@@ -305,9 +307,12 @@ forge script script/FabricaTokenUpgrade.s.sol \
 If a future Sepolia-like environment is still at `_initialized = 5`, use
 `run(address,address)` to upgrade and call `initializeV6()`.
 
-**New network at `_initialized < 4`** (V4 not yet consumed — call V4 for owner
-migration, then V5 and V6 to match the current initialized version; base-sepolia
-retired 2026-08-27 per Tim — ENG-3853 — was the last chain that used this path):
+**Legacy OZ-v4-era proxy at `_initialized == 0`** (owner still in legacy slot
+101 — call V4 to migrate it, then V5 and V6 to reach the current initialized
+version; `runWithV4` requires exactly `_initialized == 0` and reverts on any
+other value. No chain is currently in this state. Add the network to
+`[rpc_endpoints]` in `foundry.toml` before running — see DEPLOYMENT.md.
+base-sepolia retired 2026-08-27 per Tim — ENG-3853.):
 
 ```bash
 set -a

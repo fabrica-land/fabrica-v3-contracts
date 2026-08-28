@@ -155,7 +155,8 @@ FOUNDRY_KEYSTORE_PASSWORD=replace-with-keystore-password
 
 `foundry.toml`'s `[rpc_endpoints]` block declares the network names that
 `--rpc-url <name>` resolves to. Currently: `mainnet`, `sepolia`.
-(base-sepolia retired 2026-08-27 per Tim — ENG-3853.) Add a new entry when introducing a new network.
+(base-sepolia retired 2026-08-27 per Tim — ENG-3853.) Add a new entry when
+introducing a new network.
 
 ## Script conventions
 
@@ -272,7 +273,7 @@ When a deploy lands, record the new address in:
      address registry
    - `fabrica-v3-subgraph` — subgraph data sources for indexed events
 
-## Verification on Etherscan / Basescan
+## Verification on Etherscan
 
 `--verify` automates Etherscan verification at deploy time. If it fails
 (network hiccup, API rate limit, missing constructor args):
