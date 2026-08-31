@@ -428,7 +428,7 @@ A Safe does not
 accept that. Safe v1.4.1's `isValidSignature` re-wraps the incoming hash in the
 Safe's **own** EIP-712 domain — `SafeMessage(bytes message)` over
 `abi.encode(zoneDigest)` — and runs `checkSignatures` against that hash. The
-API must fetch the Safe message hash and sign it with N owner keys concatenated
+API must derive the Safe message hash and sign it with N owner keys concatenated
 in ascending owner-address order. Verified on-chain by the 1-of-1 control pair
 above. Note the Safe message hash is a **pure local computation** from chainId,
 Safe address and digest — not a network fetch; the hardcoded
