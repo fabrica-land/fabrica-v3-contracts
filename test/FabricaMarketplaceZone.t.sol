@@ -3,7 +3,10 @@ pragma solidity ^0.8.24;
 
 import "forge-std/Test.sol";
 import {FabricaMarketplaceZone} from "../src/FabricaMarketplaceZone.sol";
-import {ZoneParameters, SpentItem, ReceivedItem, ItemType} from "../lib/seaport-types/src/lib/ConsiderationStructs.sol";
+import {ZoneAuthorizationFixture} from "./ZoneAuthorizationFixture.sol";
+import {ZoneParameters} from "../lib/seaport-types/src/lib/ConsiderationStructs.sol";
+import {SafeLikeErc1271Signer} from "./SafeLikeErc1271Signer.sol";
+import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 
 // Mock FabricaToken for testing
 contract MockFabricaToken {
@@ -41,6 +44,8 @@ contract MockERC1271Signer {
 }
 
 contract FabricaMarketplaceZoneTest is Test {
+    string internal constant ZERO_UUID = "00000000-0000-0000-0000-000000000000";
+
     FabricaMarketplaceZone public zone;
     MockFabricaToken public mockToken;
     MockERC1271Signer public mock1271Signer;
@@ -117,44 +122,14 @@ contract FabricaMarketplaceZoneTest is Test {
         return keccak256(abi.encodePacked("\x19\x01", domainSeparator, structHash));
     }
 
-    function _buildExtraData(
-        uint64 expiry,
-        string memory definitionUrl,
-        string memory disclosurePackageId,
-        bytes memory signature
-    ) internal pure returns (bytes memory) {
-        bytes memory defUrlBytes = bytes(definitionUrl);
-        bytes memory dpIdBytes = bytes(disclosurePackageId);
-
-        // expiry (8 bytes) + defUrlLen (2 bytes) + defUrl (N bytes) + dpId (36 bytes) + sig
-        return abi.encodePacked(expiry, uint16(defUrlBytes.length), defUrlBytes, dpIdBytes, signature);
-    }
-
     function _buildZoneParameters(bytes32 orderHash, bytes memory extraData, address tokenAddress, uint256 tokenId)
         internal
         view
         returns (ZoneParameters memory)
     {
-        // Build offer with ERC1155 item
-        SpentItem[] memory offer = new SpentItem[](1);
-        offer[0] = SpentItem({itemType: ItemType.ERC1155, token: tokenAddress, identifier: tokenId, amount: 1});
-
-        ReceivedItem[] memory consideration = new ReceivedItem[](0);
-        bytes32[] memory orderHashes = new bytes32[](1);
-        orderHashes[0] = orderHash;
-
-        return ZoneParameters({
-            orderHash: orderHash,
-            fulfiller: address(0),
-            offerer: address(0),
-            offer: offer,
-            consideration: consideration,
-            extraData: extraData,
-            orderHashes: orderHashes,
-            startTime: block.timestamp,
-            endTime: block.timestamp + 1 days,
-            zoneHash: bytes32(0)
-        });
+        return ZoneAuthorizationFixture.buildZoneParameters(
+            orderHash, extraData, tokenAddress, tokenId, block.timestamp, block.timestamp + 1 days
+        );
     }
 
     function testAuthorizeOrder_ValidSignatureNoDefinitionUrl() public {
@@ -165,7 +140,8 @@ contract FabricaMarketplaceZoneTest is Test {
 
         bytes memory signature = _signPermission(orderHash, expiry, definitionUrl, disclosurePackageId);
 
-        bytes memory extraData = _buildExtraData(expiry, definitionUrl, disclosurePackageId, signature);
+        bytes memory extraData =
+            ZoneAuthorizationFixture.buildExtraData(expiry, definitionUrl, disclosurePackageId, signature);
 
         ZoneParameters memory params = _buildZoneParameters(orderHash, extraData, address(mockToken), 1);
 
@@ -183,7 +159,8 @@ contract FabricaMarketplaceZoneTest is Test {
         bytes32 digest =
             _buildPermissionDigest(address(contractSignerZone), orderHash, expiry, definitionUrl, disclosurePackageId);
         mock1271Signer.setValidSignature(digest, signature, true);
-        bytes memory extraData = _buildExtraData(expiry, definitionUrl, disclosurePackageId, signature);
+        bytes memory extraData =
+            ZoneAuthorizationFixture.buildExtraData(expiry, definitionUrl, disclosurePackageId, signature);
         ZoneParameters memory params = _buildZoneParameters(orderHash, extraData, address(mockToken), 1);
 
         assertEq(contractSignerZone.authorizeOrder(params), FabricaMarketplaceZone.authorizeOrder.selector);
@@ -200,7 +177,8 @@ contract FabricaMarketplaceZoneTest is Test {
             _buildPermissionDigest(address(contractSignerZone), orderHash, expiry, definitionUrl, disclosurePackageId);
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(signerPrivateKey, digest);
         bytes memory oldEoaSignature = abi.encodePacked(r, s, v);
-        bytes memory extraData = _buildExtraData(expiry, definitionUrl, disclosurePackageId, oldEoaSignature);
+        bytes memory extraData =
+            ZoneAuthorizationFixture.buildExtraData(expiry, definitionUrl, disclosurePackageId, oldEoaSignature);
         ZoneParameters memory params = _buildZoneParameters(orderHash, extraData, address(mockToken), 1);
 
         vm.expectRevert("Bad oracle sig");
@@ -218,7 +196,8 @@ contract FabricaMarketplaceZoneTest is Test {
         bytes32 digest =
             _buildPermissionDigest(address(contractSignerZone), orderHash, expiry, definitionUrl, disclosurePackageId);
         mock1271Signer.setValidSignature(digest, validSignature, true);
-        bytes memory extraData = _buildExtraData(expiry, definitionUrl, disclosurePackageId, wrongSignature);
+        bytes memory extraData =
+            ZoneAuthorizationFixture.buildExtraData(expiry, definitionUrl, disclosurePackageId, wrongSignature);
         ZoneParameters memory params = _buildZoneParameters(orderHash, extraData, address(mockToken), 1);
 
         vm.expectRevert("Bad oracle sig");
@@ -232,7 +211,8 @@ contract FabricaMarketplaceZoneTest is Test {
         string memory definitionUrl = "";
         string memory disclosurePackageId = "12345678-1234-1234-1234-123456789012";
         bytes memory signature = hex"1234";
-        bytes memory extraData = _buildExtraData(expiry, definitionUrl, disclosurePackageId, signature);
+        bytes memory extraData =
+            ZoneAuthorizationFixture.buildExtraData(expiry, definitionUrl, disclosurePackageId, signature);
         ZoneParameters memory params = _buildZoneParameters(orderHash, extraData, address(mockToken), 1);
 
         vm.expectRevert("Oracle signature expired");
@@ -246,7 +226,8 @@ contract FabricaMarketplaceZoneTest is Test {
         string memory definitionUrl = "";
         string memory disclosurePackageId = "12345678-1234-1234-1234-123456789012";
         bytes memory signature = hex"1234";
-        bytes memory extraData = _buildExtraData(expiry, definitionUrl, disclosurePackageId, signature);
+        bytes memory extraData =
+            ZoneAuthorizationFixture.buildExtraData(expiry, definitionUrl, disclosurePackageId, signature);
         ZoneParameters memory params = _buildZoneParameters(orderHash, extraData, address(mockToken), 1);
 
         vm.expectRevert("Expiry too far");
@@ -265,7 +246,8 @@ contract FabricaMarketplaceZoneTest is Test {
 
         bytes memory signature = _signPermission(orderHash, expiry, definitionUrl, disclosurePackageId);
 
-        bytes memory extraData = _buildExtraData(expiry, definitionUrl, disclosurePackageId, signature);
+        bytes memory extraData =
+            ZoneAuthorizationFixture.buildExtraData(expiry, definitionUrl, disclosurePackageId, signature);
 
         ZoneParameters memory params = _buildZoneParameters(orderHash, extraData, address(mockToken), tokenId);
 
@@ -286,7 +268,8 @@ contract FabricaMarketplaceZoneTest is Test {
 
         bytes memory signature = _signPermission(orderHash, expiry, signedDefinitionUrl, disclosurePackageId);
 
-        bytes memory extraData = _buildExtraData(expiry, signedDefinitionUrl, disclosurePackageId, signature);
+        bytes memory extraData =
+            ZoneAuthorizationFixture.buildExtraData(expiry, signedDefinitionUrl, disclosurePackageId, signature);
 
         ZoneParameters memory params = _buildZoneParameters(orderHash, extraData, address(mockToken), tokenId);
 
@@ -302,7 +285,8 @@ contract FabricaMarketplaceZoneTest is Test {
 
         bytes memory signature = _signPermission(orderHash, expiry, definitionUrl, disclosurePackageId);
 
-        bytes memory extraData = _buildExtraData(expiry, definitionUrl, disclosurePackageId, signature);
+        bytes memory extraData =
+            ZoneAuthorizationFixture.buildExtraData(expiry, definitionUrl, disclosurePackageId, signature);
 
         ZoneParameters memory params = _buildZoneParameters(orderHash, extraData, address(mockToken), 1);
 
@@ -318,7 +302,8 @@ contract FabricaMarketplaceZoneTest is Test {
 
         bytes memory signature = _signPermission(orderHash, expiry, definitionUrl, disclosurePackageId);
 
-        bytes memory extraData = _buildExtraData(expiry, definitionUrl, disclosurePackageId, signature);
+        bytes memory extraData =
+            ZoneAuthorizationFixture.buildExtraData(expiry, definitionUrl, disclosurePackageId, signature);
 
         ZoneParameters memory params = _buildZoneParameters(orderHash, extraData, address(mockToken), 1);
 
@@ -348,7 +333,8 @@ contract FabricaMarketplaceZoneTest is Test {
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(wrongKey, digest);
         bytes memory wrongSignature = abi.encodePacked(r, s, v);
 
-        bytes memory extraData = _buildExtraData(expiry, definitionUrl, disclosurePackageId, wrongSignature);
+        bytes memory extraData =
+            ZoneAuthorizationFixture.buildExtraData(expiry, definitionUrl, disclosurePackageId, wrongSignature);
 
         ZoneParameters memory params = _buildZoneParameters(orderHash, extraData, address(mockToken), 1);
 
@@ -368,5 +354,293 @@ contract FabricaMarketplaceZoneTest is Test {
 
         vm.expectRevert("extraData too short");
         zone.authorizeOrder(params);
+    }
+
+    /// @dev A malformed-length signature on the EOA path does NOT surface as "Bad oracle sig" —
+    /// OZ's ECDSA.recover reverts with a custom error first. Anything alerting on this path has to
+    /// match that, not the zone's string. Reachable in production: extraData only has to clear the
+    /// 46-byte minimum, and everything past it becomes the signature slice regardless of length.
+    function testRevert_MalformedSignatureLengthOnEoaPathRevertsWithOzCustomError() public {
+        bytes32 orderHash = keccak256("malformed_length");
+        uint64 expiry = uint64(block.timestamp + 1 hours);
+        bytes memory shortSignature = hex"0102030405060708090a0b0c";
+        ZoneParameters memory params = _buildZoneParameters(
+            orderHash,
+            ZoneAuthorizationFixture.buildExtraData(expiry, "", ZERO_UUID, shortSignature),
+            address(mockToken),
+            1
+        );
+        vm.expectRevert(abi.encodeWithSelector(ECDSA.ECDSAInvalidSignatureLength.selector, shortSignature.length));
+        zone.authorizeOrder(params);
+    }
+
+    /// @dev The buyer-bid path: the ERC-1155 sits in `consideration`, so `_verifyDefinitionUrl`
+    /// resolves through its consideration loop instead of the offer loop. That branch had no
+    /// coverage anywhere in the repository before this test.
+    function testAuthorizeOrder_VerifiesDefinitionUrlOnTheConsiderationSideBid() public {
+        bytes32 orderHash = keccak256("bid_side_definition_url");
+        uint64 expiry = uint64(block.timestamp + 1 hours);
+        string memory definitionUrl = "ipfs://QmBidSideDefinition";
+        mockToken.setProperty(7, definitionUrl);
+        bytes memory signature = _signPermission(orderHash, expiry, definitionUrl, ZERO_UUID);
+        ZoneParameters memory params = ZoneAuthorizationFixture.buildBidZoneParameters(
+            orderHash,
+            ZoneAuthorizationFixture.buildExtraData(expiry, definitionUrl, ZERO_UUID, signature),
+            address(mockToken),
+            7,
+            block.timestamp,
+            block.timestamp + 1 days
+        );
+        assertEq(zone.authorizeOrder(params), FabricaMarketplaceZone.authorizeOrder.selector);
+    }
+
+    function testRevert_ConsiderationSideDefinitionUrlMismatch() public {
+        bytes32 orderHash = keccak256("bid_side_mismatch");
+        uint64 expiry = uint64(block.timestamp + 1 hours);
+        mockToken.setProperty(8, "ipfs://QmOnchainValue");
+        bytes memory signature = _signPermission(orderHash, expiry, "ipfs://QmSignedValue", ZERO_UUID);
+        ZoneParameters memory params = ZoneAuthorizationFixture.buildBidZoneParameters(
+            orderHash,
+            ZoneAuthorizationFixture.buildExtraData(expiry, "ipfs://QmSignedValue", ZERO_UUID, signature),
+            address(mockToken),
+            8,
+            block.timestamp,
+            block.timestamp + 1 days
+        );
+        vm.expectRevert("Definition URL mismatch");
+        zone.authorizeOrder(params);
+    }
+
+    /* ----------  ENG-3687: Safe-shaped ERC-1271 signer  ---------- */
+
+    // The MockERC1271Signer above is a lookup table: it proves the zone CALLS a contract signer
+    // and can return a non-magic value, not that a real Safe would accept what we send it.
+    // SafeLikeErc1271Signer models the Safe behaviours that decide whether a Safe deployment
+    // works, so the ENG-3687 item-2 finding runs in ordinary CI with no RPC. Its fidelity to the
+    // live Safe is pinned by a differential assertion in the Sepolia fork attestation.
+    // Owner keys are ordered so `_deploySafeLikeSigner` must actually reorder them — otherwise
+    // the ascending-order pairing logic would never execute in any test.
+
+    function testSafeLikeSigner_AcceptsSignaturesOverTheSafeMessageHash() public {
+        uint256[] memory keys = new uint256[](2);
+        keys[0] = 0xCA7;
+        keys[1] = 0xB0B;
+        (SafeLikeErc1271Signer safeSigner, uint256[] memory sortedKeys) = _deploySafeLikeSigner(keys, 2);
+        FabricaMarketplaceZone safeZone = new FabricaMarketplaceZone(address(safeSigner));
+        bytes32 orderHash = keccak256("safe_like_accepts");
+        uint64 expiry = uint64(block.timestamp + 1 hours);
+        bytes32 digest = _buildPermissionDigest(address(safeZone), orderHash, expiry, "", ZERO_UUID);
+        bytes memory signature = _signAsOwners(sortedKeys, safeSigner.getMessageHash(abi.encode(digest)));
+        ZoneParameters memory params = _buildZoneParameters(
+            orderHash, ZoneAuthorizationFixture.buildExtraData(expiry, "", ZERO_UUID, signature), address(mockToken), 1
+        );
+        assertEq(safeZone.authorizeOrder(params), FabricaMarketplaceZone.authorizeOrder.selector);
+        assertEq(safeZone.validateOrder(params), FabricaMarketplaceZone.validateOrder.selector);
+    }
+
+    /// @dev ENG-3687's hand-off to item 2, pinned as an executable claim: the signature shape
+    /// fabrica-v3-api produces today — ONE EOA signing the raw zone digest — does not
+    /// authenticate against a Safe. Threshold is 1 here deliberately, so the failure cannot be
+    /// explained away by a signature-length check.
+    function testSafeLikeSigner_RejectsEoaSignatureOverRawZoneDigest_EvenAtThresholdOne() public {
+        uint256[] memory keys = new uint256[](1);
+        keys[0] = 0xB0B;
+        (SafeLikeErc1271Signer safeSigner, uint256[] memory sortedKeys) = _deploySafeLikeSigner(keys, 1);
+        FabricaMarketplaceZone safeZone = new FabricaMarketplaceZone(address(safeSigner));
+        bytes32 orderHash = keccak256("safe_like_rejects_raw_digest");
+        uint64 expiry = uint64(block.timestamp + 1 hours);
+        bytes32 digest = _buildPermissionDigest(address(safeZone), orderHash, expiry, "", ZERO_UUID);
+        // sign the zone digest directly, exactly as marketplace.service.ts does today
+        bytes memory apiShaped = _signAsOwners(sortedKeys, digest);
+        bytes memory safeAware = _signAsOwners(sortedKeys, safeSigner.getMessageHash(abi.encode(digest)));
+        assertEq(apiShaped.length, safeAware.length, "controls must be the same length");
+        _expectBothEntryPointsRevert(safeZone, orderHash, expiry, apiShaped, "GS026");
+        ZoneParameters memory accepted = _buildZoneParameters(
+            orderHash, ZoneAuthorizationFixture.buildExtraData(expiry, "", ZERO_UUID, safeAware), address(mockToken), 1
+        );
+        assertEq(safeZone.authorizeOrder(accepted), FabricaMarketplaceZone.authorizeOrder.selector);
+    }
+
+    function testSafeLikeSigner_RejectsSignaturesBelowThreshold() public {
+        uint256[] memory keys = new uint256[](2);
+        keys[0] = 0xCA7;
+        keys[1] = 0xB0B;
+        (SafeLikeErc1271Signer safeSigner, uint256[] memory sortedKeys) = _deploySafeLikeSigner(keys, 2);
+        FabricaMarketplaceZone safeZone = new FabricaMarketplaceZone(address(safeSigner));
+        bytes32 orderHash = keccak256("safe_like_below_threshold");
+        uint64 expiry = uint64(block.timestamp + 1 hours);
+        bytes32 digest = _buildPermissionDigest(address(safeZone), orderHash, expiry, "", ZERO_UUID);
+        uint256[] memory onlyOne = new uint256[](1);
+        onlyOne[0] = sortedKeys[0];
+        bytes memory signature = _signAsOwners(onlyOne, safeSigner.getMessageHash(abi.encode(digest)));
+        _expectBothEntryPointsRevert(safeZone, orderHash, expiry, signature, "GS020");
+    }
+
+    function testSafeLikeSigner_RejectsNonOwnerSignatures() public {
+        uint256[] memory keys = new uint256[](1);
+        keys[0] = 0xB0B;
+        (SafeLikeErc1271Signer safeSigner,) = _deploySafeLikeSigner(keys, 1);
+        FabricaMarketplaceZone safeZone = new FabricaMarketplaceZone(address(safeSigner));
+        bytes32 orderHash = keccak256("safe_like_non_owner");
+        uint64 expiry = uint64(block.timestamp + 1 hours);
+        bytes32 digest = _buildPermissionDigest(address(safeZone), orderHash, expiry, "", ZERO_UUID);
+        uint256[] memory stranger = new uint256[](1);
+        stranger[0] = 0xDEC0DE;
+        bytes memory signature = _signAsOwners(stranger, safeSigner.getMessageHash(abi.encode(digest)));
+        _expectBothEntryPointsRevert(safeZone, orderHash, expiry, signature, "GS026");
+    }
+
+    /// @dev Owner signatures must be concatenated in ascending owner-address order — half of the
+    /// instruction the item-2 hand-off gives the API implementer, so it needs a failing case.
+    function testSafeLikeSigner_RejectsDescendingOwnerOrder() public {
+        uint256[] memory keys = new uint256[](2);
+        keys[0] = 0xCA7;
+        keys[1] = 0xB0B;
+        (SafeLikeErc1271Signer safeSigner, uint256[] memory sortedKeys) = _deploySafeLikeSigner(keys, 2);
+        FabricaMarketplaceZone safeZone = new FabricaMarketplaceZone(address(safeSigner));
+        bytes32 orderHash = keccak256("safe_like_descending");
+        uint64 expiry = uint64(block.timestamp + 1 hours);
+        bytes32 digest = _buildPermissionDigest(address(safeZone), orderHash, expiry, "", ZERO_UUID);
+        uint256[] memory descending = new uint256[](2);
+        descending[0] = sortedKeys[1];
+        descending[1] = sortedKeys[0];
+        bytes memory signature = _signAsOwners(descending, safeSigner.getMessageHash(abi.encode(digest)));
+        _expectBothEntryPointsRevert(safeZone, orderHash, expiry, signature, "GS026");
+    }
+
+    /// @dev The channel item-2 hand-off finding 4 is about: with the message pre-approved on the
+    /// Safe, an order authorizes with ZERO signature bytes in extraData.
+    function testSafeLikeSigner_AcceptsPreApprovedMessageWithEmptySignature() public {
+        uint256[] memory keys = new uint256[](1);
+        keys[0] = 0xB0B;
+        (SafeLikeErc1271Signer safeSigner,) = _deploySafeLikeSigner(keys, 1);
+        FabricaMarketplaceZone safeZone = new FabricaMarketplaceZone(address(safeSigner));
+        bytes32 orderHash = keccak256("safe_like_pre_approved");
+        uint64 expiry = uint64(block.timestamp + 1 hours);
+        bytes32 digest = _buildPermissionDigest(address(safeZone), orderHash, expiry, "", ZERO_UUID);
+        ZoneParameters memory params = _buildZoneParameters(
+            orderHash, ZoneAuthorizationFixture.buildExtraData(expiry, "", ZERO_UUID, ""), address(mockToken), 1
+        );
+        // before pre-approval the empty-signature path is closed
+        vm.expectRevert(bytes("Hash not approved"));
+        safeZone.authorizeOrder(params);
+        safeSigner.markMessageSigned(safeSigner.getMessageHash(abi.encode(digest)));
+        assertEq(safeZone.authorizeOrder(params), FabricaMarketplaceZone.authorizeOrder.selector);
+        assertEq(safeZone.validateOrder(params), FabricaMarketplaceZone.validateOrder.selector);
+    }
+
+    /// @dev eth_sign owners (v > 30) are accepted by a real Safe, so the model accepts them too —
+    /// otherwise every rejection test written against it would be a false negative.
+    function testSafeLikeSigner_AcceptsEthSignOwnerSignature() public {
+        uint256[] memory keys = new uint256[](1);
+        keys[0] = 0xB0B;
+        (SafeLikeErc1271Signer safeSigner,) = _deploySafeLikeSigner(keys, 1);
+        FabricaMarketplaceZone safeZone = new FabricaMarketplaceZone(address(safeSigner));
+        bytes32 orderHash = keccak256("safe_like_eth_sign");
+        uint64 expiry = uint64(block.timestamp + 1 hours);
+        bytes32 digest = _buildPermissionDigest(address(safeZone), orderHash, expiry, "", ZERO_UUID);
+        bytes32 safeMessageHash = safeSigner.getMessageHash(abi.encode(digest));
+        (uint8 v, bytes32 r, bytes32 s) =
+            vm.sign(keys[0], keccak256(abi.encodePacked("\x19Ethereum Signed Message:\n32", safeMessageHash)));
+        bytes memory signature = abi.encodePacked(r, s, v + 4);
+        ZoneParameters memory params = _buildZoneParameters(
+            orderHash, ZoneAuthorizationFixture.buildExtraData(expiry, "", ZERO_UUID, signature), address(mockToken), 1
+        );
+        assertEq(safeZone.authorizeOrder(params), FabricaMarketplaceZone.authorizeOrder.selector);
+        assertEq(safeZone.validateOrder(params), FabricaMarketplaceZone.validateOrder.selector);
+    }
+
+    function testSafeLikeSigner_RejectsZeroAddressOwner() public {
+        address[] memory owners = new address[](1);
+        owners[0] = address(0);
+        vm.expectRevert(bytes("GS203"));
+        new SafeLikeErc1271Signer(owners, 1);
+    }
+
+    /// @dev Real Safe folds the adjacent-duplicate case into its GS203 require
+    /// (`currentOwner != owner`), so `[A, A]` is GS203 — not GS204.
+    function testSafeLikeSigner_RejectsAdjacentDuplicateOwnersAsGs203() public {
+        address[] memory owners = new address[](2);
+        owners[0] = vm.addr(0xB0B);
+        owners[1] = vm.addr(0xB0B);
+        vm.expectRevert(bytes("GS203"));
+        new SafeLikeErc1271Signer(owners, 2);
+    }
+
+    /// @dev A non-adjacent duplicate is caught by the owner-already-registered check as GS204.
+    function testSafeLikeSigner_RejectsNonAdjacentDuplicateOwnersAsGs204() public {
+        address[] memory owners = new address[](3);
+        owners[0] = vm.addr(0xB0B);
+        owners[1] = vm.addr(0xCA7);
+        owners[2] = vm.addr(0xB0B);
+        vm.expectRevert(bytes("GS204"));
+        new SafeLikeErc1271Signer(owners, 3);
+    }
+
+    function testSafeLikeSigner_RejectsThresholdAboveOwnerCount() public {
+        address[] memory owners = new address[](1);
+        owners[0] = vm.addr(0xB0B);
+        vm.expectRevert(bytes("GS201"));
+        new SafeLikeErc1271Signer(owners, 2);
+    }
+
+    function testSafeLikeSigner_RejectsZeroThreshold() public {
+        address[] memory owners = new address[](1);
+        owners[0] = vm.addr(0xB0B);
+        vm.expectRevert(bytes("GS202"));
+        new SafeLikeErc1271Signer(owners, 0);
+    }
+
+    /// @dev Both zone entry points run the same `_verify` guard. Asserting only `authorizeOrder`
+    /// leaves `validateOrder` unprotected — deleting `_verify` from it passed the whole suite
+    /// before this helper existed.
+    function _expectBothEntryPointsRevert(
+        FabricaMarketplaceZone safeZone,
+        bytes32 orderHash,
+        uint64 expiry,
+        bytes memory signature,
+        string memory reason
+    ) internal {
+        ZoneParameters memory params = _buildZoneParameters(
+            orderHash, ZoneAuthorizationFixture.buildExtraData(expiry, "", ZERO_UUID, signature), address(mockToken), 1
+        );
+        vm.expectRevert(bytes(reason));
+        safeZone.authorizeOrder(params);
+        vm.expectRevert(bytes(reason));
+        safeZone.validateOrder(params);
+    }
+
+    /// @dev Returns the keys re-ordered to match the Safe's ascending owner list, so callers sign
+    /// in the order `checkSignatures` requires. Returned explicitly rather than mutated in place.
+    function _deploySafeLikeSigner(uint256[] memory privateKeys, uint256 threshold)
+        internal
+        returns (SafeLikeErc1271Signer, uint256[] memory)
+    {
+        address[] memory owners = new address[](privateKeys.length);
+        uint256[] memory sortedKeys = new uint256[](privateKeys.length);
+        for (uint256 i = 0; i < privateKeys.length; i++) {
+            owners[i] = vm.addr(privateKeys[i]);
+            sortedKeys[i] = privateKeys[i];
+        }
+        _sortAscending(owners, sortedKeys);
+        return (new SafeLikeErc1271Signer(owners, threshold), sortedKeys);
+    }
+
+    function _signAsOwners(uint256[] memory privateKeys, bytes32 hashToSign) internal pure returns (bytes memory) {
+        bytes memory signatures;
+        for (uint256 i = 0; i < privateKeys.length; i++) {
+            (uint8 v, bytes32 r, bytes32 s) = vm.sign(privateKeys[i], hashToSign);
+            signatures = abi.encodePacked(signatures, r, s, v);
+        }
+        return signatures;
+    }
+
+    function _sortAscending(address[] memory owners, uint256[] memory privateKeys) internal pure {
+        for (uint256 i = 1; i < owners.length; i++) {
+            for (uint256 j = i; j > 0 && owners[j - 1] > owners[j]; j--) {
+                (owners[j - 1], owners[j]) = (owners[j], owners[j - 1]);
+                (privateKeys[j - 1], privateKeys[j]) = (privateKeys[j], privateKeys[j - 1]);
+            }
+        }
     }
 }
