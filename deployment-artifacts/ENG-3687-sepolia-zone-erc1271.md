@@ -342,9 +342,10 @@ demonstration that the fork file is an attestation and not regression coverage:
 it calls deployed immutable bytecode, so local source mutations cannot reach it.
 
 `test/FabricaMarketplaceZoneSepoliaErc1271Fork.t.sol` — **deployment
-attestation, not regression coverage.** Every assertion targets already-deployed
+attestation, not regression coverage.** Zone assertions target already-deployed
 immutable bytecode at a pinned block, so no edit to `src/FabricaMarketplaceZone.sol`
-can ever make it fail. It attests that this deployment behaves as documented.
+can make those assertions fail. `testFork_safeLikeModelMatchesTheLiveSafeReWrapFormula`
+is the local-model exception. It attests that this deployment behaves as documented.
 It uses `ForkTestBase._forkOrRequire`, so it skips when `SEPOLIA_RPC_URL` is
 absent (CI stays green) but fails loudly when `ENG3687_REQUIRE_FORK` is set, so
 a manual verification run cannot silently report a skipped proof.
