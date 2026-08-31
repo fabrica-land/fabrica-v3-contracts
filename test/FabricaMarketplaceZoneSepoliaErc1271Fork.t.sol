@@ -74,7 +74,7 @@ contract FabricaMarketplaceZoneSepoliaErc1271ForkTest is ForkTestBase {
     uint256 internal constant SEPOLIA_FORK_BLOCK = 11_488_390;
     uint256 internal constant TOKEN_ID = 298855539945321607;
     uint64 internal constant EXPIRY = 1786727956;
-    uint256 internal constant SELLER_ETH_BALANCE_AT_FORK = 4_655_826_847_376_136_008;
+    uint256 internal constant SELLER_ETH_BALANCE_AT_FORK = 4_664_981_375_599_892_010;
     uint256 internal constant BUYER_ETH_BALANCE_AT_FORK = 48_275_666_627_620_782;
 
     bytes32 internal constant ORDER_HASH = 0x31ac743402a7daec3e3e10311a33b766806faf162c328d925a57d3a094b8347b;
@@ -306,7 +306,7 @@ contract FabricaMarketplaceZoneSepoliaErc1271ForkTest is ForkTestBase {
 
         (bool isValidated, bool isCancelled, uint256 totalFilled, uint256 totalSize) =
             ISeaportOrderStatus(SEAPORT_1_6).getOrderStatus(ORDER_HASH);
-        assertFalse(isValidated, "order was filled directly, not pre-validated");
+        assertTrue(isValidated, "order status must be marked validated after fulfillment");
         assertFalse(isCancelled, "order must not be cancelled");
         assertEq(totalFilled, 1, "Seaport filled amount");
         assertEq(totalSize, 1, "Seaport order size");
