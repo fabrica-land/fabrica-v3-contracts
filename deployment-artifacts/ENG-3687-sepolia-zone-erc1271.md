@@ -1,5 +1,7 @@
 # ENG-3687 Sepolia MarketplaceZone with ERC-1271 (Safe) signer
 
+<!-- markdownlint-disable MD013 -->
+
 Base commit: `062f04968fda561f1f5b72b46fa8ce4016645004` (`origin/main`)
 Network: Sepolia (`11155111`)
 Deployer / seller EOA: `0xBF03076547a99857b796717faF4034dea94569dF`
@@ -335,7 +337,7 @@ MUTATION B — zone corrupts the digest before the ERC-1271 call
 
 Independently reproduced by three review seats in their own worktree copies.
 
-Mutation A also passed all 19 fork tests, which is the cleanest possible
+Mutation A also passed the fork tests, which is the cleanest possible
 demonstration that the fork file is an attestation and not regression coverage:
 it calls deployed immutable bytecode, so local source mutations cannot reach it.
 
@@ -347,11 +349,13 @@ It uses `ForkTestBase._forkOrRequire`, so it skips when `SEPOLIA_RPC_URL` is
 absent (CI stays green) but fails loudly when `ENG3687_REQUIRE_FORK` is set, so
 a manual verification run cannot silently report a skipped proof.
 
-Two limitations worth stating. The fork test re-derives `ZoneParameters` rather
-than replaying them byte-for-byte: the digest-relevant fields (`orderHash`,
-`expiry`, `definitionUrl`, `disclosurePackageId`) are the live values, while
-`fulfiller`, `offerer`, `consideration`, `startTime` and `endTime` are zeroed
-because `_verify` never reads them. The consideration-side branch of `_verifyDefinitionUrl` (the buyer-bid path) had
+Two limitations worth stating. The fork authorization test re-derives
+`ZoneParameters` rather than replaying them byte-for-byte: the digest-relevant
+fields (`orderHash`, `expiry`, `definitionUrl`, `disclosurePackageId`) are the
+live values, while `fulfiller`, `offerer`, `consideration`, `startTime` and
+`endTime` are zeroed because `_verify` never reads them. A separate fork test
+asserts the raw post-fill state at block `11_488_390`: token balances, ETH
+balances, and Seaport `getOrderStatus`. The consideration-side branch of `_verifyDefinitionUrl` (the buyer-bid path) had
 **no coverage anywhere in the repository** before this PR, because every
 `ZoneParameters` builder in `test/` placed the ERC-1155 item in `offer`. Since
 centralising the builders was the cheapest moment to fix that, this PR adds
@@ -393,9 +397,13 @@ detail on every attempt (`a6b706d1-1d94-4586-9351-45f0dcc416d3`,
 artifact records **0 findings OBTAINED, not 0 findings EXISTING** — its absence
 is not evidence of a clean baseline.
 
-**markdownlint** is not executable in an agent lane (the Node package runner is
-blocked by a repo hook and no local binary exists), so the markdown gates
-(MD022/MD032/MD040/MD058) were checked by manual pass rather than by tool.
+**markdownlint** ran successfully after disabling only MD013 line-length, which
+this artifact already violates deliberately for literal addresses, commands and
+evidence tables:
+
+```text
+npx markdownlint-cli2 deployment-artifacts/ENG-3687-sepolia-zone-erc1271.md
+```
 
 ## Where the Sepolia Zone address is consumed (the repoint surface)
 
@@ -512,17 +520,20 @@ does nothing about this window.
 observed fill cost 233561 gas total on Sepolia; item 2 should price the
 per-fill delta on mainnet against the EOA path.
 
-**7. EIP-7702 can flip the branch on a live EOA-signer Zone and brick it
-permanently.** `_verify` evaluates `oracleSigner.code.length` **per call**, not at
-construction. Post-Pectra (live on Sepolia and mainnet), an EOA that signs a 7702
-delegation has non-zero `EXTCODESIZE`, so the Zone silently stops taking the
-`ECDSA.recover` path and staticcalls `isValidSignature` on the delegate instead.
-Every order authorization on that Zone then fails permanently, and because
-`oracleSigner` is immutable the only remedy is a Zone redeploy plus a repoint of
-every consumer. The holder of `fulfillmentPermissionPrivateKey` can trigger this
-unilaterally on develop/staging/production **today**. This is the exact mirror of
-finding 3 on the side this hand-off otherwise treats as the safe baseline, and it
-argues for the migration rather than against it. Tracked separately.
+**7. EIP-7702 can flip the branch on a live EOA-signer Zone and brick it if the
+delegate is incompatible.** `_verify` evaluates `oracleSigner.code.length`
+**per call**, not at construction. Post-Pectra (live on Sepolia and mainnet),
+an EOA that signs a 7702 delegation has non-zero `EXTCODESIZE`, so the Zone
+silently stops taking the `ECDSA.recover` path and staticcalls
+`isValidSignature(bytes32,bytes)` on the delegate instead. Authorization can
+continue only if that delegate implements a compatible ERC-1271 response for the
+Zone digest and signature shape. An incompatible delegate permanently bricks
+that EOA-signer Zone, and because `oracleSigner` is immutable the only remedy is
+a Zone redeploy plus a repoint of every consumer. The holder of
+`fulfillmentPermissionPrivateKey` can trigger this unilaterally on
+develop/staging/production **today**. This is the exact mirror of finding 3 on
+the side this hand-off otherwise treats as the safe baseline, and it argues for
+the migration rather than against it. Tracked separately.
 
 **8. The Zone constructor has no zero-address check on `_oracleSigner`.** Slither
 reports `missing-zero-check`; the parameter is immutable, so on mainnet a

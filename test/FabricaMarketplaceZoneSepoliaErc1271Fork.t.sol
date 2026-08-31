@@ -14,6 +14,17 @@ interface ISafe {
     function isValidSignature(bytes32 hash, bytes calldata signature) external view returns (bytes4);
 }
 
+interface IERC1155Balance {
+    function balanceOf(address account, uint256 id) external view returns (uint256);
+}
+
+interface ISeaportOrderStatus {
+    function getOrderStatus(bytes32 orderHash)
+        external
+        view
+        returns (bool isValidated, bool isCancelled, uint256 totalFilled, uint256 totalSize);
+}
+
 /// @notice ENG-3687 DEPLOYMENT ATTESTATION for the Sepolia MarketplaceZone whose `oracleSigner`
 /// is a Safe rather than an EOA.
 /// @dev This is deliberately NOT regression coverage for `src/FabricaMarketplaceZone.sol`. Its
@@ -32,7 +43,10 @@ interface ISafe {
 contract FabricaMarketplaceZoneSepoliaErc1271ForkTest is ForkTestBase {
     address internal constant ZONE = 0x892f9A7067a82Dbc49A3e557b08767C20fa1B061;
     address internal constant FABRICA_TOKEN = 0xb52ED2Dc8EBD49877De57De3f454Fd71b75bc1fD;
+    address internal constant SEAPORT_1_6 = 0x0000000000000068F116a894984e2DB1123eB395;
     address internal constant SAFE_SINGLETON_1_4_1 = 0x41675C099F32341bf84BFc5382aF534df5C7461a;
+    address internal constant SELLER = 0xBF03076547a99857b796717faF4034dea94569dF;
+    address internal constant BUYER = 0x59d0b67A4F67149E4A3a7615B9d5e5D153BDa9c8;
 
     /// @dev The 2-of-2 Safe that signed the live fulfillment.
     address internal constant SAFE_2_OF_2 = 0xb9c4179D0b25b813a641B5809E7b0fd05483eAD8;
@@ -60,6 +74,8 @@ contract FabricaMarketplaceZoneSepoliaErc1271ForkTest is ForkTestBase {
     uint256 internal constant SEPOLIA_FORK_BLOCK = 11_488_390;
     uint256 internal constant TOKEN_ID = 298855539945321607;
     uint64 internal constant EXPIRY = 1786727956;
+    uint256 internal constant SELLER_ETH_BALANCE_AT_FORK = 4_655_826_847_376_136_008;
+    uint256 internal constant BUYER_ETH_BALANCE_AT_FORK = 48_275_666_627_620_782;
 
     bytes32 internal constant ORDER_HASH = 0x31ac743402a7daec3e3e10311a33b766806faf162c328d925a57d3a094b8347b;
     bytes32 internal constant ZONE_DIGEST = 0x085069988deaacd6b7f1fe9f5b79ae5a4eb1dac28d210d4fcbafaa7f58fcd81c;
@@ -278,6 +294,22 @@ contract FabricaMarketplaceZoneSepoliaErc1271ForkTest is ForkTestBase {
             FabricaMarketplaceZone.validateOrder.selector,
             "validateOrder"
         );
+    }
+
+    /// @dev Raw post-fill state at block 11_488_390, after tx 0xbec9380c...dc9ddc
+    /// fulfilled the order for 0.001 ether.
+    function testFork_fulfilledOrderStateMatchesDocumentedSettlement() public view {
+        assertEq(IERC1155Balance(FABRICA_TOKEN).balanceOf(SELLER, TOKEN_ID), 999, "seller token balance");
+        assertEq(IERC1155Balance(FABRICA_TOKEN).balanceOf(BUYER, TOKEN_ID), 1, "buyer token balance");
+        assertEq(SELLER.balance, SELLER_ETH_BALANCE_AT_FORK, "seller ETH balance");
+        assertEq(BUYER.balance, BUYER_ETH_BALANCE_AT_FORK, "buyer ETH balance");
+
+        (bool isValidated, bool isCancelled, uint256 totalFilled, uint256 totalSize) =
+            ISeaportOrderStatus(SEAPORT_1_6).getOrderStatus(ORDER_HASH);
+        assertFalse(isValidated, "order was filled directly, not pre-validated");
+        assertFalse(isCancelled, "order must not be cancelled");
+        assertEq(totalFilled, 1, "Seaport filled amount");
+        assertEq(totalSize, 1, "Seaport order size");
     }
 
     /// @dev Threshold is enforced through the zone. NOTE this reverts on Safe's LENGTH precheck
