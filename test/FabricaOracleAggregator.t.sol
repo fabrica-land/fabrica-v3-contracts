@@ -382,6 +382,15 @@ contract FabricaOracleAggregatorTest is Test {
         // History cycle 1 is invalid; current cycle 10 is valid.
         store.setMinValidCycle(VID, 5);
         assertEq(_price(), 200_000e6);
+
+        store.setPrice(VID, TOKEN, 0, 250_000e6, nowTs, 11);
+        store.setPrice(VID, TOKEN, 1, 250_000e6, nowTs, 11);
+        assertEq(_price(), 250_000e6);
+
+        store.setPrice(VID, TOKEN, 0, 400_000e6, nowTs, 12);
+        store.setPrice(VID, TOKEN, 1, 400_000e6, nowTs, 12);
+        vm.expectRevert(abi.encodeWithSelector(FabricaOracleAggregator.CheckFailed.selector, agg.CHECK_MIN_SOURCES()));
+        _price();
     }
 
     function test_setSourceIds_rejectsDuplicates() public {

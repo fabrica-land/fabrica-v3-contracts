@@ -109,7 +109,7 @@ contract Eng3523OraclePoolSepoliaForkTest is Eng3519LaunchPoolSepoliaForkTest {
 
     function test_deadManSwitch_blocksNewDebtRestoresOnHeartbeatAndLeavesExitsLive() public {
         (bytes memory repayReceipt, uint256 repayAmount) = _originateAndCaptureReceipt(PRINCIPAL);
-        uint256 maxRepaymentBeforeSilence = _quoteMaxRepayment();
+        uint256 maxRepaymentBeforeSilence = _quoteRatio(launchPool, COLLATERAL_TOKEN_ID, PRINCIPAL);
 
         vm.warp(block.timestamp + factStore.maxSilence() + 1);
         bytes memory heartbeatRevert =
@@ -258,7 +258,8 @@ contract Eng3523OraclePoolSepoliaForkTest is Eng3519LaunchPoolSepoliaForkTest {
 
         vm.warp(block.timestamp + factStore.minWriteInterval() + 1);
         gasBefore = gasleft();
-        _writePriceAt(factStore, freshToken, SOURCE_PRYCD, 10_500e6, CYCLE);
+        uint128 warmPrice = uint128((uint256(10_000e6) * (10_000 + factStore.maxUpBps())) / 10_000);
+        _writePriceAt(factStore, freshToken, SOURCE_PRYCD, warmPrice, CYCLE);
         uint256 warmWriteGas = gasBefore - gasleft();
 
         gasBefore = gasleft();
@@ -355,9 +356,5 @@ contract Eng3523OraclePoolSepoliaForkTest is Eng3519LaunchPoolSepoliaForkTest {
         (bool found, bytes memory loanOriginatedEventData) = _loanOriginatedLogData(logs, launchPool);
         if (found) return abi.decode(loanOriginatedEventData, (bytes));
         revert("LoanOriginated not found");
-    }
-
-    function _quoteMaxRepayment() internal view returns (uint256) {
-        return _quoteRatio(launchPool, COLLATERAL_TOKEN_ID, PRINCIPAL);
     }
 }
