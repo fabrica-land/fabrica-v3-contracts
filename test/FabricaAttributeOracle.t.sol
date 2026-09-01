@@ -611,14 +611,16 @@ contract FabricaAttributeOracleTest is Test {
         FabricaAttributeOracle.PriceWriteParams memory aboveFirst =
             _priceParams(TOKEN_A, SRC_PRYCD, maxFirstPrice + 1, 0, 2, prov);
         uint256 deadline = block.timestamp + 1 hours;
+        bytes memory aboveFirstSig = _signPriceWrite(aboveFirst, publisherPk, 1, deadline);
         vm.expectRevert(
             abi.encodeWithSelector(
                 FabricaAttributeOracle.FirstPriceTooHigh.selector, aboveFirst.priceUsdc6, maxFirstPrice
             )
         );
-        oracle.writePriceRelayed(aboveFirst, 1, deadline, _signPriceWrite(aboveFirst, publisherPk, 1, deadline));
+        oracle.writePriceRelayed(aboveFirst, 1, deadline, aboveFirstSig);
         FabricaAttributeOracle.PriceWriteParams memory reset = _priceParams(TOKEN_A, SRC_PRYCD, PRICE_100K, 0, 2, prov);
-        oracle.writePriceRelayed(reset, 1, deadline, _signPriceWrite(reset, publisherPk, 1, deadline));
+        bytes memory resetSig = _signPriceWrite(reset, publisherPk, 1, deadline);
+        oracle.writePriceRelayed(reset, 1, deadline, resetSig);
         FabricaAttributeOracle.SourcePrice memory current = oracle.getSourcePrice(VALIDATOR, TOKEN_A, SRC_PRYCD);
         assertEq(current.priceUsdc6, PRICE_100K);
         assertEq(current.cycle, 2);
