@@ -3,6 +3,8 @@ name: CI
 on:
   push:
   pull_request:
+  schedule:
+    - cron: "17 8 * * *"
   workflow_dispatch:
 
 jobs:
@@ -40,3 +42,11 @@ jobs:
         run: |
           forge test -vvv
         id: test
+
+      - name: Run ENG-3523 Sepolia oracle-pool invariants
+        env:
+          SEPOLIA_RPC_URL: ${{ secrets.SEPOLIA_RPC_URL }}
+          FABRICA_REQUIRE_SEPOLIA_FV: "1"
+        run: |
+          forge test --match-contract Eng3523OraclePoolSepoliaForkTest -vvv
+        id: eng3523-sepolia-fv

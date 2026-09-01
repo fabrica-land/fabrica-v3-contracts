@@ -572,8 +572,9 @@ contract FabricaAttributeOracle is Ownable2Step, EIP712 {
         uint64 valuedAt = params.valuedAt == 0 ? nowTs : params.valuedAt;
         if (valuedAt > nowTs) revert InvalidValuedAt(valuedAt, nowTs);
         SourcePrice storage current = _sourcePrices[params.validatorId][params.tokenId][params.sourceId];
-        if (current.priceUsdc6 == 0) {
-            // First-price cap is the specific drain-edge guard; check before generic ceiling.
+        bool resetBaseline = current.priceUsdc6 != 0 && current.cycle < minValidCycle[params.validatorId];
+        if (current.priceUsdc6 == 0 || resetBaseline) {
+            // First-baseline cap is the specific drain-edge guard; check before generic ceiling.
             if (params.priceUsdc6 > maxFirstPriceUsdc6) {
                 revert FirstPriceTooHigh(params.priceUsdc6, maxFirstPriceUsdc6);
             }

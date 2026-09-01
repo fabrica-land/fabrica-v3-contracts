@@ -379,7 +379,8 @@ contract FabricaOracleAggregatorTest is Test {
         store.setPrice(VID, TOKEN, 1, 100_000e6, nowTs - 1, 1);
         store.setPrice(VID, TOKEN, 0, 200_000e6, nowTs, 10);
         store.setPrice(VID, TOKEN, 1, 200_000e6, nowTs, 10);
-        store.setMinValidCycle(VID, 5); // history cycle 1 invalid; current 10 valid
+        // History cycle 1 is invalid; current cycle 10 is valid.
+        store.setMinValidCycle(VID, 5);
         assertEq(_price(), 200_000e6);
     }
 

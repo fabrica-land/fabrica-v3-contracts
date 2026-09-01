@@ -10,18 +10,13 @@ import {FabricaAttributeOracle} from "../src/FabricaAttributeOracle.sol";
 import {FabricaOracleAggregator} from "../src/FabricaOracleAggregator.sol";
 
 interface ILaunchPoolLifecycle {
-    function quoteRefinance(
-        bytes calldata encodedLoanReceipt,
-        uint256 principal,
-        uint64 duration,
-        uint128[] calldata ticks
-    ) external view returns (int256, uint256);
     function refinance(
         bytes calldata encodedLoanReceipt,
         uint256 principal,
         uint64 duration,
         uint256 maxRepayment,
-        uint128[] calldata ticks
+        uint128[] calldata ticks,
+        bytes calldata options
     ) external returns (uint256);
     function repay(bytes calldata encodedLoanReceipt) external returns (uint256);
     function liquidate(bytes calldata encodedLoanReceipt) external;
@@ -93,8 +88,8 @@ contract Eng3523OraclePoolSepoliaForkTest is Eng3519LaunchPoolSepoliaForkTest {
     function test_seasoning_blocksNewTokenBorrowAndPublisherCannotRegister() public {
         uint256 freshToken = COLLATERAL_TOKEN_ID + 7_001;
 
+        vm.expectRevert(abi.encodeWithSignature("OwnableUnauthorizedAccount(address)", publisher));
         vm.prank(publisher);
-        vm.expectRevert();
         factStore.register(VALIDATOR_ID, freshToken);
 
         vm.prank(oracleOwner);
@@ -104,12 +99,12 @@ contract Eng3523OraclePoolSepoliaForkTest is Eng3519LaunchPoolSepoliaForkTest {
         bytes memory registryRevert =
             abi.encodeWithSelector(FabricaOracleAggregator.CheckFailed.selector, aggregator.CHECK_REGISTRY());
         vm.expectRevert(registryRevert);
-        _quote(launchPool, freshToken, PRINCIPAL);
+        _quoteRatio(launchPool, freshToken, PRINCIPAL);
 
         vm.warp(block.timestamp + factStore.registrySeasonDelay() + 1);
         vm.prank(publisher);
         factStore.heartbeat(VALIDATOR_ID, CYCLE);
-        assertGt(_quote(launchPool, freshToken, PRINCIPAL), PRINCIPAL, "seasoned token quotes again");
+        assertGt(_quoteRatio(launchPool, freshToken, PRINCIPAL), PRINCIPAL, "seasoned token quotes again");
     }
 
     function test_deadManSwitch_blocksNewDebtRestoresOnHeartbeatAndLeavesExitsLive() public {
@@ -121,19 +116,16 @@ contract Eng3523OraclePoolSepoliaForkTest is Eng3519LaunchPoolSepoliaForkTest {
             abi.encodeWithSelector(FabricaOracleAggregator.CheckFailed.selector, aggregator.CHECK_HEARTBEAT());
 
         vm.expectRevert(heartbeatRevert);
-        _quote(launchPool, COLLATERAL_TOKEN_ID, PRINCIPAL);
+        _quoteRatio(launchPool, COLLATERAL_TOKEN_ID, PRINCIPAL);
 
         vm.startPrank(COLLATERAL_HOLDER);
         IERC1155(FABRICA_TOKEN).setApprovalForAll(launchPool, true);
         vm.expectRevert(heartbeatRevert);
-        _borrow(launchPool, COLLATERAL_TOKEN_ID, PRINCIPAL, maxRepaymentBeforeSilence);
-        vm.stopPrank();
-
-        vm.expectRevert();
-        ILaunchPoolLifecycle(launchPool).quoteRefinance(repayReceipt, PRINCIPAL, _borrowDuration(), _ticks(TICK_RATIO));
-        vm.expectRevert();
+        _borrowRatio(launchPool, COLLATERAL_TOKEN_ID, PRINCIPAL, maxRepaymentBeforeSilence);
+        vm.expectRevert(heartbeatRevert);
         ILaunchPoolLifecycle(launchPool)
-            .refinance(repayReceipt, PRINCIPAL, _borrowDuration(), maxRepaymentBeforeSilence, _ticks(TICK_RATIO));
+            .refinance(repayReceipt, PRINCIPAL, _borrowDuration(), maxRepaymentBeforeSilence, _ticks(TICK_RATIO), "");
+        vm.stopPrank();
 
         deal(USDC, COLLATERAL_HOLDER, repayAmount * 2, true);
         vm.startPrank(COLLATERAL_HOLDER);
@@ -150,7 +142,7 @@ contract Eng3523OraclePoolSepoliaForkTest is Eng3519LaunchPoolSepoliaForkTest {
 
         vm.prank(publisher);
         factStore.heartbeat(VALIDATOR_ID, CYCLE);
-        assertGt(_quote(launchPool, COLLATERAL_TOKEN_ID, PRINCIPAL), PRINCIPAL, "heartbeat restores quotes");
+        assertGt(_quoteRatio(launchPool, COLLATERAL_TOKEN_ID, PRINCIPAL), PRINCIPAL, "heartbeat restores quotes");
     }
 
     function test_recoveryStatusGate_blocksImmediatelyAndVoidIsIrreversible() public {
@@ -167,22 +159,24 @@ contract Eng3523OraclePoolSepoliaForkTest is Eng3519LaunchPoolSepoliaForkTest {
         vm.prank(recoveryWriter);
         factStore.setRecoveryStatus(VALIDATOR_ID, COLLATERAL_TOKEN_ID, distressed);
         vm.expectRevert(recoveryRevert);
-        _quote(launchPool, COLLATERAL_TOKEN_ID, PRINCIPAL);
+        _quoteRatio(launchPool, COLLATERAL_TOKEN_ID, PRINCIPAL);
 
         vm.prank(recoveryWriter);
         factStore.setRecoveryStatus(VALIDATOR_ID, COLLATERAL_TOKEN_ID, normal);
-        assertGt(_quote(launchPool, COLLATERAL_TOKEN_ID, PRINCIPAL), PRINCIPAL, "Normal recovery restores borrow path");
+        assertGt(
+            _quoteRatio(launchPool, COLLATERAL_TOKEN_ID, PRINCIPAL), PRINCIPAL, "Normal recovery restores borrow path"
+        );
 
         vm.prank(recoveryWriter);
         factStore.setRecoveryStatus(VALIDATOR_ID, COLLATERAL_TOKEN_ID, voided);
         vm.expectRevert(recoveryRevert);
-        _quote(launchPool, COLLATERAL_TOKEN_ID, PRINCIPAL);
+        _quoteRatio(launchPool, COLLATERAL_TOKEN_ID, PRINCIPAL);
 
         vm.prank(recoveryWriter);
         vm.expectRevert(FabricaAttributeOracle.VoidIsIrreversible.selector);
         factStore.setRecoveryStatus(VALIDATOR_ID, COLLATERAL_TOKEN_ID, normal);
         vm.expectRevert(recoveryRevert);
-        _quote(launchPool, COLLATERAL_TOKEN_ID, PRINCIPAL);
+        _quoteRatio(launchPool, COLLATERAL_TOKEN_ID, PRINCIPAL);
     }
 
     function test_invalidationKillSwitchBlocksSameBlockAndLazyRewriteRestores() public {
@@ -192,12 +186,14 @@ contract Eng3523OraclePoolSepoliaForkTest is Eng3519LaunchPoolSepoliaForkTest {
         vm.prank(oracleOwner);
         factStore.setMinValidCycle(VALIDATOR_ID, NEXT_CYCLE);
         vm.expectRevert(minSourcesRevert);
-        _quote(launchPool, COLLATERAL_TOKEN_ID, PRINCIPAL);
+        _quoteRatio(launchPool, COLLATERAL_TOKEN_ID, PRINCIPAL);
 
         vm.warp(block.timestamp + factStore.minWriteInterval() + 1);
         _writePriceAt(factStore, COLLATERAL_TOKEN_ID, SOURCE_PRYCD, PRICE_PRYCD, NEXT_CYCLE);
         _writePriceAt(factStore, COLLATERAL_TOKEN_ID, SOURCE_OPENAVM, PRICE_OPENAVM, NEXT_CYCLE);
-        assertGt(_quote(launchPool, COLLATERAL_TOKEN_ID, PRINCIPAL), PRINCIPAL, "lazy cycle rewrite restores token");
+        assertGt(
+            _quoteRatio(launchPool, COLLATERAL_TOKEN_ID, PRINCIPAL), PRINCIPAL, "lazy cycle rewrite restores token"
+        );
     }
 
     function test_tickBehavior_absoluteLimitIgnoresHundredXPriceRatioScales() public {
@@ -226,7 +222,7 @@ contract Eng3523OraclePoolSepoliaForkTest is Eng3519LaunchPoolSepoliaForkTest {
         uint16 loosenedMaxJumpBps = aggregator.maxJumpBps() + 1;
         uint16 maxDispersionBps = aggregator.maxDispersionBps();
         uint8 minLiveSources = aggregator.minLiveSources();
-        vm.expectRevert();
+        vm.expectRevert(abi.encodeWithSignature("OwnableUnauthorizedAccount(address)", oracleOwner));
         vm.prank(oracleOwner);
         aggregator.setKnobs(seasoningWindow, loosenedMaxJumpBps, maxDispersionBps, minLiveSources);
 
@@ -312,22 +308,7 @@ contract Eng3523OraclePoolSepoliaForkTest is Eng3519LaunchPoolSepoliaForkTest {
         internal
         returns (FabricaOracleAggregator agg)
     {
-        uint8[] memory sourceIds = new uint8[](2);
-        sourceIds[0] = SOURCE_PRYCD;
-        sourceIds[1] = SOURCE_OPENAVM;
-        agg = new FabricaOracleAggregator(
-            oracleOwner,
-            address(store),
-            USDC,
-            VALIDATOR_ID,
-            sourceIds,
-            seasoningWindow,
-            MAX_JUMP_BPS,
-            MAX_DISPERSION_BPS,
-            MIN_LIVE_SOURCES
-        );
-        vm.prank(oracleOwner);
-        agg.renounceAggregator();
+        agg = _deployRenouncedAggregatorForStore(store, seasoningWindow);
     }
 
     function _writeBothSourcesAt(
@@ -341,33 +322,6 @@ contract Eng3523OraclePoolSepoliaForkTest is Eng3519LaunchPoolSepoliaForkTest {
         _writePriceAt(store, tokenId, SOURCE_OPENAVM, openAvmPrice, cycle);
     }
 
-    function _writePriceAt(
-        FabricaAttributeOracle store,
-        uint256 tokenId,
-        uint8 sourceId,
-        uint128 priceUsdc6,
-        uint64 cycle
-    ) internal {
-        FabricaAttributeOracle.Provenance memory prov = FabricaAttributeOracle.Provenance({
-            rawPayloadHash: keccak256(abi.encodePacked("eng3523-raw", tokenId, sourceId, priceUsdc6, cycle)),
-            inputsHash: keccak256(abi.encodePacked("eng3523-inputs", tokenId, sourceId, priceUsdc6, cycle)),
-            timestamp: uint64(block.timestamp),
-            signer: publisher
-        });
-        FabricaAttributeOracle.PriceWriteParams memory params = FabricaAttributeOracle.PriceWriteParams({
-            validatorId: VALIDATOR_ID,
-            tokenId: tokenId,
-            sourceId: sourceId,
-            priceUsdc6: priceUsdc6,
-            confidenceScore: CONFIDENCE_SCORE,
-            valuedAt: uint64(block.timestamp),
-            cycle: cycle,
-            provenance: prov
-        });
-        vm.prank(publisher);
-        store.writePrice(params);
-    }
-
     function _sourcePrice(FabricaAttributeOracle store, uint256 tokenId, uint8 sourceId)
         internal
         view
@@ -377,36 +331,26 @@ contract Eng3523OraclePoolSepoliaForkTest is Eng3519LaunchPoolSepoliaForkTest {
         return source.priceUsdc6;
     }
 
-    function _quote(address pool, uint256 tokenId, uint256 principal) internal view returns (uint256) {
-        return ILaunchPool(pool).quote(principal, _borrowDuration(), FABRICA_TOKEN, tokenId, _ticks(TICK_RATIO), "");
+    function _quoteRatio(address pool, uint256 tokenId, uint256 principal) internal view returns (uint256) {
+        return _quoteLaunchPoolFor(pool, tokenId, _ticks(TICK_RATIO), principal);
     }
 
-    function _borrow(address pool, uint256 tokenId, uint256 principal, uint256 maxRepayment)
+    function _borrowRatio(address pool, uint256 tokenId, uint256 principal, uint256 maxRepayment)
         internal
         returns (uint256)
     {
-        return ILaunchPool(pool)
-            .borrow(
-                COLLATERAL_HOLDER,
-                principal,
-                _borrowDuration(),
-                FABRICA_TOKEN,
-                tokenId,
-                maxRepayment,
-                _ticks(TICK_RATIO),
-                ""
-            );
+        return _borrowLaunchPoolFor(pool, tokenId, _ticks(TICK_RATIO), principal, maxRepayment);
     }
 
     function _originateAndCaptureReceipt(uint256 principal)
         internal
         returns (bytes memory encodedLoanReceipt, uint256 repayment)
     {
-        uint256 quoted = _quote(launchPool, COLLATERAL_TOKEN_ID, principal);
+        uint256 quoted = _quoteRatio(launchPool, COLLATERAL_TOKEN_ID, principal);
         vm.startPrank(COLLATERAL_HOLDER);
         IERC1155(FABRICA_TOKEN).setApprovalForAll(launchPool, true);
         vm.recordLogs();
-        repayment = _borrow(launchPool, COLLATERAL_TOKEN_ID, principal, quoted);
+        repayment = _borrowRatio(launchPool, COLLATERAL_TOKEN_ID, principal, quoted);
         Vm.Log[] memory logs = vm.getRecordedLogs();
         vm.stopPrank();
         encodedLoanReceipt = _loanReceiptFromLogs(logs);
@@ -414,17 +358,12 @@ contract Eng3523OraclePoolSepoliaForkTest is Eng3519LaunchPoolSepoliaForkTest {
     }
 
     function _loanReceiptFromLogs(Vm.Log[] memory logs) internal view returns (bytes memory) {
-        bytes32 topic = keccak256("LoanOriginated(bytes32,bytes)");
-        for (uint256 i; i < logs.length; ++i) {
-            if (logs[i].emitter == launchPool && logs[i].topics.length > 0 && logs[i].topics[0] == topic) {
-                return abi.decode(logs[i].data, (bytes));
-            }
-        }
+        (bool found, bytes memory data) = _loanOriginatedLogData(logs, launchPool);
+        if (found) return abi.decode(data, (bytes));
         revert("LoanOriginated not found");
     }
 
     function _quoteMaxRepayment() internal view returns (uint256) {
-        return ILaunchPool(launchPool)
-            .quote(PRINCIPAL, _borrowDuration(), FABRICA_TOKEN, COLLATERAL_TOKEN_ID, _ticks(TICK_RATIO), "");
+        return _quoteRatio(launchPool, COLLATERAL_TOKEN_ID, PRINCIPAL);
     }
 }

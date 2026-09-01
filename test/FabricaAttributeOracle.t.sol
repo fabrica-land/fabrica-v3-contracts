@@ -459,6 +459,29 @@ contract FabricaAttributeOracleTest is Test {
         oracle.writePrice(_priceParams(TOKEN_A, SRC_PRYCD, PRICE_110K, 0, 10, _prov(publisher)));
     }
 
+    function test_writePrice_invalidatedCurrentStartsNewBaseline() public {
+        uint128 incidentPrice = 1_000_000e6;
+        uint128 truePrice = PRICE_100K;
+        _write(SRC_PRYCD, incidentPrice, 1);
+        vm.prank(owner);
+        oracle.setMinValidCycle(VALIDATOR, 2);
+        uint128 maxFirstPrice = oracle.maxFirstPriceUsdc6();
+        uint128 aboveFirst = maxFirstPrice + 1;
+        vm.prank(publisher);
+        vm.expectRevert(
+            abi.encodeWithSelector(FabricaAttributeOracle.FirstPriceTooHigh.selector, aboveFirst, maxFirstPrice)
+        );
+        oracle.writePrice(_priceParams(TOKEN_A, SRC_PRYCD, aboveFirst, 0, 2, _prov(publisher)));
+        vm.prank(publisher);
+        oracle.writePrice(_priceParams(TOKEN_A, SRC_PRYCD, truePrice, 0, 2, _prov(publisher)));
+        FabricaAttributeOracle.SourcePrice memory current = oracle.getSourcePrice(VALIDATOR, TOKEN_A, SRC_PRYCD);
+        assertEq(current.priceUsdc6, truePrice);
+        assertEq(current.cycle, 2);
+        assertEq(oracle.historyLength(VALIDATOR, TOKEN_A, SRC_PRYCD), 1);
+        assertEq(oracle.getHistory(VALIDATOR, TOKEN_A, SRC_PRYCD, 0).priceUsdc6, incidentPrice);
+        assertEq(oracle.getHistory(VALIDATOR, TOKEN_A, SRC_PRYCD, 0).cycle, 1);
+    }
+
     function test_minValidCycle_onlyIncreases() public {
         vm.startPrank(owner);
         oracle.setMinValidCycle(VALIDATOR, 5);
