@@ -594,6 +594,36 @@ contract FabricaAttributeOracleTest is Test {
         oracle.writePriceRelayed(params, 0, deadline, sig);
     }
 
+    function test_writePriceRelayed_invalidatedCurrentStartsNewBaseline() public {
+        uint256 publisherPk = 0xA11CE;
+        address publisherAddr = vm.addr(publisherPk);
+        vm.prank(owner);
+        oracle.setPricePublisher(VALIDATOR, publisherAddr, true);
+        FabricaAttributeOracle.Provenance memory prov = _prov(publisherAddr);
+        FabricaAttributeOracle.PriceWriteParams memory incident =
+            _priceParams(TOKEN_A, SRC_PRYCD, 1_000_000e6, 0, 1, prov);
+        oracle.writePriceRelayed(
+            incident, 0, block.timestamp + 1 hours, _signPriceWrite(incident, publisherPk, 0, block.timestamp + 1 hours)
+        );
+        vm.prank(owner);
+        oracle.setMinValidCycle(VALIDATOR, 2);
+        uint128 maxFirstPrice = oracle.maxFirstPriceUsdc6();
+        FabricaAttributeOracle.PriceWriteParams memory aboveFirst =
+            _priceParams(TOKEN_A, SRC_PRYCD, maxFirstPrice + 1, 0, 2, prov);
+        uint256 deadline = block.timestamp + 1 hours;
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                FabricaAttributeOracle.FirstPriceTooHigh.selector, aboveFirst.priceUsdc6, maxFirstPrice
+            )
+        );
+        oracle.writePriceRelayed(aboveFirst, 1, deadline, _signPriceWrite(aboveFirst, publisherPk, 1, deadline));
+        FabricaAttributeOracle.PriceWriteParams memory reset = _priceParams(TOKEN_A, SRC_PRYCD, PRICE_100K, 0, 2, prov);
+        oracle.writePriceRelayed(reset, 1, deadline, _signPriceWrite(reset, publisherPk, 1, deadline));
+        FabricaAttributeOracle.SourcePrice memory current = oracle.getSourcePrice(VALIDATOR, TOKEN_A, SRC_PRYCD);
+        assertEq(current.priceUsdc6, PRICE_100K);
+        assertEq(current.cycle, 2);
+    }
+
     function test_anchorRoot() public {
         bytes32 root = keccak256("book");
         vm.prank(owner);

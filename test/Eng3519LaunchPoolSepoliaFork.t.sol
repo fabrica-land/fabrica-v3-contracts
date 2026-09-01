@@ -68,10 +68,8 @@ interface ILaunchPool {
  * kept alongside it to demonstrate the price-independence that ENG-3519's tick-policy
  * recommendation relies on.
  *
- * NO BROADCAST. Fork rehearsal only. Real-chain broadcasts on this stack are
- * Tim/Fede-gated — see `LENDING-POOL-RUNBOOK.md` § "ENG-3519 WP-B" in
- * metastreet-contracts-v2, and the NatSpec on that repo's
- * `script/FabricaLendingPoolCreateWithAggregator.s.sol`.
+ * NO BROADCAST. Fork rehearsal only. This suite never signs or sends a
+ * real-chain transaction; mainnet broadcasts remain operator-gated outside tests.
  *
  * Run:
  *   forge test --match-contract Eng3519LaunchPoolSepoliaForkTest -vv
@@ -643,7 +641,7 @@ contract Eng3519LaunchPoolSepoliaForkTest is ForkTestBase {
     function _loanOriginatedLogData(Vm.Log[] memory logs, address pool)
         internal
         pure
-        returns (bool found, bytes memory data)
+        returns (bool found, bytes memory loanOriginatedEventData)
     {
         bytes32 topic = keccak256("LoanOriginated(bytes32,bytes)");
         for (uint256 i; i < logs.length; ++i) {

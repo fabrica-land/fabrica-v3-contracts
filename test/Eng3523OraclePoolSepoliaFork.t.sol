@@ -213,6 +213,7 @@ contract Eng3523OraclePoolSepoliaForkTest is Eng3519LaunchPoolSepoliaForkTest {
 
     function test_timelockSurface_setPriceOracleUnavailableRenouncedLooseningRevertsTighteningApplies() public {
         address priceOracleBefore = ILaunchPool(launchPool).priceOracle();
+        vm.prank(ILaunchPool(launchPool).admin());
         (bool setOracleOk,) =
             launchPool.call(abi.encodeWithSignature("setPriceOracle(address)", makeAddr("unexpected-oracle")));
         assertFalse(setOracleOk, "live 2.15 rejects immediate oracle repoint selector");
@@ -288,7 +289,7 @@ contract Eng3523OraclePoolSepoliaForkTest is Eng3519LaunchPoolSepoliaForkTest {
         store.register(VALIDATOR_ID, tokenId);
         vm.stopPrank();
         _writeBothSourcesAt(store, tokenId, priceUsdc6, priceUsdc6, CYCLE);
-        agg = _deployAggregatorForStore(store, seasoningWindow);
+        agg = _deployRenouncedAggregatorForStore(store, seasoningWindow);
         pool = _createLaunchPool(address(agg));
         _fundAndDepositAmount(pool, UNIT_FIXTURE_DEPOSIT);
     }
@@ -302,13 +303,6 @@ contract Eng3523OraclePoolSepoliaForkTest is Eng3519LaunchPoolSepoliaForkTest {
         knobs.registrySeasonDelay = registrySeasonDelay;
         knobs.minWriteInterval = minWriteInterval;
         store = new FabricaAttributeOracle(oracleOwner, knobs);
-    }
-
-    function _deployAggregatorForStore(FabricaAttributeOracle store, uint64 seasoningWindow)
-        internal
-        returns (FabricaOracleAggregator agg)
-    {
-        agg = _deployRenouncedAggregatorForStore(store, seasoningWindow);
     }
 
     function _writeBothSourcesAt(
@@ -358,8 +352,8 @@ contract Eng3523OraclePoolSepoliaForkTest is Eng3519LaunchPoolSepoliaForkTest {
     }
 
     function _loanReceiptFromLogs(Vm.Log[] memory logs) internal view returns (bytes memory) {
-        (bool found, bytes memory data) = _loanOriginatedLogData(logs, launchPool);
-        if (found) return abi.decode(data, (bytes));
+        (bool found, bytes memory loanOriginatedEventData) = _loanOriginatedLogData(logs, launchPool);
+        if (found) return abi.decode(loanOriginatedEventData, (bytes));
         revert("LoanOriginated not found");
     }
 
