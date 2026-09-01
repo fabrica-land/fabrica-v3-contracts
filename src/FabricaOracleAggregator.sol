@@ -360,8 +360,8 @@ contract FabricaOracleAggregator is Ownable2Step, IPriceOracle {
         if (len == 0) return false; // first price: no prior — store MAX_FIRST_PRICE is the defense
         IFabricaAttributeOracle.HistoryEntry memory prev = store.getHistory(vid, tokenId, sid, 0);
         if (prev.priceUsdc6 == 0) return false;
-        // No valid baseline after cycle kill → fail closed for this feed (do not skip breaker).
-        if (!store.isCycleValid(vid, prev.cycle)) return true;
+        // A cycle kill invalidates old baselines; the first valid rewrite starts a new breaker baseline.
+        if (!store.isCycleValid(vid, prev.cycle)) return false;
         uint256 cur = uint256(current.priceUsdc6);
         uint256 prv = uint256(prev.priceUsdc6);
         uint256 hi = cur > prv ? cur : prv;
