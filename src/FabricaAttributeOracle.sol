@@ -564,16 +564,38 @@ contract FabricaAttributeOracle is Ownable2Step, EIP712 {
     }
 
     function _writePrice(PriceWriteParams calldata params) internal {
+        SourcePrice storage current = _sourcePrices[params.validatorId][params.tokenId][params.sourceId];
+        (uint64 nowTs, uint64 valuedAt) = _validatePriceWrite(params, current);
+        _pushCurrentPriceToHistory(params, current);
+        _storeCurrentPrice(params, current, valuedAt, nowTs);
+        _touchHeartbeat(params.validatorId, params.cycle);
+        emit PriceWritten(
+            params.validatorId,
+            params.tokenId,
+            params.sourceId,
+            params.priceUsdc6,
+            params.confidenceScore,
+            valuedAt,
+            params.cycle,
+            _provenanceHash(params.provenance)
+        );
+    }
+
+    function _validatePriceWrite(PriceWriteParams calldata params, SourcePrice storage current)
+        internal
+        view
+        returns (uint64 nowTs, uint64 valuedAt)
+    {
         if (!sourceEnabled[params.sourceId]) revert SourceNotEnabled(params.sourceId);
         _requireRegistered(params.validatorId, params.tokenId);
         if (params.priceUsdc6 == 0) revert InvalidPrice();
         _requireValidCycle(params.validatorId, params.cycle);
-        uint64 nowTs = uint64(block.timestamp);
-        uint64 valuedAt = params.valuedAt == 0 ? nowTs : params.valuedAt;
+        nowTs = uint64(block.timestamp);
+        valuedAt = params.valuedAt == 0 ? nowTs : params.valuedAt;
         if (valuedAt > nowTs) revert InvalidValuedAt(valuedAt, nowTs);
-        SourcePrice storage current = _sourcePrices[params.validatorId][params.tokenId][params.sourceId];
-        if (current.priceUsdc6 == 0) {
-            // First-price cap is the specific drain-edge guard; check before generic ceiling.
+        bool resetBaseline = current.priceUsdc6 != 0 && current.cycle < minValidCycle[params.validatorId];
+        if (current.priceUsdc6 == 0 || resetBaseline) {
+            // First-baseline cap is the specific drain-edge guard; check before generic ceiling.
             if (params.priceUsdc6 > maxFirstPriceUsdc6) {
                 revert FirstPriceTooHigh(params.priceUsdc6, maxFirstPriceUsdc6);
             }
@@ -591,6 +613,9 @@ contract FabricaAttributeOracle is Ownable2Step, EIP712 {
         if (params.priceUsdc6 > valueCeilingUsdc6) {
             revert AboveValueCeiling(params.priceUsdc6, valueCeilingUsdc6);
         }
+    }
+
+    function _pushCurrentPriceToHistory(PriceWriteParams calldata params, SourcePrice storage current) internal {
         if (current.priceUsdc6 != 0) {
             _pushHistory(
                 params.validatorId,
@@ -604,23 +629,20 @@ contract FabricaAttributeOracle is Ownable2Step, EIP712 {
                 })
             );
         }
+    }
+
+    function _storeCurrentPrice(
+        PriceWriteParams calldata params,
+        SourcePrice storage current,
+        uint64 valuedAt,
+        uint64 nowTs
+    ) internal {
         current.priceUsdc6 = params.priceUsdc6;
         current.confidenceScore = params.confidenceScore;
         current.valuedAt = valuedAt;
         current.lastWrittenAt = nowTs;
         current.cycle = params.cycle;
         current.provenance = params.provenance;
-        _touchHeartbeat(params.validatorId, params.cycle);
-        emit PriceWritten(
-            params.validatorId,
-            params.tokenId,
-            params.sourceId,
-            params.priceUsdc6,
-            params.confidenceScore,
-            valuedAt,
-            params.cycle,
-            _provenanceHash(params.provenance)
-        );
     }
 
     function _priceWriteStructHash(PriceWriteParams calldata params, uint256 nonce, uint256 deadline)

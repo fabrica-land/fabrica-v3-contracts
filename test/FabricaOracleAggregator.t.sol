@@ -370,16 +370,25 @@ contract FabricaOracleAggregatorTest is Test {
         assertEq(keccak256(bytes(evo)), keccak256("immutable-post-renounce; new-checks=new-aggregator-deploy"));
     }
 
-    function test_breaker_invalidHistoryCycleDropsFeed() public {
+    function test_breaker_invalidHistoryCycleStartsNewBaseline() public {
         // Two feeds only; history for both is cycle 1; bump minValidCycle so prior is invalid.
-        // Current prices at cycle 10 jump hard vs invalid history — must drop both → min sources fail.
+        // Current prices at cycle 10 are valid and become the post-invalidation breaker baseline.
         store.setSourceEnabled(2, false);
         uint64 nowTs = uint64(block.timestamp);
         store.setPrice(VID, TOKEN, 0, 100_000e6, nowTs - 1, 1);
         store.setPrice(VID, TOKEN, 1, 100_000e6, nowTs - 1, 1);
         store.setPrice(VID, TOKEN, 0, 200_000e6, nowTs, 10);
         store.setPrice(VID, TOKEN, 1, 200_000e6, nowTs, 10);
-        store.setMinValidCycle(VID, 5); // history cycle 1 invalid; current 10 valid
+        // History cycle 1 is invalid; current cycle 10 is valid.
+        store.setMinValidCycle(VID, 5);
+        assertEq(_price(), 200_000e6);
+
+        store.setPrice(VID, TOKEN, 0, 250_000e6, nowTs, 11);
+        store.setPrice(VID, TOKEN, 1, 250_000e6, nowTs, 11);
+        assertEq(_price(), 250_000e6);
+
+        store.setPrice(VID, TOKEN, 0, 400_000e6, nowTs, 12);
+        store.setPrice(VID, TOKEN, 1, 400_000e6, nowTs, 12);
         vm.expectRevert(abi.encodeWithSelector(FabricaOracleAggregator.CheckFailed.selector, agg.CHECK_MIN_SOURCES()));
         _price();
     }

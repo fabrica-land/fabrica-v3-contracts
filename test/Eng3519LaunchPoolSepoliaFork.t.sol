@@ -68,10 +68,8 @@ interface ILaunchPool {
  * kept alongside it to demonstrate the price-independence that ENG-3519's tick-policy
  * recommendation relies on.
  *
- * NO BROADCAST. Fork rehearsal only. Real-chain broadcasts on this stack are
- * Tim/Fede-gated — see `LENDING-POOL-RUNBOOK.md` § "ENG-3519 WP-B" in
- * metastreet-contracts-v2, and the NatSpec on that repo's
- * `script/FabricaLendingPoolCreateWithAggregator.s.sol`.
+ * NO BROADCAST. Fork rehearsal only. This suite never signs or sends a
+ * real-chain transaction; mainnet broadcasts remain operator-gated outside tests.
  *
  * Run:
  *   forge test --match-contract Eng3519LaunchPoolSepoliaForkTest -vv
@@ -477,23 +475,31 @@ contract Eng3519LaunchPoolSepoliaForkTest is ForkTestBase {
     }
 
     function _quoteLaunchPool(uint128[] memory ticks, uint256 principal) internal view returns (uint256) {
-        return
-            ILaunchPool(launchPool).quote(principal, _borrowDuration(), FABRICA_TOKEN, COLLATERAL_TOKEN_ID, ticks, "");
+        return _quoteLaunchPoolFor(launchPool, COLLATERAL_TOKEN_ID, ticks, principal);
+    }
+
+    function _quoteLaunchPoolFor(address pool, uint256 tokenId, uint128[] memory ticks, uint256 principal)
+        internal
+        view
+        returns (uint256)
+    {
+        return ILaunchPool(pool).quote(principal, _borrowDuration(), FABRICA_TOKEN, tokenId, ticks, "");
     }
 
     function _borrowLaunchPool(uint128[] memory ticks, uint256 maxRepayment) internal returns (uint256) {
+        return _borrowLaunchPoolFor(launchPool, COLLATERAL_TOKEN_ID, ticks, PRINCIPAL, maxRepayment);
+    }
+
+    function _borrowLaunchPoolFor(
+        address pool,
+        uint256 tokenId,
+        uint128[] memory ticks,
+        uint256 principal,
+        uint256 maxRepayment
+    ) internal returns (uint256) {
         /* options = "" => BorrowLogic._getOptionsData(OracleContext) yields EMPTY bytes. */
-        return ILaunchPool(launchPool)
-            .borrow(
-                COLLATERAL_HOLDER,
-                PRINCIPAL,
-                _borrowDuration(),
-                FABRICA_TOKEN,
-                COLLATERAL_TOKEN_ID,
-                maxRepayment,
-                ticks,
-                ""
-            );
+        return ILaunchPool(pool)
+            .borrow(COLLATERAL_HOLDER, principal, _borrowDuration(), FABRICA_TOKEN, tokenId, maxRepayment, ticks, "");
     }
 
     /* Second aggregator + pool with the temporal floor disabled, so the coupling test
@@ -538,24 +544,38 @@ contract Eng3519LaunchPoolSepoliaForkTest is ForkTestBase {
     }
 
     function _writePrice(uint8 sourceId, uint128 priceUsdc6) internal {
+        _writePriceAt(factStore, COLLATERAL_TOKEN_ID, sourceId, priceUsdc6, CYCLE);
+    }
+
+    function _writePriceAt(
+        FabricaAttributeOracle store,
+        uint256 tokenId,
+        uint8 sourceId,
+        uint128 priceUsdc6,
+        uint64 cycle
+    ) internal {
         FabricaAttributeOracle.Provenance memory prov = FabricaAttributeOracle.Provenance({
-            rawPayloadHash: keccak256(abi.encodePacked("eng3519-raw", sourceId, priceUsdc6)),
-            inputsHash: keccak256(abi.encodePacked("eng3519-inputs", sourceId, priceUsdc6)),
+            rawPayloadHash: keccak256(
+                abi.encodePacked("fork-raw", address(store), tokenId, sourceId, priceUsdc6, cycle)
+            ),
+            inputsHash: keccak256(
+                abi.encodePacked("fork-inputs", address(store), tokenId, sourceId, priceUsdc6, cycle)
+            ),
             timestamp: uint64(block.timestamp),
             signer: publisher
         });
         FabricaAttributeOracle.PriceWriteParams memory params = FabricaAttributeOracle.PriceWriteParams({
             validatorId: VALIDATOR_ID,
-            tokenId: COLLATERAL_TOKEN_ID,
+            tokenId: tokenId,
             sourceId: sourceId,
             priceUsdc6: priceUsdc6,
             confidenceScore: CONFIDENCE_SCORE,
             valuedAt: uint64(block.timestamp),
-            cycle: CYCLE,
+            cycle: cycle,
             provenance: prov
         });
         vm.prank(publisher);
-        factStore.writePrice(params);
+        store.writePrice(params);
     }
 
     function _deployAndRenounceAggregator() internal {
@@ -568,12 +588,19 @@ contract Eng3519LaunchPoolSepoliaForkTest is ForkTestBase {
     /* Single construction site for the aggregator so the launch fixture and the coupling
        fixture cannot drift apart on the eight knobs they must share. */
     function _deployRenouncedAggregator(uint64 seasoningWindow) internal returns (FabricaOracleAggregator agg) {
+        return _deployRenouncedAggregatorForStore(factStore, seasoningWindow);
+    }
+
+    function _deployRenouncedAggregatorForStore(FabricaAttributeOracle store, uint64 seasoningWindow)
+        internal
+        returns (FabricaOracleAggregator agg)
+    {
         uint8[] memory sourceIds = new uint8[](2);
         sourceIds[0] = SOURCE_PRYCD;
         sourceIds[1] = SOURCE_OPENAVM;
         agg = new FabricaOracleAggregator(
             oracleOwner,
-            address(factStore),
+            address(store),
             USDC,
             VALIDATOR_ID,
             sourceIds,
@@ -607,11 +634,22 @@ contract Eng3519LaunchPoolSepoliaForkTest is ForkTestBase {
     }
 
     function _sawLoanOriginated(Vm.Log[] memory logs, address pool) internal pure returns (bool) {
+        (bool found,) = _loanOriginatedLogData(logs, pool);
+        return found;
+    }
+
+    function _loanOriginatedLogData(Vm.Log[] memory logs, address pool)
+        internal
+        pure
+        returns (bool found, bytes memory loanOriginatedEventData)
+    {
         bytes32 topic = keccak256("LoanOriginated(bytes32,bytes)");
         for (uint256 i; i < logs.length; ++i) {
-            if (logs[i].emitter == pool && logs[i].topics.length > 0 && logs[i].topics[0] == topic) return true;
+            if (logs[i].emitter == pool && logs[i].topics.length > 0 && logs[i].topics[0] == topic) {
+                return (true, logs[i].data);
+            }
         }
-        return false;
+        return (false, "");
     }
 
     function _ticks(uint128 tick) internal pure returns (uint128[] memory ticks) {
