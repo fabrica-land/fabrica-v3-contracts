@@ -61,6 +61,6 @@ Logs:
   writePrice, write 49+ of a row (ring wrapped, slot overwritten) -- intrinsic + calldata: 23768
   writePrice, write 49+ of a row (ring wrapped, slot overwritten) -- WHOLE TRANSACTION: 103269
 
-Suite result: ok. 10 passed; 0 failed; 0 skipped; finished in 94.21ms (11.90ms CPU time)
+Suite result: ok. 10 passed; 0 failed; 0 skipped; finished in 222.23ms (14.26ms CPU time)
 
-Ran 1 test suite in 105.32ms (94.21ms CPU time): 10 tests passed, 0 failed, 0 skipped (10 total tests)
+Ran 1 test suite in 250.68ms (222.23ms CPU time): 10 tests passed, 0 failed, 0 skipped (10 total tests)

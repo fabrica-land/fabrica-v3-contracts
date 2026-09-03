@@ -13,53 +13,65 @@
 #
 # NOTE ON --gas-report: do NOT regenerate this file with --gas-report. See the script header.
 #
-Ran 2 tests for test/bench/Eng3922Read.t.sol:Eng3922HeartbeatCostTest
-[PASS] test_arm2WithRebuiltHeartbeat() (gas: 2285670)
-Logs:
-  arm2 price() WITH rebuilt per-writer heartbeat: 278589
-
-[PASS] test_arm2WithoutHeartbeat() (gas: 2196885)
-Logs:
-  arm2 price() WITHOUT heartbeat (freshness from attestation time only): 189688
-
-Suite result: ok. 2 passed; 0 failed; 0 skipped; finished in 103.52ms (796.54µs CPU time)
-
 Ran 1 test for test/bench/Eng3922Read.t.sol:Eng3922IndexerRowDepth2Test
 [PASS] test_indexerRowDepthReadGas() (gas: 6830658)
 Logs:
   arm1 all-EAS indexer, Indexer row depth 2: 336834
 
-Suite result: ok. 1 passed; 0 failed; 0 skipped; finished in 104.66ms (1.01ms CPU time)
+Suite result: ok. 1 passed; 0 failed; 0 skipped; finished in 127.82ms (907.96µs CPU time)
 
-Ran 5 tests for test/bench/Eng3922Coverage.t.sol:Eng3922CoverageClosedCycleTest
-[PASS] test_coverageArm1EasIndexer() (gas: 2771681)
+Ran 5 tests for test/bench/Eng3922Coverage.t.sol:Eng3922CoverageNoneTest
+[PASS] test_coverageArm1EasIndexer() (gas: 2771038)
 Logs:
-  arm1 all-EAS indexer    coverage=closedCycle depth/source=0 price() execution gas: 324250
+  arm1 all-EAS indexer    coverage=none depth/source=0 price() execution gas: 323929
 
-[PASS] test_coverageArm1cEasContext() (gas: 2456455)
+[PASS] test_coverageArm1cEasContext() (gas: 2455812)
 Logs:
-  arm1C EAS oracleContext coverage=closedCycle depth/source=0 price() execution gas: 246151
+  arm1C EAS oracleContext coverage=none depth/source=0 price() execution gas: 245830
 
-[PASS] test_coverageArm2EasPointer() (gas: 2559033)
+[PASS] test_coverageArm2EasPointer() (gas: 2558390)
 Logs:
-  arm2 EAS+pointer        coverage=closedCycle depth/source=0 price() execution gas: 273910
+  arm2 EAS+pointer        coverage=none depth/source=0 price() execution gas: 273589
 
-[PASS] test_coverageArm3OwnerlessStore() (gas: 2210953)
+[PASS] test_coverageArm3OwnerlessStore() (gas: 2210310)
 Logs:
-  arm3 ownerless store    coverage=closedCycle depth/source=0 price() execution gas: 113714
+  arm3 ownerless store    coverage=none depth/source=0 price() execution gas: 113393
 
-[PASS] test_coverageCalibrationRound1Store() (gas: 2229446)
+[PASS] test_coverageCalibrationRound1Store() (gas: 2228798)
 Logs:
-  cal. round-1 store      coverage=closedCycle depth/source=0 price() execution gas: 121486
+  cal. round-1 store      coverage=none depth/source=0 price() execution gas: 121165
 
-Suite result: ok. 5 passed; 0 failed; 0 skipped; finished in 106.97ms (3.55ms CPU time)
+Suite result: ok. 5 passed; 0 failed; 0 skipped; finished in 129.15ms (3.53ms CPU time)
 
-Ran 1 test for test/bench/Eng3922Read.t.sol:Eng3922IndexerRowDepth1Test
-[PASS] test_indexerRowDepthReadGas() (gas: 6823419)
+Ran 5 tests for test/bench/Eng3922Coverage.t.sol:Eng3922CoverageProofAtReadTest
+[PASS] test_coverageArm1EasIndexer() (gas: 2792757)
 Logs:
-  arm1 all-EAS indexer, Indexer row depth 1: 329596
+  arm1 all-EAS indexer    coverage=proofAtRead depth/source=0 price() execution gas: 334788
 
-Suite result: ok. 1 passed; 0 failed; 0 skipped; finished in 107.70ms (831.75µs CPU time)
+[PASS] test_coverageArm1cEasContext() (gas: 2477477)
+Logs:
+  arm1C EAS oracleContext coverage=proofAtRead depth/source=0 price() execution gas: 256662
+
+[PASS] test_coverageArm2EasPointer() (gas: 2580064)
+Logs:
+  arm2 EAS+pointer        coverage=proofAtRead depth/source=0 price() execution gas: 284425
+
+[PASS] test_coverageArm3OwnerlessStore() (gas: 2231695)
+Logs:
+  arm3 ownerless store    coverage=proofAtRead depth/source=0 price() execution gas: 124085
+
+[PASS] test_coverageCalibrationRound1Store() (gas: 2010392)
+Logs:
+  cal. round-1 store      coverage=proofAtRead: not eligible on this fact layer under this rule
+
+Suite result: ok. 5 passed; 0 failed; 0 skipped; finished in 131.30ms (2.87ms CPU time)
+
+Ran 1 test for test/bench/Eng3922Read.t.sol:Eng3922IndexerRowDepth5Test
+[PASS] test_indexerRowDepthReadGas() (gas: 6852789)
+Logs:
+  arm1 all-EAS indexer, Indexer row depth 5: 358965
+
+Suite result: ok. 1 passed; 0 failed; 0 skipped; finished in 133.52ms (824.83µs CPU time)
 
 Ran 5 tests for test/bench/Eng3922Read.t.sol:Eng3922ReadDepth1Test
 [PASS] test_readArm1EasIndexer() (gas: 3037874)
@@ -82,60 +94,7 @@ Logs:
 Logs:
   cal. round-1 store      depth/source=1 price() execution gas: 168270
 
-Suite result: ok. 5 passed; 0 failed; 0 skipped; finished in 110.01ms (3.31ms CPU time)
-
-Ran 5 tests for test/bench/Eng3922Coverage.t.sol:Eng3922CoverageStampTest
-[PASS] test_coverageArm1EasIndexer() (gas: 2966333)
-Logs:
-  arm1 all-EAS indexer    coverage=coverageStamp depth/source=0 price() execution gas: 421576
-
-[PASS] test_coverageArm1cEasContext() (gas: 2600054)
-Logs:
-  arm1C EAS oracleContext coverage=coverageStamp depth/source=0 price() execution gas: 317951
-
-[PASS] test_coverageArm2EasPointer() (gas: 2579072)
-Logs:
-  arm2 EAS+pointer        coverage=coverageStamp depth/source=0 price() execution gas: 283927
-
-[PASS] test_coverageArm3OwnerlessStore() (gas: 2231769)
-Logs:
-  arm3 ownerless store    coverage=coverageStamp depth/source=0 price() execution gas: 124122
-
-[PASS] test_coverageCalibrationRound1Store() (gas: 2071628)
-Logs:
-  cal. round-1 store      coverage=coverageStamp: not eligible on this fact layer under this rule
-
-Suite result: ok. 5 passed; 0 failed; 0 skipped; finished in 109.70ms (3.07ms CPU time)
-
-Ran 1 test for test/bench/Eng3922Read.t.sol:Eng3922IndexerRowDepth5Test
-[PASS] test_indexerRowDepthReadGas() (gas: 6852789)
-Logs:
-  arm1 all-EAS indexer, Indexer row depth 5: 358965
-
-Suite result: ok. 1 passed; 0 failed; 0 skipped; finished in 111.22ms (717.04µs CPU time)
-
-Ran 5 tests for test/bench/Eng3922Read.t.sol:Eng3922ReadDepth0Test
-[PASS] test_readArm1EasIndexer() (gas: 2772141)
-Logs:
-  arm1 all-EAS indexer    depth/source=0 price() execution gas: 323929
-
-[PASS] test_readArm1cEasContext() (gas: 2456986)
-Logs:
-  arm1C EAS oracleContext depth/source=0 price() execution gas: 245830
-
-[PASS] test_readArm2EasPointer() (gas: 2559080)
-Logs:
-  arm2 EAS+pointer        depth/source=0 price() execution gas: 273589
-
-[PASS] test_readArm3OwnerlessStore() (gas: 2211104)
-Logs:
-  arm3 ownerless store    depth/source=0 price() execution gas: 113393
-
-[PASS] test_readCalibrationRound1Store() (gas: 2229663)
-Logs:
-  cal. round-1 store      depth/source=0 price() execution gas: 121165
-
-Suite result: ok. 5 passed; 0 failed; 0 skipped; finished in 108.91ms (2.95ms CPU time)
+Suite result: ok. 5 passed; 0 failed; 0 skipped; finished in 135.35ms (4.82ms CPU time)
 
 Ran 5 tests for test/bench/Eng3922Read.t.sol:Eng3922ReadDepth3Test
 [PASS] test_readArm1EasIndexer() (gas: 3474044)
@@ -158,23 +117,7 @@ Logs:
 Logs:
   cal. round-1 store      depth/source=3 price() execution gas: 222362
 
-Suite result: ok. 5 passed; 0 failed; 0 skipped; finished in 109.00ms (3.97ms CPU time)
-
-Ran 4 tests for test/bench/Eng3922Behaviour.t.sol:Eng3922BehaviourTest
-[PASS] test_contextFromEncoderDrivesArm() (gas: 55167164)
-[PASS] test_contextRoundTrips() (gas: 1872596)
-[PASS] test_keyingGapClosed() (gas: 53317602)
-Logs:
-  keying gap closed on all arms: pointer rows, store facts and EAS revocation are all msg.sender-bound
-
-[PASS] test_lockEndToEnd() (gas: 62226641)
-Logs:
-  arm3 ownerless store: writer lock drops liveCount and price() reverts CHECK_MIN_SOURCES
-  arm2 EAS+pointer: writer revocation drops liveCount and price() reverts CHECK_MIN_SOURCES
-  arm1 all-EAS Indexer: revocation reaches the Indexer lookup path too
-  arm1C oracleContext: a caller-supplied revoked uid is rejected by validation
-
-Suite result: ok. 4 passed; 0 failed; 0 skipped; finished in 216.14ms (25.80ms CPU time)
+Suite result: ok. 5 passed; 0 failed; 0 skipped; finished in 135.70ms (4.32ms CPU time)
 
 Ran 5 tests for test/bench/Eng3922Read.t.sol:Eng3922ReadDepth7Test
 [PASS] test_readArm1EasIndexer() (gas: 4347942)
@@ -197,7 +140,46 @@ Logs:
 Logs:
   cal. round-1 store      depth/source=7 price() execution gas: 330579
 
-Suite result: ok. 5 passed; 0 failed; 0 skipped; finished in 117.83ms (6.38ms CPU time)
+Suite result: ok. 5 passed; 0 failed; 0 skipped; finished in 142.64ms (5.01ms CPU time)
+
+Ran 4 tests for test/bench/Eng3922Behaviour.t.sol:Eng3922BehaviourTest
+[PASS] test_contextFromEncoderDrivesArm() (gas: 55167164)
+[PASS] test_contextRoundTrips() (gas: 1872596)
+[PASS] test_keyingGapClosed() (gas: 53317602)
+Logs:
+  keying gap closed on all arms: pointer rows, store facts and EAS revocation are all msg.sender-bound
+
+[PASS] test_lockEndToEnd() (gas: 62226641)
+Logs:
+  arm3 ownerless store: writer lock drops liveCount and price() reverts CHECK_MIN_SOURCES
+  arm2 EAS+pointer: writer revocation drops liveCount and price() reverts CHECK_MIN_SOURCES
+  arm1 all-EAS Indexer: revocation reaches the Indexer lookup path too
+  arm1C oracleContext: a caller-supplied revoked uid is rejected by validation
+
+Suite result: ok. 4 passed; 0 failed; 0 skipped; finished in 144.78ms (26.36ms CPU time)
+
+Ran 5 tests for test/bench/Eng3922Coverage.t.sol:Eng3922CoverageClosedCycleTest
+[PASS] test_coverageArm1EasIndexer() (gas: 2771681)
+Logs:
+  arm1 all-EAS indexer    coverage=closedCycle depth/source=0 price() execution gas: 324250
+
+[PASS] test_coverageArm1cEasContext() (gas: 2456455)
+Logs:
+  arm1C EAS oracleContext coverage=closedCycle depth/source=0 price() execution gas: 246151
+
+[PASS] test_coverageArm2EasPointer() (gas: 2559033)
+Logs:
+  arm2 EAS+pointer        coverage=closedCycle depth/source=0 price() execution gas: 273910
+
+[PASS] test_coverageArm3OwnerlessStore() (gas: 2210953)
+Logs:
+  arm3 ownerless store    coverage=closedCycle depth/source=0 price() execution gas: 113714
+
+[PASS] test_coverageCalibrationRound1Store() (gas: 2229446)
+Logs:
+  cal. round-1 store      coverage=closedCycle depth/source=0 price() execution gas: 121486
+
+Suite result: ok. 5 passed; 0 failed; 0 skipped; finished in 153.99ms (3.07ms CPU time)
 
 Ran 24 tests for test/bench/Eng3922Write.t.sol:Eng3922WriteTest
 [PASS] test_easCoverageAttestation100() (gas: 26010985)
@@ -354,52 +336,70 @@ Logs:
   arm2 pointer, stampCoverage batch 100 -- WHOLE TRANSACTION: 2528397
   arm2 pointer, stampCoverage batch 100 -- WHOLE TRANSACTION per item: 25283
 
-Suite result: ok. 24 passed; 0 failed; 0 skipped; finished in 132.38ms (176.86ms CPU time)
+Suite result: ok. 24 passed; 0 failed; 0 skipped; finished in 170.18ms (150.23ms CPU time)
 
-Ran 5 tests for test/bench/Eng3922Coverage.t.sol:Eng3922CoverageProofAtReadTest
-[PASS] test_coverageArm1EasIndexer() (gas: 2792757)
+Ran 1 test for test/bench/Eng3922Read.t.sol:Eng3922IndexerRowDepth1Test
+[PASS] test_indexerRowDepthReadGas() (gas: 6823419)
 Logs:
-  arm1 all-EAS indexer    coverage=proofAtRead depth/source=0 price() execution gas: 334788
+  arm1 all-EAS indexer, Indexer row depth 1: 329596
 
-[PASS] test_coverageArm1cEasContext() (gas: 2477477)
+Suite result: ok. 1 passed; 0 failed; 0 skipped; finished in 115.94ms (889.79µs CPU time)
+
+Ran 5 tests for test/bench/Eng3922Read.t.sol:Eng3922ReadDepth0Test
+[PASS] test_readArm1EasIndexer() (gas: 2772141)
 Logs:
-  arm1C EAS oracleContext coverage=proofAtRead depth/source=0 price() execution gas: 256662
+  arm1 all-EAS indexer    depth/source=0 price() execution gas: 323929
 
-[PASS] test_coverageArm2EasPointer() (gas: 2580064)
+[PASS] test_readArm1cEasContext() (gas: 2456986)
 Logs:
-  arm2 EAS+pointer        coverage=proofAtRead depth/source=0 price() execution gas: 284425
+  arm1C EAS oracleContext depth/source=0 price() execution gas: 245830
 
-[PASS] test_coverageArm3OwnerlessStore() (gas: 2231695)
+[PASS] test_readArm2EasPointer() (gas: 2559080)
 Logs:
-  arm3 ownerless store    coverage=proofAtRead depth/source=0 price() execution gas: 124085
+  arm2 EAS+pointer        depth/source=0 price() execution gas: 273589
 
-[PASS] test_coverageCalibrationRound1Store() (gas: 2010392)
+[PASS] test_readArm3OwnerlessStore() (gas: 2211104)
 Logs:
-  cal. round-1 store      coverage=proofAtRead: not eligible on this fact layer under this rule
+  arm3 ownerless store    depth/source=0 price() execution gas: 113393
 
-Suite result: ok. 5 passed; 0 failed; 0 skipped; finished in 240.57ms (3.56ms CPU time)
-
-Ran 5 tests for test/bench/Eng3922Coverage.t.sol:Eng3922CoverageNoneTest
-[PASS] test_coverageArm1EasIndexer() (gas: 2771038)
+[PASS] test_readCalibrationRound1Store() (gas: 2229663)
 Logs:
-  arm1 all-EAS indexer    coverage=none depth/source=0 price() execution gas: 323929
+  cal. round-1 store      depth/source=0 price() execution gas: 121165
 
-[PASS] test_coverageArm1cEasContext() (gas: 2455812)
+Suite result: ok. 5 passed; 0 failed; 0 skipped; finished in 118.50ms (3.61ms CPU time)
+
+Ran 5 tests for test/bench/Eng3922Coverage.t.sol:Eng3922CoverageStampTest
+[PASS] test_coverageArm1EasIndexer() (gas: 2966333)
 Logs:
-  arm1C EAS oracleContext coverage=none depth/source=0 price() execution gas: 245830
+  arm1 all-EAS indexer    coverage=coverageStamp depth/source=0 price() execution gas: 421576
 
-[PASS] test_coverageArm2EasPointer() (gas: 2558390)
+[PASS] test_coverageArm1cEasContext() (gas: 2600054)
 Logs:
-  arm2 EAS+pointer        coverage=none depth/source=0 price() execution gas: 273589
+  arm1C EAS oracleContext coverage=coverageStamp depth/source=0 price() execution gas: 317951
 
-[PASS] test_coverageArm3OwnerlessStore() (gas: 2210310)
+[PASS] test_coverageArm2EasPointer() (gas: 2579072)
 Logs:
-  arm3 ownerless store    coverage=none depth/source=0 price() execution gas: 113393
+  arm2 EAS+pointer        coverage=coverageStamp depth/source=0 price() execution gas: 283927
 
-[PASS] test_coverageCalibrationRound1Store() (gas: 2228798)
+[PASS] test_coverageArm3OwnerlessStore() (gas: 2231769)
 Logs:
-  cal. round-1 store      coverage=none depth/source=0 price() execution gas: 121165
+  arm3 ownerless store    coverage=coverageStamp depth/source=0 price() execution gas: 124122
 
-Suite result: ok. 5 passed; 0 failed; 0 skipped; finished in 240.54ms (3.32ms CPU time)
+[PASS] test_coverageCalibrationRound1Store() (gas: 2071628)
+Logs:
+  cal. round-1 store      coverage=coverageStamp: not eligible on this fact layer under this rule
 
-Ran 14 test suites in 250.71ms (1.92s CPU time): 73 tests passed, 0 failed, 0 skipped (73 total tests)
+Suite result: ok. 5 passed; 0 failed; 0 skipped; finished in 120.54ms (4.72ms CPU time)
+
+Ran 2 tests for test/bench/Eng3922Read.t.sol:Eng3922HeartbeatCostTest
+[PASS] test_arm2WithRebuiltHeartbeat() (gas: 2285670)
+Logs:
+  arm2 price() WITH rebuilt per-writer heartbeat: 278589
+
+[PASS] test_arm2WithoutHeartbeat() (gas: 2196885)
+Logs:
+  arm2 price() WITHOUT heartbeat (freshness from attestation time only): 189688
+
+Suite result: ok. 2 passed; 0 failed; 0 skipped; finished in 124.87ms (649.63µs CPU time)
+
+Ran 14 test suites in 263.84ms (1.88s CPU time): 73 tests passed, 0 failed, 0 skipped (73 total tests)

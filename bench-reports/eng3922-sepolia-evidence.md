@@ -53,18 +53,25 @@ facts live.
 
 **Sepolia against the fork, same code, two independent methods:**
 
+<!-- GENERATED:fork-vs-sepolia do not edit by hand; bench-reports/regenerate.sh rewrites this -->
+
 | Arm | Fork | Sepolia | Difference |
 | -- | -- | -- | -- |
 | arm 3 ownerless store | 113,393 | 112,376 | −0.9% |
 | arm 1C `oracleContext` | 245,830 | 246,436 | +0.2% |
 | arm 2 EAS plus pointer | 273,589 | 274,724 | +0.4% |
-| arm 1 all-EAS `Indexer` | 323,308 | 338,281 | **+4.6%** |
+| arm 1 all-EAS `Indexer` | 323,929 | 338,281 | **+4.4%** |
 
-**Arm 1's 4.6% is not noise, and chasing it produced a finding.** Both Sepolia runs published the
-same twenty token ids from the same three writers, so each `(schema, attester, recipient)` row in
-EAS's `Indexer` now holds **two** attestations where the pinned fork holds one — confirmed on chain,
-`getSchemaAttesterRecipientAttestationUIDCount` returns 2 for all three writers on the probed token.
+Three arms agree to within 0.9%. **Arm 1's +4.4% is not noise, and chasing it produced a finding** — see below: the fork holds one attestation per Indexer row where Sepolia holds two. Like for like, the fork at row depth 2 (336,834) against Sepolia at row depth 2 (338,281) is +0.4%, in line with every other arm.
+
+<!-- /GENERATED:fork-vs-sepolia -->
+
+Both Sepolia runs published the same twenty token ids from the same three writers, so each
+`(schema, attester, recipient)` row in EAS's `Indexer` holds **two** attestations where the pinned
+fork holds one — confirmed on chain, `getSchemaAttesterRecipientAttestationUIDCount` returns 2 for
+all three writers on the probed token.
 Arm 1 is the only arm whose read touches that array, so it is the only arm whose read cost grows
+
 with how many attestations have accumulated in a row. Measured directly on the fork, holding the
 `refUID` chain at depth 0 and varying only the row:
 
@@ -80,9 +87,11 @@ That is **7,238 gas for the first extra attestation and about 7,377 per attestat
 
 <!-- /GENERATED:indexer-row-depth -->
 
-Comparing like for like — the fork at row
-depth 2 against Sepolia at row depth 2 — gives 336,213 against 338,281, **+0.6%**, in line with
-every other arm.
+The arm-1 figures here are **post-guard**. `ArmEasIndexer.recipientForToken` rejects a token id wider
+than `uint160` rather than silently truncating it into a colliding Indexer row, and that check costs
+**621 gas on every arm-1 read** (828 on the coverage-stamp row, which performs the lookup twice). No
+other arm moves. It is the right trade — a reverting read beats a valid fact silently vanishing
+because another token shared its row — but the number to quote for arm 1 is the one that includes it.
 
 This matters beyond reconciling two numbers: **arm 1's read is the only one that is not O(1) in its
 own write history.** Nothing prunes an Indexer row, so an all-EAS deployment's read cost rises every

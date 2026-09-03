@@ -12,6 +12,16 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 ARMS = (ROOT / "bench-reports" / "eng3922-arms.txt").read_text()
 
+# The four Sepolia probe transactions. These are literal receipts, not derived: they are the only
+# inputs here that cannot be recomputed, so they are pinned with their transaction hashes and every
+# figure quoted against them is derived from the arms report at generation time.
+SEPOLIA_PROBES = {
+    "arm3": (112_376, "arm 3 ownerless store", "0x5002ca40b79f481659cc6f8ba7b3a04e6a191900e15d47c78907d77b001c9ef4"),
+    "arm1C": (246_436, "arm 1C `oracleContext`", "0x33c9945d911ca9c1174146c8721ef1d862f43959b0f6ae47b98be3daef178838"),
+    "arm2": (274_724, "arm 2 EAS plus pointer", "0x4e935f76c2e2863a00d22fee9bfb0b78da8015d207c49f4203fbfaa0a3474d44"),
+    "arm1": (338_281, "arm 1 all-EAS `Indexer`", "0x79d5df884347113d7a4f0d6074081c0a22f07becd82f34975500a2793922db1f"),
+}
+
 ARM_LABELS = [
     ("arm3", "arm3 ownerless store   ", "arm 3 ownerless custom store"),
     ("cal", "cal. round-1 store     ", "calibration round-1 store"),
@@ -98,6 +108,37 @@ def main():
         ]
     )
     replace_block(ROOT / "bench-reports" / "eng3922-sepolia-evidence.md", "indexer-row-depth", body)
+
+    # Fork against chain. The fork column and every percentage are derived; only the Sepolia
+    # column is literal. K1 in review was this table going stale one table over from the last
+    # one that went stale, so it is generated now rather than maintained.
+    compare = [
+        "| Arm | Fork | Sepolia | Difference |",
+        "| -- | -- | -- | -- |",
+    ]
+    for key in ("arm3", "arm1C", "arm2", "arm1"):
+        fork = rows[key][0]
+        chain, label, _ = SEPOLIA_PROBES[key]
+        pct = (chain - fork) / fork * 100
+        cell = f"{pct:+.1f}%".replace("+-", "-").replace("-", "\u2212") if pct < 0 else f"+{pct:.1f}%"
+        if key == "arm1":
+            cell = f"**{cell}**"
+        compare.append(f"| {label} | {fork:,} | {chain:,} | {cell} |")
+    arm1_pct = (SEPOLIA_PROBES["arm1"][0] - rows["arm1"][0]) / rows["arm1"][0] * 100
+    others = [
+        abs((SEPOLIA_PROBES[k][0] - rows[k][0]) / rows[k][0] * 100) for k in ("arm3", "arm1C", "arm2")
+    ]
+    like_pct = (SEPOLIA_PROBES["arm1"][0] - depth[2]) / depth[2] * 100
+    compare += [
+        "",
+        f"Three arms agree to within {max(others):.1f}%. **Arm 1's {arm1_pct:+.1f}% is not noise, and "
+        "chasing it produced a finding** — see below: the fork holds one attestation per Indexer row "
+        f"where Sepolia holds two. Like for like, the fork at row depth 2 ({depth[2]:,}) against "
+        f"Sepolia at row depth 2 ({SEPOLIA_PROBES['arm1'][0]:,}) is {like_pct:+.1f}%, in line with "
+        "every other arm.",
+    ]
+    replace_block(ROOT / "bench-reports" / "eng3922-sepolia-evidence.md", "fork-vs-sepolia", "\n".join(compare))
+    print(f"  derived: fork-vs-Sepolia ({len(SEPOLIA_PROBES)} arms, arm1 {arm1_pct:+.1f}%, like-for-like {like_pct:+.1f}%)")
     print(f"  derived: per-hop table (5 arms), Indexer row depth ({first:,} first, {average:,} avg)")
 
 
