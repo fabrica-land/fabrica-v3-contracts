@@ -2639,11 +2639,10 @@ const DATA = {
   }
  ],
  "meta": {
-  "branch": "tozzetto/eng-3913-oracle-gas-model",
-  "commit": "d3de4077f98f90735c67b11040733110d12c2ffb",
-  "commitShort": "d3de407",
+  "commit": "83429726ad1a5de12134a1b5044710b7aea6bebb",
+  "commitShort": "8342972",
   "historyDepth": 48,
-  "inputDigest": "bf24686dc394252c",
+  "inputDigest": "bdba3e7eff258910",
   "reportHeader": "# ENG-3913 \u2014 per-scenario gas bench, literal output\n#\n# repo:    fabrica-v3-contracts\n# base:    origin/main @ 4b9201d17d78c7296545a6bd5ef6ac8da1d5a86e\n# branch:  tozzetto/eng-3913-oracle-gas-model\n# command: forge test --match-path test/Eng3913OracleGasBench.t.sol -vv\n# forge:   forge Version: 1.7.1 (Commit SHA: 4072e48705af9d93e3c0f6e29e93b5e9a40caed8)\n# profile: optimizer=true, optimizer_runs=1, via_ir=false (foundry.toml [profile.default])\n# knobs:   FabricaAttributeOracle.defaultKnobs() \u2014 the config\n#          script/FabricaAttributeOracleDeploy.s.sol deploys with.\n#\n# \u26a0 RUN THIS WITHOUT --gas-report.\n#   Foundry's gas-report instrumentation inflates the gasleft() deltas these benches\n#   read, and the codeless-control subtraction absorbs most but not all of it. The CSV\n#   rows here are valid ONLY from a plain -vv run. Under --gas-report the steady-state\n#   writePrice row reads 72,268 instead of 73,812."
  },
  "rows": {
@@ -2993,12 +2992,14 @@ function render() {
   const m = model();
   const pending = S.layer === "eas";
   document.getElementById("prov").innerHTML =
-    `Branch <code>${META.branch}</code>, built from <code>${META.commitShort}</code>
-     — the commit this page's inputs were taken from, which is the <em>parent</em> of the commit
-     that carries the page (a committed file cannot name its own SHA). The check that actually
-     matters does not depend on a SHA: <code>build-model-page.py --check</code> regenerates the
-     page from the committed template, reports and chain data and fails if it differs.
-     Input digest <code>${META.inputDigest}</code>.
+    `Input digest <code>${META.inputDigest}</code> — a hash of this page's own inputs, which is
+     the identity that matters, because it does not change when the page is committed and does
+     not depend on which branch or checkout you are on.
+     <code>build-model-page.py --check</code> regenerates the page from the committed template,
+     reports and chain data and fails if it differs; it works on any checkout, detached
+     included. Built from <code>${META.commitShort}</code>, necessarily the <em>parent</em> of
+     the commit carrying this page — a committed file cannot name its own SHA, which is exactly
+     why the digest and not a SHA is the guarantee.
      Mainnet figures read from the chain at ${CHAIN.now.timeUtc}, block
      <span class="num">${fmt(CHAIN.now.block)}</span>.
      Ticket <a href="https://linear.app/fabrica/issue/ENG-3913">ENG-3913</a>.
@@ -3393,19 +3394,28 @@ total                                                    = ${fmt(m.totalGas)} ga
     lane. It is not a re-measurement of this page's write-side numbers, and it does not remove
     the write-1 discrepancy below.</p></div>
 
-    <h3>Corroboration, and one thing that does not reconcile</h3>
-    <p class="small">ENG-3922 measured the <em>deployed</em> contract on a Sepolia fork — different
-    code, different method. Three of four regimes agree with this bench to 0.2%: write 2
-    (${fmt(G("writePrice:second (ring slot cold)"))} here, ~154,000 there), writes 3–48
-    (${fmt(G("writePrice:writes 3-48 (ring slot fresh, counter warm)"))} / ~137,000), write 49+
-    (${fmt(G("writePrice:write 49+ (ring wrapped), price moved"))} / ~103,000).</p>
-    <div class="note bad"><p><strong>Write 1 does not reconcile.</strong>
-    ${fmt(G("writePrice:first"))} here against ~175,000 there, a gap of about 5,200 gas that is
-    <strong>not explained</strong>. Two candidates, neither confirmed: this bench primes each
-    writer's heartbeat before write 1, so it excludes the bootstrap; and ENG-3922's
-    whole-transaction figures appear to omit a calldata term, which is
-    ${fmt(R["writePrice:first"].calldataGas)} gas here. It is stated rather than smoothed away.
-    It affects only the first write of a row's life, not regimes 2–4.</p></div>
+    <h3>Cross-check against ENG-3922's write-side baseline — withdrawn, pending re-measurement</h3>
+    <div class="note warn"><p><strong>This page previously claimed its write-side figures agreed
+    with ENG-3922's independent measurement of the deployed contract to 0.2% on three of four
+    regimes. That claim is <span class="pending">withdrawn</span>, and no replacement number is
+    offered.</strong></p>
+    <p>Two reasons, either of which is sufficient. First, the quantities were taken from figures
+    relayed in conversation rather than from ENG-3922's committed report, and they do not match
+    it — against the committed baseline the agreements are 1.7–2.1%, not 0.2%, and the wrapped
+    regime is out by 11.7%, which is a different regime from the one this page named as the
+    outlier. Second, and decisive: <strong>that baseline report does not currently reproduce.</strong>
+    A reviewer re-running it at ENG-3922's own head, same forge and same pinned fork block, gets
+    materially different numbers, and this repo's <code>CLAUDE.md</code> measurement guard sides
+    with the re-run. That is an open finding on contracts#42.</p>
+    <p>So the source is unsettled in both directions, and substituting the committed values would
+    only move the error rather than remove it. The corroboration is marked
+    <span class="pending">pending: ENG-3922 baseline under re-measurement</span> and carries no
+    quantities until that report regenerates. <strong>Nothing on this page depends on it</strong>
+    — every figure here is measured by the benches in this repo, which reproduce exactly, and
+    none of them was derived from or reconciled against ENG-3922's baseline.</p>
+    <p class="small">The lesson, kept here deliberately: the withdrawn numbers came from a peer's
+    chat messages rather than from the artifact a reader would check. Corroboration is only worth
+    stating against a committed artifact, and only when that artifact regenerates.</p></div>
     <details><summary>A hypothesis that was tested and killed: deployed code versus <code>main</code></summary>
     <p class="small">The deployed round-1 fact store is <em>not</em> the code on <code>main</code>.
     Diffing <code>cast code</code> on the live Sepolia address against builds of each historical
@@ -3446,7 +3456,9 @@ total                                                    = ${fmt(m.totalGas)} ga
 
     <h3>Reproducing the whole page</h3>
     <div class="eq">git clone https://github.com/fabrica-land/fabrica-v3-contracts &amp;&amp; cd fabrica-v3-contracts
-git checkout ${META.branch}     # the branch head, NOT ${META.commitShort}, which is the parent
+git checkout &lt;sha&gt;          # the commit CONTAINING this page: the PR head, or the
+                             # merge commit on main. NOT ${META.commitShort}, which is its parent.
+                             # A detached checkout is fine and is what CI does.
 
 # 1. the page is exactly what its committed inputs produce (no RPC, no keys)
 python3 bench/oracle-gas-model/build-model-page.py --check

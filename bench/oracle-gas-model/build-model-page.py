@@ -114,6 +114,11 @@ def git(*args):
 
 
 # The provenance fields, excluded from the --check comparison. See the note in main().
+#
+# `branch` used to be injected here too and is deliberately gone: it is not provenance the
+# guarantee rests on (the input digest is), and comparing it made --check fail on `main`,
+# on any detached checkout, and in CI -- i.e. everywhere except the one branch that merging
+# deletes. A check that is red wherever the page actually lives is worse than no check.
 META_FIELDS = ("commit", "commitShort")
 
 
@@ -162,7 +167,6 @@ def main():
     meta = {
         "commit": git("rev-parse", "HEAD"),
         "commitShort": git("rev-parse", "--short", "HEAD"),
-        "branch": git("rev-parse", "--abbrev-ref", "HEAD"),
         "historyDepth": 48,
         "reportHeader": (HERE / "reports" / "bench-rows.txt").read_text().split("\n\n")[0],
     }

@@ -17,8 +17,15 @@ import {DeployedRound1FactStore} from "../bench/oracle-gas-model/deployed-round1
 ///      code is 311-657 gas CHEAPER than `main` (0.4-0.9%), which is both small and in the
 ///      opposite direction to the gap. The real cause of that gap was a defect in this
 ///      bench's own provenance handling, fixed separately: constant `rawPayloadHash` /
-///      `inputsHash` made two storage words no-op writes. After that fix three of the four
-///      regimes agree with ENG-3922 to 0.2%; the write-1 residual remains unresolved.
+///      `inputsHash` made two storage words no-op writes, understating every repeat write
+///      by ~5,600 gas.
+///
+///      HOW CLOSE THE TWO NOW AGREE IS AN OPEN QUESTION, deliberately left open. An earlier
+///      version of this comment claimed agreement to 0.2% on three of four regimes. That
+///      claim is withdrawn: it was based on figures relayed in conversation rather than on
+///      ENG-3922's committed baseline report, it does not match that report, and the report
+///      does not currently reproduce (an open finding on contracts#42). No replacement
+///      figure is asserted until it does. Nothing in this test depends on the comparison.
 ///
 ///      This test is kept because the deployed-versus-`main` delta is worth knowing on its
 ///      own, and because a killed hypothesis should leave an artifact rather than a memory.
