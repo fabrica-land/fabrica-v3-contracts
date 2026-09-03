@@ -114,7 +114,7 @@ footer{border-top:1px solid var(--line);padding:18px 20px 40px;color:var(--muted
     <label for="d-sources">Oracle sources writing</label>
     <input type="number" id="d-sources" min="1" max="20" step="1">
     <div class="hint">Each source publishes under its own address and heartbeats on its own
-      schedule, so this multiplies both the price writes and the heartbeats. Three today:
+      schedule, so this multiplies both the price writes and the cycle closes. Three today:
       Prycd, OpenAVM, the Regrid assessor.</div>
   </div>
 
@@ -154,24 +154,34 @@ footer{border-top:1px solid var(--line);padding:18px 20px 40px;color:var(--muted
   <div class="dial">
     <label for="d-maxsilence">Maximum silence, days</label>
     <input type="number" id="d-maxsilence" min="0.1" step="0.1">
-    <div class="hint">Fede, 3 Sep: several days, not hours. The heartbeat's own deadline is
-      this window less the safety margin below — which is why the heartbeat is deferrable
-      and can wait out a peak.</div>
+    <div class="hint">Three days (Tim, 3 Sep 18:12Z, Fede's number). This is the HARD bound:
+      the point at which the aggregator's freshness gate trips. The cycle close's own deadline
+      is this less the safety margin below — which is why the close is deferrable and can wait
+      out a peak.</div>
   </div>
 
   <div class="dial">
-    <label for="d-margin">Heartbeat safety margin</label>
+    <label for="d-margin">Cycle-close safety margin</label>
     <input type="number" id="d-margin" min="0" max="90" step="5">
     <div class="hint" id="hb-hint"></div>
   </div>
 
   <div class="dial">
-    <label for="d-hbpolicy">Heartbeat policy</label>
+    <label for="d-hbpolicy">Cycle close</label>
     <select id="d-hbpolicy">
-      <option value="whenSilent">Only when no write covered the window</option>
-      <option value="everyCycle">Explicit heartbeat every window</option>
+      <option value="whenSilent">Round 1 — a price write covers the window</option>
+      <option value="everyCycle">Round 1 — explicit close every window</option>
+      <option value="round2">Round 2 — daily close carrying the Merkle root</option>
     </select>
     <div class="hint" id="hbpolicy-hint"></div>
+  </div>
+
+  <div class="dial">
+    <label for="d-moved">Valuations that move per cycle, %</label>
+    <input type="number" id="d-moved" min="0" max="100" step="1">
+    <div class="hint">Tim, 3 Sep 18:21Z: a writer may skip rewriting an unchanged valuation and
+      still cover the token in the cycle. Only the movers cost anything; the rest cost nothing
+      because no transaction is sent. 100% is the conservative setting.</div>
   </div>
 
   <div class="dial">
@@ -2603,8 +2613,8 @@ const DATA = {
  ],
  "meta": {
   "branch": "tozzetto/eng-3913-oracle-gas-model",
-  "commit": "10aafd66aeee847dd381ab857a983de8067f3e45",
-  "commitShort": "10aafd6",
+  "commit": "b9a4559532fdc805a9acef3736c77b7a6f12171c",
+  "commitShort": "b9a4559",
   "historyDepth": 48,
   "reportHeader": "# ENG-3913 \u2014 per-scenario gas bench, literal output\n#\n# repo:    fabrica-v3-contracts\n# base:    origin/main @ 10aafd66aeee847dd381ab857a983de8067f3e45\n# command: forge test --match-path test/Eng3913OracleGasBench.t.sol -vv\n# forge:   forge Version: 1.7.1 (Commit SHA: 4072e48705af9d93e3c0f6e29e93b5e9a40caed8)\n# profile: optimizer=true, optimizer_runs=1, via_ir=false (foundry.toml [profile.default])\n# knobs:   FabricaAttributeOracle.defaultKnobs() \u2014 the config\n#          script/FabricaAttributeOracleDeploy.s.sol deploys with."
  },
@@ -2790,7 +2800,7 @@ const DEFAULTS = {
   layer: "bespoke", tokens: 1000, sources: 3, cadence: 1, month: 1,
   gasKey: "now", gas: CHAIN.now.baseFeeGwei, tip: CHAIN.priorityFee.medianPriorityFeeGwei,
   eth: CHAIN.ethUsd.price, maxSilence: 3, margin: 20, hbPolicy: "whenSilent",
-  attrs: 0, batch: 100, urgent: 1, urgentMult: 20, defer: 5, reg: true,
+  attrs: 0, batch: 100, urgent: 1, urgentMult: 20, defer: 5, reg: true, moved: 100,
 };
 let S = Object.assign({}, DEFAULTS);
 
@@ -2824,26 +2834,34 @@ function attrCostForMonth(writesBefore, writesThis) {
 }
 
 function model() {
+  // Tim's 18:21Z ruling: an unchanged valuation need not be rewritten, and the token is
+  // still covered by the cycle. A skipped write costs nothing at all -- no transaction --
+  // so the mover share scales the price-write arm directly.
+  const moverShare = S.moved / 100;
   const rows = S.tokens * S.sources;
   const writesPerRowPerMonth = MONTH_DAYS / S.cadence;
   const before = (S.month - 1) * writesPerRowPerMonth;
   const c = priceRegimes(false);
   const perRow = costOfFirstNWrites(before + writesPerRowPerMonth, c) - costOfFirstNWrites(before, c);
-  const priceGas = rows * perRow;
-  const priceWrites = rows * writesPerRowPerMonth;
+  const priceGas = rows * perRow * moverShare;
+  const priceWrites = rows * writesPerRowPerMonth * moverShare;
 
   // Heartbeat. Its deadline is the max-silence window less the safety margin.
   const hbInterval = S.maxSilence * (1 - S.margin / 100);
   const hbPerWriterPerMonth = MONTH_DAYS / hbInterval;
-  // On the deployed contract every writePrice also refreshes the heartbeat, so a writer
+  // On the deployed round-1 contract every writePrice also refreshes the freshness clock, so a writer
   // that writes at least once per window needs no bare heartbeat at all.
   const coveredByWrites = S.cadence <= hbInterval;
   let hbCount;
-  if (S.hbPolicy === "everyCycle") hbCount = S.sources * hbPerWriterPerMonth;
+  if (S.hbPolicy === "round2") hbCount = S.sources * MONTH_DAYS;      // one close per writer per day
+  else if (S.hbPolicy === "everyCycle") hbCount = S.sources * hbPerWriterPerMonth;
   else hbCount = coveredByWrites ? 0 : S.sources * (hbPerWriterPerMonth - MONTH_DAYS / S.cadence);
   hbCount = Math.max(0, hbCount);
   let hbGas = hbCount * G("heartbeat:repeat");
   if (S.month === 1) hbGas += S.sources * (G("heartbeat:first") - G("heartbeat:repeat"));
+  // Round 2's close also anchors a Merkle root over the tokens the writer covered. That
+  // write has not been measured, so the cycle-close figure is a FLOOR, never a total.
+  const rootPending = S.hbPolicy === "round2";
 
   // Attributes.
   const attrWritesPerTokenPerMonth = S.attrs * writesPerRowPerMonth;
@@ -2860,7 +2878,7 @@ function model() {
   const toEth = g => g * price;
   const toUsd = g => toEth(g) * S.eth;
 
-  // Urgency split. Deferrable = routine price writes + the heartbeat. Urgent = a
+  // Urgency split. Deferrable = routine price writes + the cycle close. Urgent = a
   // token-score collapse or a lock, priced at the urgent tip.
   const urgentCount = S.urgent * (S.tokens / 1000);
   const urgentPerWrite = c.r4 <= 0 ? 0 : (before + writesPerRowPerMonth >= HISTORY_DEPTH ? c.r4 : c.r3);
@@ -2875,14 +2893,23 @@ function model() {
   // The decision-relevant saving is bounded by the clock, not by the month: you may only
   // defer for as long as the max-silence window (less the safety margin) allows, so only
   // the deferrable work that falls inside that window can actually be held back.
+  // Two different bounds, and confusing them overstates or understates the saving:
+  //  - the HARD bound is max silence itself, the point at which the aggregator's freshness
+  //    gate trips and every pool trusting the feed stops lending;
+  //  - the OPERATING bound is that less the safety margin, which is what a writer would
+  //    actually plan to, since arriving exactly at the gate leaves no room for a failure.
+  const hardBoundDays = S.maxSilence;
   const longestDeferralDays = S.maxSilence * (1 - S.margin / 100);
+  const hardShare = Math.min(1, hardBoundDays / MONTH_DAYS);
+  const hardGas = (priceGas + hbGas + attrGas) * hardShare;
   const windowShare = Math.min(1, longestDeferralDays / MONTH_DAYS);
   const windowGas = deferrableGas * windowShare;
   const windowAtPeak = windowGas * price * S.eth;
   const windowDeferred = windowGas * deferredPrice * S.eth;
   const windowSaving = windowAtPeak - windowDeferred;
+  const hardSaving = hardGas * price * S.eth - hardGas * deferredPrice * S.eth;
 
-  // At what token count does the heartbeat stop being the dominant cost? The heartbeat is
+  // At what token count does the cycle close stop being the dominant cost? The close is
   // a per-writer, per-window cost and does not grow with the book, so the crossover is the
   // token count at which the price writes overtake it.
   const crossoverTokens = (hbCount > 0 && perRow > 0) ? hbGas / (S.sources * perRow) : null;
@@ -2892,7 +2919,7 @@ function model() {
   let yearGas = 0;
   for (let k = 0; k < 12; k++) {
     const b = (S.month - 1 + k) * writesPerRowPerMonth;
-    yearGas += rows * (costOfFirstNWrites(b + writesPerRowPerMonth, c) - costOfFirstNWrites(b, c));
+    yearGas += rows * (costOfFirstNWrites(b + writesPerRowPerMonth, c) - costOfFirstNWrites(b, c)) * moverShare;
     yearGas += Math.max(0, hbCount) * G("heartbeat:repeat");
     if (S.attrs > 0) yearGas += S.tokens * attrCostForMonth(S.attrs * b, attrWritesPerTokenPerMonth);
   }
@@ -2900,9 +2927,11 @@ function model() {
 
   return {rows, writesPerRowPerMonth, perRow, priceGas, priceWrites, hbInterval, hbCount, hbGas,
           coveredByWrites, attrGas, attrWrites, regGas, perItemReg, totalGas, toEth, toUsd,
+          rootPending, moverShare, hbPerWriterPerMonth,
           urgentCount, urgentGas, urgentUsd, urgentPerWrite, deferrableGas, deferrableAtNow,
           deferrableDeferred, saving, crossoverTokens, price, urgentPrice, yearGas,
-          longestDeferralDays, windowShare, windowGas, windowAtPeak, windowDeferred, windowSaving};
+          longestDeferralDays, windowShare, windowGas, windowAtPeak, windowDeferred, windowSaving,
+          hardBoundDays, hardShare, hardGas, hardSaving};
 }
 
 function batchPerItem(n) { return G("registerBatch:" + n) / n; }
@@ -2943,6 +2972,15 @@ function render() {
     class costs while a peak is running, and what deferring the rest saves. The deferral
     dial exists precisely so this row never has to be paid.</p></div>` : "";
 
+  if (m.rootPending) {
+    document.getElementById("headline-caveat").innerHTML +=
+      `<div class="note warn"><p><strong>Round 2's cycle close carries a Merkle root, and that
+      write has not been measured.</strong> Every cycle-close figure below is the measured cost
+      of the contract's <code>heartbeat()</code> call alone, so the totals on this setting are a
+      <strong>floor, not a total</strong>. The root write is
+      <span class="pending">pending measurement (ENG-3922)</span> and is not estimated here.</p></div>`;
+  }
+
   /* headline */
   const cards = [];
   const perTokenMonth = m.totalGas / S.tokens;
@@ -2977,7 +3015,7 @@ total                                                   = ${fmt(m.totalGas)} gas
   /* share */
   const parts = [
     ["Price writes", m.priceGas, "#7a4b1e"],
-    ["Heartbeat", m.hbGas, "#2f6b45"],
+    ["Cycle close", m.hbGas, "#2f6b45"],
     ["Attributes", m.attrGas, "#37618c"],
     ["Registration (one-time)", m.regGas, "#8a5a00"],
   ].filter(p => p[1] > 0);
@@ -2995,7 +3033,7 @@ total                                                   = ${fmt(m.totalGas)} gas
         <td class="n">${fmt(m.perRow / m.writesPerRowPerMonth, 0)}</td>
         <td class="n">${fmt(m.priceGas)}</td><td class="n">${usd(m.toUsd(m.priceGas))}</td>
         <td class="n">${(100 * m.priceGas / tot).toFixed(1)}%</td></tr>
-      <tr><td>Heartbeat</td><td class="n">${fmt(m.hbCount, 1)}</td>
+      <tr><td>Cycle close${m.rootPending ? ' <span class="pending">+ root pending</span>' : ""}</td><td class="n">${fmt(m.hbCount, 1)}</td>
         <td class="n">${fmt(G("heartbeat:repeat"))}</td>
         <td class="n">${fmt(m.hbGas)}</td><td class="n">${usd(m.toUsd(m.hbGas))}</td>
         <td class="n">${(100 * m.hbGas / tot).toFixed(1)}%</td></tr>
@@ -3012,28 +3050,28 @@ total                                                   = ${fmt(m.totalGas)} gas
 
   const co = m.crossoverTokens;
   const coBody = co === null
-    ? `<strong>On these dials the question does not arise: there are no bare heartbeats to pay
-       for.</strong> The write cadence (${S.cadence} day) is inside the heartbeat window
+    ? `<strong>On these dials the question does not arise: there are no bare cycle closes to pay
+       for.</strong> The write cadence (${S.cadence} day) is inside the cycle-close window
        (${fmt(m.hbInterval, 2)} days), and on the deployed contract a price write refreshes the
-       freshness clock by itself, so the heartbeat costs nothing beyond bootstrapping each writer
-       once. Lengthen the cadence past the window, or switch the heartbeat policy, to make it a
+       freshness clock by itself, so the close costs nothing beyond bootstrapping each writer
+       once. Lengthen the cadence past the window, or switch the cycle-close dial to round 2, to make it a
        real line item.`
     : `On these dials the crossover is at <span class="num">${co < 1 ? "under 1" : fmt(Math.ceil(co))}</span>
        token${co >= 2 ? "s" : ""} — ${co > S.tokens
-        ? `above your current ${fmt(S.tokens)}, so the heartbeat still dominates here.`
+        ? `above your current ${fmt(S.tokens)}, so the cycle close still dominates here.`
         : `well below your current ${fmt(S.tokens)}, so it does not dominate: it is
            ${(100 * m.hbGas / tot).toFixed(2)}% of this month's bill.`}
-       The heartbeat is a per-writer, per-window cost and does not grow with the book, so its
+       The cycle close is a per-writer, per-window cost and does not grow with the book, so its
        share collapses as soon as there is a real number of tokens. It is the dominant cost only
        for a nearly empty book.`;
   document.getElementById("crossover").innerHTML = pending ? "" : `
     <div class="note ${co !== null && co > S.tokens ? "warn" : "ok"}"><p><strong>At what token count
-    does the heartbeat stop being the dominant cost?</strong> ${coBody}</p>
+    does the cycle close stop being the dominant cost?</strong> ${coBody}</p>
     ${m.coveredByWrites && S.hbPolicy === "whenSilent" ? `<p class="small">With this cadence
-    (${S.cadence} day) inside the heartbeat window (${fmt(m.hbInterval, 2)} days), the deployed
-    contract needs <strong>no bare heartbeats at all</strong>: <code>_writePrice</code> calls
+    (${S.cadence} day) inside the cycle-close window (${fmt(m.hbInterval, 2)} days), the deployed
+    contract needs <strong>no bare closes at all</strong>: <code>_writePrice</code> calls
     <code>_touchHeartbeat</code>, so every price write refreshes the freshness clock. Fede has
-    asked that a plain write <em>not</em> count as a heartbeat; that is a change to the
+    asked that a plain write <em>not</em> count as a cycle close; that is a change to the
     contract, not a description of it. Switch the policy dial to see what charging for it
     explicitly costs.</p>` : ""}</div>`;
 
@@ -3063,10 +3101,12 @@ total                                                   = ${fmt(m.totalGas)} gas
     (${gwei(hist.baseFeeGwei)} gwei, ${hist.timeUtc}) the same writes cost
     <strong>${usd(atGas(hist.baseFeeGwei, S.tip * S.urgentMult, m.urgentGas))}</strong>.</p>
     <p><strong>The longest deferral the max-silence dial permits is
-    ${fmt(m.longestDeferralDays, 2)} days</strong> — ${S.maxSilence} days of tolerated silence
-    less a ${S.margin}% safety margin. Past that the aggregator's freshness gate trips and it
-    refuses to price anything. <em>That clock, not the gas price, is what bounds the saving.</em></p>
-    <p><strong>Deferring the price class and the heartbeat for that full window</strong>, from
+    ${fmt(m.hardBoundDays, 2)} days</strong> — that is the hard bound, the point at which the
+    aggregator's freshness gate trips and every pool trusting the feed stops lending. A writer
+    would plan to <strong>${fmt(m.longestDeferralDays, 2)} days</strong> instead, the same window
+    less a ${S.margin}% safety margin, because arriving exactly at the gate leaves no room for a
+    failed transaction. <em>That clock, not the gas price, is what bounds the saving.</em></p>
+    <p><strong>Deferring the price class and the cycle close for that full window</strong>, from
     ${gwei(S.gas)} gwei until the base fee falls below ${gwei(S.defer)} gwei, holds back
     ${fmt(m.windowGas)} gas — the ${(100 * m.windowShare).toFixed(1)}% of the month's deferrable
     work that fits inside ${fmt(m.longestDeferralDays, 2)} days — and saves
@@ -3074,6 +3114,10 @@ total                                                   = ${fmt(m.totalGas)} gas
     ${usd(m.windowAtPeak)} to ${usd(m.windowDeferred)}.
     ${S.gas <= S.defer ? "<em>Gas is already below your threshold, so there is nothing to defer right now.</em>"
       : ""}</p>
+    <p>Deferring to the <strong>hard bound</strong> of ${fmt(m.hardBoundDays, 2)} days instead
+    holds back ${fmt(m.hardGas)} gas and saves <strong>${usd(m.hardSaving)}</strong> — the extra
+    ${usd(m.hardSaving - m.windowSaving)} is what the safety margin costs, and it is the price of
+    not betting the whole feed on one transaction landing.</p>
     <p class="small">For comparison, deferring a <em>whole month</em> of deferrable work would
     save ${usd(m.saving)} of ${usd(m.deferrableAtNow)} — but that is not a thing the max-silence
     window lets you do, and it is quoted only so the two numbers are not confused. Anything
@@ -3131,8 +3175,8 @@ total                                                   = ${fmt(m.totalGas)} gas
     ["writeAttribute:first", "first attribute fact for a token"],
     ["writeAttribute:repeat, value changed", "re-stamping an attribute with a new value"],
     ["writeAttribute:repeat, value unchanged", "re-stamping an attribute with the same value"],
-    ["heartbeat:first", "first heartbeat under a writer: bootstraps two cold words"],
-    ["heartbeat:repeat", "every heartbeat after that"],
+    ["heartbeat:first", "first cycle close under a writer (contract fn heartbeat()): bootstraps two cold words"],
+    ["heartbeat:repeat", "every cycle close after that"],
     ["register:first under validator", "first token registered under a writer id"],
     ["register:subsequent", "every token after that"],
     ["registerBatch:1", "batched registration, n=1"],
@@ -3211,6 +3255,26 @@ total                                                   = ${fmt(m.totalGas)} gas
     higher</strong> than this bench on every scenario that pins a function's Min or Max — ten
     independent pairs. That delta is shown rather than folded in: the figures above are the
     bench's, and are therefore 115 gas conservative in the low direction.</p>
+
+    <h3>Two rulings that change what you should read off this page</h3>
+    <div class="note"><p><strong>An unchanged valuation need not be rewritten</strong>
+    (Tim, 3 Sep 18:21Z): a writer may skip it and the token is still covered by the cycle.
+    This matters because of a finding above — republishing an unchanged price costs
+    <em>exactly</em> what a moved one does
+    (${fmt(G("writePrice:write 49+ (ring wrapped), price unchanged"))} either way), since
+    <code>priceUsdc6</code> shares a storage word with <code>valuedAt</code>. There is no
+    contract-side saving to be had, so the only saving is not sending the transaction — which
+    is precisely what the ruling permits. The <em>“valuations that move per cycle”</em> dial is
+    that lever: at ${S.moved}% it is currently
+    ${S.moved < 100 ? `cutting the price-write arm by ${(100 - S.moved).toFixed(0)}%` : "off, which is the conservative setting"}.
+    Land prices move slowly, so the realistic setting is well under 100% and this is likely the
+    single largest cost lever on the page.</p>
+    <p><strong>The cycle close is a real per-cycle write in round 2</strong> (Tim, 3 Sep 18:21Z),
+    carrying the cycle number and a Merkle root over the tokens the writer covered, daily. On the
+    <em>deployed round-1</em> contract it is not needed at all when writes are frequent, because
+    <code>_writePrice</code> calls <code>_touchHeartbeat</code>; that is what the round-1 settings
+    on the cycle-close dial show. Round 2 pays for one close per writer per day regardless, and
+    its Merkle-root component is <span class="pending">pending measurement</span>.</p></div>
 
     <h3>Two things that changed the answer</h3>
     <div class="note"><p><strong>Provenance hashes must vary.</strong> A first draft reused one
@@ -3300,7 +3364,7 @@ python3 bench/oracle-gas-model/build-model-page.py                  # regenerate
     ["writePrice, write 49 (wrapped)", oneWrite(49, cc), G("writePrice:write 49+ (ring wrapped), price moved")],
     ["writePriceRelayed, write 1", oneWrite(1, cr), G("writePriceRelayed:first")],
     ["writePriceRelayed, write 49 (wrapped)", oneWrite(49, cr), G("writePriceRelayed:write 49+ (ring wrapped), price moved")],
-    ["heartbeat, repeat", G("heartbeat:repeat"), G("heartbeat:repeat")],
+    ["cycle close (contract heartbeat()), repeat", G("heartbeat:repeat"), G("heartbeat:repeat")],
     ["writeAttribute, first", attrCostForMonth(0, 1), G("writeAttribute:first")],
     ["writeAttribute, repeat", attrCostForMonth(1, 1), G("writeAttribute:repeat, value changed")],
     ["registration per token, batch 1", batchPerItem(1), G("registerBatch:1")],
@@ -3369,6 +3433,7 @@ function sync() {
   document.getElementById("d-margin").value = S.margin;
   document.getElementById("d-hbpolicy").value = S.hbPolicy;
   document.getElementById("d-attrs").value = S.attrs;
+  document.getElementById("d-moved").value = S.moved;
   document.getElementById("d-urgent").value = S.urgent;
   document.getElementById("d-urgentmult").value = S.urgentMult;
   document.getElementById("d-defer").value = S.defer;
@@ -3386,14 +3451,19 @@ function sync() {
      The ring is ${HISTORY_DEPTH} deep, so a row reaches its cheapest state on write 49 —
      month ${Math.max(1, Math.ceil(HISTORY_DEPTH / w))} at this cadence.`;
   document.getElementById("hb-hint").textContent =
-    `Heartbeat every ${fmt(S.maxSilence * (1 - S.margin / 100), 2)} days (${S.maxSilence} days of silence less ${S.margin}%).`;
+    `Cycle close every ${fmt(S.maxSilence * (1 - S.margin / 100), 2)} days — ${S.maxSilence} days ` +
+    `of tolerated silence less ${S.margin}%. The gate itself trips at ${S.maxSilence} days.`;
   document.getElementById("hbpolicy-hint").innerHTML =
     S.hbPolicy === "whenSilent"
-      ? `On the deployed contract <code>_writePrice</code> calls <code>_touchHeartbeat</code>, so a
-         price write already refreshes the clock and a bare heartbeat is only needed when the
-         window would otherwise lapse.`
-      : `Charges a heartbeat every window regardless. This is Fede's position — that a plain write
-         should not count as “book confirmed” — which is a contract change, not today's behaviour.`;
+      ? `Round 1, as deployed: <code>_writePrice</code> calls <code>_touchHeartbeat</code>, so a
+         price write already refreshes the clock and a bare close is only needed when the window
+         would otherwise lapse.`
+      : S.hbPolicy === "everyCycle"
+      ? `Round 1, charging a close every window regardless — what it costs if a plain write does
+         not count as “book confirmed”.`
+      : `Round 2 (Tim, 3 Sep 18:21Z): one close per writer per day, carrying the cycle number and
+         a Merkle root over the tokens covered. The root write is
+         <span class="pending">pending measurement</span>, so this setting reports a floor.`;
   document.getElementById("layer-hint").innerHTML = S.layer === "eas"
     ? `<span class="pending">pending measurement</span> — ENG-3922 owns these numbers and this page
        will not estimate them.`
@@ -3436,6 +3506,7 @@ function init() {
   num("d-cadence", "cadence");
   num("d-maxsilence", "maxSilence"); num("d-margin", "margin"); num("d-attrs", "attrs");
   num("d-urgent", "urgent"); num("d-urgentmult", "urgentMult"); num("d-defer", "defer");
+  num("d-moved", "moved");
   num("d-gas", "gas", () => { S.gasKey = "custom"; });
   num("d-tip", "tip");
   document.getElementById("d-month").addEventListener("input", e => { S.month = +e.target.value; sync(); });
