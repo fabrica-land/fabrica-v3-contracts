@@ -20,6 +20,7 @@ is the property that actually matters.
 import hashlib
 import json
 import pathlib
+import re
 import subprocess
 import sys
 
@@ -112,6 +113,17 @@ def git(*args):
     return subprocess.check_output(["git", "-C", str(REPO), *args], text=True).strip()
 
 
+# The provenance fields, excluded from the --check comparison. See the note in main().
+META_FIELDS = ("commit", "commitShort")
+
+
+def normalise(text):
+    """Blank the git-meta values so two builds of the same inputs compare equal."""
+    for field in META_FIELDS:
+        text = re.sub(r'("%s": ")[^"]*(")' % field, r"\1<meta>\2", text)
+    return text
+
+
 def input_digest():
     h = hashlib.sha256()
     for name in INPUTS:
@@ -184,13 +196,27 @@ def main():
         if not target.exists():
             sys.exit("--check: index.html does not exist")
         current = target.read_text()
-        if current == html:
+        # The git-meta fields record the commit the page was BUILT from, which is necessarily
+        # the parent of the commit that carries the page -- committing the page changes HEAD.
+        # So they differ on every head after the one that built it, and comparing them would
+        # make --check fail for every reviewer on every commit. They are provenance, not
+        # content. The content identity is `inputDigest`, which hashes the inputs and not the
+        # repository, and that IS compared.
+        if normalise(current) == normalise(html):
             print("--check: index.html is exactly what its committed inputs produce "
                   f"({len(html):,} bytes, {len(rows)} measured scenarios)")
+            print("         input digest %s" % meta["inputDigest"])
+            cur_commit = re.search(r'"commitShort": "([^"]*)"', current)
+            if cur_commit and cur_commit.group(1) != meta["commitShort"]:
+                print("         (built from %s; HEAD is now %s — expected, and not compared: a "
+                      "committed\n          page cannot name its own commit)"
+                      % (cur_commit.group(1), meta["commitShort"]))
             return
-        # Say WHERE it differs; "they differ" is not actionable.
+        # Say WHERE it differs; "they differ" is not actionable. Diff the normalised text so
+        # the git-meta lines never appear as noise ahead of the real difference.
         import difflib
-        diff = list(difflib.unified_diff(current.splitlines(), html.splitlines(),
+        diff = list(difflib.unified_diff(normalise(current).splitlines(),
+                                         normalise(html).splitlines(),
                                          "committed index.html", "regenerated", lineterm="", n=1))
         sys.exit("--check FAILED: index.html does not match its inputs (%d diff lines)\n%s"
                  % (len(diff), "\n".join(diff[:40])))

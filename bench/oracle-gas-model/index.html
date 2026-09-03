@@ -2640,10 +2640,10 @@ const DATA = {
  ],
  "meta": {
   "branch": "tozzetto/eng-3913-oracle-gas-model",
-  "commit": "d9c212c266d931bf3ff25652244790efd052b02f",
-  "commitShort": "d9c212c",
+  "commit": "d3de4077f98f90735c67b11040733110d12c2ffb",
+  "commitShort": "d3de407",
   "historyDepth": 48,
-  "inputDigest": "0ad6a808c5f0f36f",
+  "inputDigest": "bf24686dc394252c",
   "reportHeader": "# ENG-3913 \u2014 per-scenario gas bench, literal output\n#\n# repo:    fabrica-v3-contracts\n# base:    origin/main @ 4b9201d17d78c7296545a6bd5ef6ac8da1d5a86e\n# branch:  tozzetto/eng-3913-oracle-gas-model\n# command: forge test --match-path test/Eng3913OracleGasBench.t.sol -vv\n# forge:   forge Version: 1.7.1 (Commit SHA: 4072e48705af9d93e3c0f6e29e93b5e9a40caed8)\n# profile: optimizer=true, optimizer_runs=1, via_ir=false (foundry.toml [profile.default])\n# knobs:   FabricaAttributeOracle.defaultKnobs() \u2014 the config\n#          script/FabricaAttributeOracleDeploy.s.sol deploys with.\n#\n# \u26a0 RUN THIS WITHOUT --gas-report.\n#   Foundry's gas-report instrumentation inflates the gasleft() deltas these benches\n#   read, and the codeless-control subtraction absorbs most but not all of it. The CSV\n#   rows here are valid ONLY from a plain -vv run. Under --gas-report the steady-state\n#   writePrice row reads 72,268 instead of 73,812."
  },
  "rows": {
@@ -3291,16 +3291,23 @@ total                                                    = ${fmt(m.totalGas)} ga
       <li><strong><code>indexAttestation</code></strong> — see the warning below; it is a separate
         write and it is easy to leave out of an EAS estimate</li>
     </ul>
-    <p><strong>⚠ On EAS, <code>attest</code> is not the whole write cost, and this is the easiest
-    way to underestimate that arm.</strong> EAS's <code>Indexer</code> does <em>not</em> index on
-    attestation: <code>indexAttestation</code> is a separate transaction, measured by ENG-3922 on
-    real Sepolia at <strong>176,107 gas per token</strong> in a 20-item batch. Any EAS design that
-    needs to look an attestation up by (writer, token, kind) pays that on top of the attest — and
-    the <code>Indexer</code> is <strong>not deployed on Ethereum mainnet at all</strong>, which is
-    why the adoption survey's Option A carries an ownerless pointer contract of our own instead.
-    So the honest comparison is attest + lookup-write versus the custom store's single write, not
-    attest alone. That figure is quoted here because it is not an arm result; the arm results stay
-    <span class="pending">pending</span>.</p>
+    <p><strong>⚠ On EAS, <code>attest</code> is not the whole write cost, and assuming it is is
+    the easiest way to underestimate that arm.</strong> EAS's <code>Indexer</code> does
+    <em>not</em> index on attestation: <code>indexAttestation</code> is a separate function in the
+    verified Sepolia ABI and therefore a separate transaction. Any EAS design that needs to look
+    an attestation up by (writer, token, kind) pays that write on top of the attest — and the
+    <code>Indexer</code> is <strong>not deployed on Ethereum mainnet at all</strong> (there is no
+    <code>Indexer.json</code> in the EAS repo's <code>deployments/mainnet/</code>), which is why
+    the adoption survey's Option A carries an ownerless pointer contract of our own instead. So
+    the honest comparison is attest + a lookup write against the custom store's single write, not
+    attest alone. <strong>The cost of that indexing write is
+    <span class="pending">pending measurement (ENG-3922)</span></strong> and is not estimated
+    here, like every other EAS figure on this page.</p>
+    <p class="small">The structural point above is a property of EAS's deployed contracts and of
+    the adoption survey, so it is stated now. The number is ENG-3922's, came out of the same run
+    as the arm results, and waits for the same pre-registered pass-mark acknowledgement they do —
+    at that lane's request, and rightly: pre-registration is worth nothing if the numbers leak out
+    of it one at a time.</p>
     <p class="small">When they publish, this page gains a second arm and the fact-layer question is
     answered off one screen. Until then the honest answer to “what would EAS cost?” is that nobody
     has measured it.</p></div>`;
