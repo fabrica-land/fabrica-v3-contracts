@@ -48,11 +48,17 @@ contract OwnerlessFactStore {
     mapping(address => uint64) public lastHeartbeatAt;
     /// @notice writer => last heartbeat cycle.
     mapping(address => uint64) public lastHeartbeatCycle;
+    /// @notice writer => Merkle root over the token ids the last heartbeat's cycle covered.
+    /// @dev Round-2 proposal item 13, moved into round 2 by Tim on 3 September. Stored only;
+    ///      nothing on this contract verifies a proof against it.
+    mapping(address => bytes32) public lastHeartbeatRoot;
+    /// @notice writer => cycle => the root anchored for that cycle.
+    mapping(address => mapping(uint64 => bytes32)) public cycleRoot;
     /// @notice writer => the writer's own minimum valid cycle; facts below it are dead.
     mapping(address => uint64) public minValidCycle;
 
     event PriceWritten(address indexed writer, uint256 indexed tokenId, uint128 priceUsdc6, uint64 cycle);
-    event Heartbeat(address indexed writer, uint64 cycle, uint64 timestamp);
+    event Heartbeat(address indexed writer, uint64 cycle, uint64 timestamp, bytes32 root);
     event LockSet(address indexed writer, uint256 indexed tokenId, bool locked);
     event MinValidCycleSet(address indexed writer, uint64 minValidCycle);
 
@@ -78,7 +84,7 @@ contract OwnerlessFactStore {
         external
     {
         _writePrice(tokenId, priceUsdc6, confidenceScore, valuedAt, cycle);
-        _touchHeartbeat(cycle);
+        _touchHeartbeat(cycle, bytes32(0));
     }
 
     /// @notice Prototype batched write: N tokens in one transaction, one heartbeat at the end.
@@ -88,7 +94,8 @@ contract OwnerlessFactStore {
         uint128[] calldata pricesUsdc6,
         uint24[] calldata confidenceScores,
         uint64[] calldata valuedAts,
-        uint64 cycle
+        uint64 cycle,
+        bytes32 root
     ) external {
         uint256 n = tokenIds.length;
         if (n != pricesUsdc6.length || n != confidenceScores.length || n != valuedAts.length) {
@@ -97,13 +104,14 @@ contract OwnerlessFactStore {
         for (uint256 i; i < n; ++i) {
             _writePrice(tokenIds[i], pricesUsdc6[i], confidenceScores[i], valuedAts[i], cycle);
         }
-        _touchHeartbeat(cycle);
+        _touchHeartbeat(cycle, root);
     }
 
     /// @notice Standalone heartbeat for a cycle in which the caller published nothing.
-    function heartbeat(uint64 cycle) external {
+    /// @param root Merkle root over the token ids this cycle covered; zero when not anchoring.
+    function heartbeat(uint64 cycle, bytes32 root) external {
         if (cycle < minValidCycle[msg.sender]) revert CycleTooLow(minValidCycle[msg.sender], cycle);
-        _touchHeartbeat(cycle);
+        _touchHeartbeat(cycle, root);
     }
 
     /// @notice Lock or unlock the caller's own facts about a token; no central authority exists.
@@ -177,10 +185,14 @@ contract OwnerlessFactStore {
         emit PriceWritten(msg.sender, tokenId, priceUsdc6, cycle);
     }
 
-    function _touchHeartbeat(uint64 cycle) internal {
+    function _touchHeartbeat(uint64 cycle, bytes32 root) internal {
         uint64 nowTs = uint64(block.timestamp);
         lastHeartbeatAt[msg.sender] = nowTs;
         if (cycle > lastHeartbeatCycle[msg.sender]) lastHeartbeatCycle[msg.sender] = cycle;
-        emit Heartbeat(msg.sender, cycle, nowTs);
+        if (root != bytes32(0)) {
+            lastHeartbeatRoot[msg.sender] = root;
+            cycleRoot[msg.sender][cycle] = root;
+        }
+        emit Heartbeat(msg.sender, cycle, nowTs, root);
     }
 }
