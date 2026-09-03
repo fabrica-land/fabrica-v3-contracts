@@ -111,6 +111,32 @@ contract Eng3922BaselineTest is Test {
         return before - gasleft();
     }
 
+    /// @notice Write-side baseline, second regime: the history ring after it has wrapped.
+    /// @dev The live Sepolia store has never reached this. `historyDepth` is 48 and the deepest
+    ///      row on chain has `historyLength` 2, so every write observed in the round-1 receipts
+    ///      still allocated a fresh ring slot at zero->non-zero. Once a row passes 48 writes the
+    ///      push overwrites a non-zero slot instead, and the cost drops. At one write per token
+    ///      per oracle source per weekly cycle a row does not wrap for 48 weeks, so both regimes
+    ///      are real and the budget has to say which one it means.
+    function test_baselineWriteGasWrappedRing() public {
+        _skipIfNoFork();
+        uint256 tokenId = uint256(keccak256("eng3922-baseline-wrapped"));
+        vm.prank(storeOwner);
+        store.register(VALIDATOR_ID, tokenId);
+        uint128 p = 100_000e6;
+        // Fill past historyDepth (48) so the ring wraps. Prices stay inside the +15%/-50% band.
+        for (uint256 i; i < 52; ++i) {
+            vm.warp(block.timestamp + 1 hours);
+            p = (i % 2 == 0) ? p + 100e6 : p - 100e6;
+            _write(tokenId, 0, p);
+        }
+        assertEq(store.historyLength(VALIDATOR_ID, tokenId, 0), 48, "ring is full");
+        vm.warp(block.timestamp + 1 hours);
+        emit log_named_uint(
+            "baseline writePrice gas, wrapped ring (overwrites a non-zero slot)", _measureWrite(tokenId, 0, p + 100e6)
+        );
+    }
+
     // -------------------------------------------------------------------------
     // Fixture
     // -------------------------------------------------------------------------

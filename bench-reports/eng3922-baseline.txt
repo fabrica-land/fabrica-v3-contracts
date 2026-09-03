@@ -1,4 +1,4 @@
-Ran 3 tests for test/bench/Eng3922Baseline.t.sol:Eng3922BaselineTest
+Ran 4 tests for test/bench/Eng3922Baseline.t.sol:Eng3922BaselineTest
 [PASS] test_baselineThreeSourcePriceGas() (gas: 19642772)
 Logs:
   baseline price() gas, 3 sources, seasoning walk depth 0: 200073
@@ -13,8 +13,12 @@ Logs:
   baseline writePrice gas, repeat write 2 (warm ring slot): 139894
   baseline heartbeat gas: 37697
 
+[PASS] test_baselineWriteGasWrappedRing() (gas: 7480873)
+Logs:
+  baseline writePrice gas, wrapped ring (overwrites a non-zero slot): 115127
+
 [PASS] test_liveTwoSourceAggregatorConfig() (gas: 29087)
-Suite result: ok. 3 passed; 0 failed; 0 skipped; finished in 89.42ms (7.14ms CPU time)
+Suite result: ok. 4 passed; 0 failed; 0 skipped; finished in 185.83ms (12.66ms CPU time)
 
 ╭------------------------------------------------------------------+-----------------+--------+--------+--------+---------╮
 | src/FabricaOracleAggregator.sol:FabricaOracleAggregator Contract |                 |        |        |        |         |
@@ -33,4 +37,4 @@ Suite result: ok. 3 passed; 0 failed; 0 skipped; finished in 89.42ms (7.14ms CPU
 ╰------------------------------------------------------------------+-----------------+--------+--------+--------+---------╯
 
 
-Ran 1 test suite in 90.70ms (89.42ms CPU time): 3 tests passed, 0 failed, 0 skipped (3 total tests)
+Ran 1 test suite in 198.09ms (185.83ms CPU time): 4 tests passed, 0 failed, 0 skipped (4 total tests)
