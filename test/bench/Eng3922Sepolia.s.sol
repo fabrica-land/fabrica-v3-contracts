@@ -2,7 +2,7 @@
 pragma solidity ^0.8.24;
 
 import {Script, console} from "forge-std/Script.sol";
-import {IEAS, ISchemaRegistry, IEASIndexer} from "./eas/IEAS.sol";
+import {IEAS, ISchemaRegistry, IEASIndexer, SchemaRecord} from "./eas/IEAS.sol";
 import {FactPointer} from "./FactPointer.sol";
 import {OwnerlessFactStore} from "./OwnerlessFactStore.sol";
 import {BenchAggregatorBase} from "./BenchAggregatorBase.sol";
@@ -70,11 +70,11 @@ contract Eng3922SepoliaScript is Script {
         }
 
         vm.startBroadcast(keys[0]);
-        bytes32 priceSchema = registry.register(PRICE_SCHEMA_DEF, address(0), true);
-        bytes32 attributeSchema = registry.register(ATTRIBUTE_SCHEMA_DEF, address(0), true);
-        bytes32 lockSchema = registry.register(LOCK_SCHEMA_DEF, address(0), true);
-        bytes32 cycleCloseSchema = registry.register(CYCLE_CLOSE_SCHEMA_DEF, address(0), true);
-        bytes32 coverageSchema = registry.register(COVERAGE_SCHEMA_DEF, address(0), true);
+        bytes32 priceSchema = _ensureSchema(PRICE_SCHEMA_DEF);
+        bytes32 attributeSchema = _ensureSchema(ATTRIBUTE_SCHEMA_DEF);
+        bytes32 lockSchema = _ensureSchema(LOCK_SCHEMA_DEF);
+        bytes32 cycleCloseSchema = _ensureSchema(CYCLE_CLOSE_SCHEMA_DEF);
+        bytes32 coverageSchema = _ensureSchema(COVERAGE_SCHEMA_DEF);
         FactPointer pointer = new FactPointer();
         OwnerlessFactStore store = new OwnerlessFactStore(48);
         PriceGasProbe probe = new PriceGasProbe();
@@ -85,7 +85,9 @@ contract Eng3922SepoliaScript is Script {
             maxDispersionBps: MAX_DISPERSION_BPS,
             minLiveSources: MIN_LIVE_SOURCES,
             maxSilence: MAX_SILENCE,
-            coverage: BenchAggregatorBase.CoverageMode.ClosedCycle
+            // Round 2's configuration: no on-chain coverage check (Tim, 18:47Z). Coverage is
+            // immediate supersession, which is the lock leg.
+            coverage: BenchAggregatorBase.CoverageMode.None
         });
         EasArmBase.EasConfig memory easCfg = EasArmBase.EasConfig({
             eas: EAS,
@@ -113,6 +115,16 @@ contract Eng3922SepoliaScript is Script {
         console2Addr("ArmEasIndexer", address(armIndexer));
         console2Addr("ArmEasContext", address(armContext));
         console2Addr("ArmOwnerlessStore", address(armOwnerless));
+    }
+
+    /// @notice Register a schema, or reuse it when it already exists.
+    /// @dev A schema uid is `keccak256(schema, resolver, revocable)`, so re-registering the same
+    ///      shape reverts `AlreadyExists()`. Schemas are global and permanent on EAS: a second
+    ///      deploy of this harness reuses the first one's schemas rather than making new ones.
+    function _ensureSchema(string memory def) internal returns (bytes32 uid) {
+        uid = keccak256(abi.encodePacked(def, address(0), true));
+        if (registry.getSchema(uid).uid == uid) return uid;
+        return registry.register(def, address(0), true);
     }
 
     function _tokenIdAt(uint256 i) internal pure returns (uint256) {

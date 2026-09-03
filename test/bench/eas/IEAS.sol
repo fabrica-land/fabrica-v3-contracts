@@ -70,8 +70,17 @@ interface IEAS {
     function getSchemaRegistry() external view returns (address);
 }
 
+struct SchemaRecord {
+    bytes32 uid;
+    address resolver;
+    bool revocable;
+    string schema;
+}
+
 interface ISchemaRegistry {
     function register(string calldata schema, address resolver, bool revocable) external returns (bytes32);
+
+    function getSchema(bytes32 uid) external view returns (SchemaRecord memory);
 }
 
 /// @notice EAS `Indexer`, deployed on Sepolia only (there is no `Indexer.json` in the EAS repo's
