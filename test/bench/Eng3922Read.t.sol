@@ -101,3 +101,54 @@ contract Eng3922HeartbeatCostTest is Eng3922HarnessBase {
         );
     }
 }
+
+/// @notice Arm 1's read cost as a function of how many attestations have accumulated in an
+///         Indexer row — the one arm whose read is not O(1) in its own write history.
+/// @dev Found by disagreement rather than by design: the second Sepolia run re-published the same
+///      token ids, so each `(schema, attester, recipient)` Indexer row held two attestations
+///      instead of one, and arm 1's on-chain read came out 4.6% above the fork while every other
+///      arm agreed to within 0.9%. Extra attestations here carry `refUID = 0`, so the seasoning
+///      walk stays at depth 0 and the ONLY thing changing is how deep the Indexer row is.
+abstract contract Eng3922IndexerRowDepthBase is Eng3922HarnessBase {
+    uint256 internal tokenId;
+
+    function _extraAttestations() internal pure virtual returns (uint256);
+
+    function setUp() public virtual override {
+        super.setUp();
+        if (!forked) return;
+        tokenId = uint256(keccak256(abi.encode("eng3922-rowdepth", _extraAttestations())));
+        _seed(tokenId, 0);
+        for (uint256 n; n < _extraAttestations(); ++n) {
+            for (uint8 s; s < 3; ++s) {
+                _easPublishUnchained(s, tokenId, uint128(100_000e6 + (n + 1) * 10e6));
+            }
+        }
+    }
+
+    function test_indexerRowDepthReadGas() public {
+        if (!forked) vm.skip(true);
+        emit log_named_uint(
+            string.concat("arm1 all-EAS indexer, Indexer row depth ", vm.toString(_extraAttestations() + 1)),
+            _measure(_armIndexer(true), tokenId, _contextFor(tokenId))
+        );
+    }
+}
+
+contract Eng3922IndexerRowDepth1Test is Eng3922IndexerRowDepthBase {
+    function _extraAttestations() internal pure override returns (uint256) {
+        return 0;
+    }
+}
+
+contract Eng3922IndexerRowDepth2Test is Eng3922IndexerRowDepthBase {
+    function _extraAttestations() internal pure override returns (uint256) {
+        return 1;
+    }
+}
+
+contract Eng3922IndexerRowDepth5Test is Eng3922IndexerRowDepthBase {
+    function _extraAttestations() internal pure override returns (uint256) {
+        return 4;
+    }
+}

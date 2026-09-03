@@ -47,8 +47,11 @@ contract FactPointer {
     /// @notice Stamp coverage for tokens the caller still vouches for but did not revalue.
     function stampCoverage(uint256[] calldata tokenIds, uint64 cycle) external {
         for (uint256 i; i < tokenIds.length; ++i) {
-            coveredThrough[msg.sender][tokenIds[i]] = cycle;
-            emit CoverageStamped(msg.sender, tokenIds[i], cycle);
+            // Monotonic, matching OwnerlessFactStore so the two arms stamp coverage identically.
+            if (cycle > coveredThrough[msg.sender][tokenIds[i]]) {
+                coveredThrough[msg.sender][tokenIds[i]] = cycle;
+                emit CoverageStamped(msg.sender, tokenIds[i], cycle);
+            }
         }
     }
 

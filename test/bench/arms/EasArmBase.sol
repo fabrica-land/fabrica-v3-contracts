@@ -157,8 +157,13 @@ abstract contract EasArmBase is BenchAggregatorBase {
         override
         returns (bool fresh, uint64 closedCycle, bytes32 root)
     {
+        // When neither the heartbeat nor the coverage rule needs the cycle-close record, do not
+        // fetch it. An earlier version always paid for the `getAttestation`, so the reported
+        // "cost of rebuilding EAS's missing heartbeat" was the freshness COMPARISON only, about
+        // 816 gas, and not the lookup it actually requires.
+        if (!requireHeartbeat && coverage == CoverageMode.None) return (true, 0, bytes32(0));
         bytes32 uid = _cycleCloseUid(sourceId, ctx);
-        if (uid == bytes32(0)) return (!requireHeartbeat && coverage == CoverageMode.None, 0, bytes32(0));
+        if (uid == bytes32(0)) return (false, 0, bytes32(0));
         Attestation memory att = eas.getAttestation(uid);
         if (att.uid == bytes32(0)) return (false, 0, bytes32(0));
         if (att.schema != cycleCloseSchema) return (false, 0, bytes32(0));

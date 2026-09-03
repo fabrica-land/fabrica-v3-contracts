@@ -45,7 +45,10 @@ contract Eng3922BaselineTest is Test {
             vm.skip(true);
             return;
         }
-        vm.createSelectFork(rpc, FORK_BLOCK);
+        // Select by the `sepolia` alias from foundry.toml rpc_endpoints, per the repo's fork-test
+        // convention; `vm.envOr` above is only the skip decision.
+        rpc;
+        vm.createSelectFork("sepolia", FORK_BLOCK);
         forked = true;
         store = FabricaAttributeOracle(LIVE_FACT_STORE);
         storeOwner = store.owner();

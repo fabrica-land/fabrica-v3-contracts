@@ -120,8 +120,11 @@ contract OwnerlessFactStore {
     function stampCoverage(uint256[] calldata tokenIds, uint64 cycle) external {
         if (cycle < minValidCycle[msg.sender]) revert CycleTooLow(minValidCycle[msg.sender], cycle);
         for (uint256 i; i < tokenIds.length; ++i) {
-            coveredThrough[msg.sender][tokenIds[i]] = cycle;
-            emit CoverageStamped(msg.sender, tokenIds[i], cycle);
+            // Monotonic: an older stamp must not lower coverage a newer write already established.
+            if (cycle > coveredThrough[msg.sender][tokenIds[i]]) {
+                coveredThrough[msg.sender][tokenIds[i]] = cycle;
+                emit CoverageStamped(msg.sender, tokenIds[i], cycle);
+            }
         }
     }
 
@@ -200,8 +203,11 @@ contract OwnerlessFactStore {
         current.valuedAt = effectiveValuedAt;
         current.lastWrittenAt = nowTs;
         current.cycle = cycle;
-        // A full write is itself coverage for the cycle it names.
-        coveredThrough[msg.sender][tokenId] = cycle;
+        // A full write is itself coverage for the cycle it names, but must not lower a newer
+        // stamp: the cycle check above only compares against `current.cycle`, not the stamp.
+        if (cycle > coveredThrough[msg.sender][tokenId]) {
+            coveredThrough[msg.sender][tokenId] = cycle;
+        }
         emit PriceWritten(msg.sender, tokenId, priceUsdc6, cycle);
     }
 

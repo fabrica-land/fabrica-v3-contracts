@@ -80,6 +80,9 @@ contract Eng3922SepoliaPublishScript is Script {
         req[0] = MultiAttestationRequest({schema: priceSchema, data: pl.data});
         vm.startBroadcast(key);
         eas.multiAttest(req);
+        // Root is deliberately zero: Tim ruled at 18:47Z that round 2's cycle close carries the
+        // cycle number ONLY. The Merkle root is a round-3 candidate (proposal item 13) and its
+        // cost is measured separately in Eng3922Write.t.sol rather than paid for here.
         store.writePriceBatch(pl.ids, pl.prices, pl.confs, pl.valuedAts, cycle, bytes32(0));
         eas.attest(
             AttestationRequest({
@@ -94,6 +97,10 @@ contract Eng3922SepoliaPublishScript is Script {
                 })
             })
         );
+        // NOT redundant with writePriceBatch's heartbeat touch. The glossary makes the explicit
+        // heartbeat the "book confirmed" signal and states that a plain write does not count as a
+        // heartbeat for the fail-closed gate, so a real writer sends it even on a cycle where it
+        // published prices. It is also the operation measured as the standalone cycle-close cost.
         store.heartbeat(cycle, bytes32(0));
         vm.stopBroadcast();
     }

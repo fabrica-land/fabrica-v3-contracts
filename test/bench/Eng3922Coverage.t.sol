@@ -30,7 +30,7 @@ abstract contract Eng3922CoverageBase is Eng3922HarnessBase {
 
     function test_coverageArm3OwnerlessStore() public {
         if (!forked) vm.skip(true);
-        _row(
+        _rowAllowIneligible(
             string.concat("arm3 ownerless store    coverage=", _tag()),
             new ArmOwnerlessStore(_cfg(_mode()), address(ownerlessStore), writers),
             tokenId,
@@ -40,7 +40,7 @@ abstract contract Eng3922CoverageBase is Eng3922HarnessBase {
 
     function test_coverageArm2EasPointer() public {
         if (!forked) vm.skip(true);
-        _row(
+        _rowAllowIneligible(
             string.concat("arm2 EAS+pointer        coverage=", _tag()),
             new ArmEasPointer(_cfg(_mode()), _easCfg(true), address(pointer)),
             tokenId,
@@ -50,7 +50,7 @@ abstract contract Eng3922CoverageBase is Eng3922HarnessBase {
 
     function test_coverageArm1cEasContext() public {
         if (!forked) vm.skip(true);
-        _row(
+        _rowAllowIneligible(
             string.concat("arm1C EAS oracleContext coverage=", _tag()),
             new ArmEasContext(_cfg(_mode()), _easCfg(true)),
             tokenId,
@@ -60,7 +60,7 @@ abstract contract Eng3922CoverageBase is Eng3922HarnessBase {
 
     function test_coverageArm1EasIndexer() public {
         if (!forked) vm.skip(true);
-        _row(
+        _rowAllowIneligible(
             string.concat("arm1 all-EAS indexer    coverage=", _tag()),
             new ArmEasIndexer(_cfg(_mode()), _easCfg(true), EAS_INDEXER),
             tokenId,
@@ -70,7 +70,9 @@ abstract contract Eng3922CoverageBase is Eng3922HarnessBase {
 
     function test_coverageCalibrationRound1Store() public {
         if (!forked) vm.skip(true);
-        _row(string.concat("cal. round-1 store      coverage=", _tag()), _newArmCustom(_mode()), tokenId, ctx);
+        _rowAllowIneligible(
+            string.concat("cal. round-1 store      coverage=", _tag()), _newArmCustom(_mode()), tokenId, ctx
+        );
     }
 }
 

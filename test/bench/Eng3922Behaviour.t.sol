@@ -125,4 +125,58 @@ contract Eng3922BehaviourTest is Eng3922HarnessBase {
             );
         }
     }
+
+    /// @notice `encodeContext` must round-trip through `_decodeContext`.
+    /// @dev Round 1 of review found the encoder writing three members while the decoder read four,
+    ///      so the documented Option C encoder produced bytes that could not be decoded: word 6 was
+    ///      the `proofs` offset and was read as `coverageUids[0]`. Nothing measured used it, which
+    ///      is exactly why it survived. This pins the two together.
+    function test_contextRoundTrips() public {
+        if (!forked) vm.skip(true);
+        ArmEasContext arm = _armContext(true);
+        bytes32[3] memory p = [keccak256("p0"), keccak256("p1"), keccak256("p2")];
+        bytes32[3] memory c = [keccak256("c0"), keccak256("c1"), keccak256("c2")];
+        bytes32[3] memory v = [keccak256("v0"), keccak256("v1"), keccak256("v2")];
+        bytes32[] memory path = new bytes32[](2);
+        path[0] = keccak256("s0");
+        path[1] = keccak256("s1");
+        bytes32[][] memory proofs = new bytes32[][](3);
+        for (uint256 i; i < 3; ++i) {
+            proofs[i] = path;
+        }
+        bytes memory encoded = arm.encodeContext(p, c, v, proofs);
+        (bytes32[3] memory p2, bytes32[3] memory c2, bytes32[3] memory v2, bytes32[][] memory proofs2) =
+            arm.decodeContext(encoded);
+        for (uint256 i; i < 3; ++i) {
+            assertEq(p2[i], p[i], "priceUids round-trip");
+            assertEq(c2[i], c[i], "cycleCloseUids round-trip");
+            assertEq(v2[i], v[i], "coverageUids round-trip");
+            assertEq(proofs2[i].length, 2, "proof length round-trip");
+            assertEq(proofs2[i][0], path[0], "proof element round-trip");
+            assertEq(proofs2[i][1], path[1], "proof element round-trip");
+        }
+    }
+
+    /// @notice The encoder must actually drive the arm, not merely round-trip its own bytes.
+    function test_contextFromEncoderDrivesArm() public {
+        if (!forked) vm.skip(true);
+        ArmEasContext arm = _armContext(true);
+        uint256 tokenId = uint256(keccak256("eng3922-roundtrip"));
+        _seed(tokenId, 0);
+        bytes memory encoded = _encodedContextFor(arm, tokenId);
+        (bool ok, bytes32 failed,,) = arm.eligibilityReport(SEPOLIA_USDC, tokenId, encoded);
+        assertTrue(ok, string.concat("encodeContext output must drive ArmEasContext, failed ", vm.toString(failed)));
+    }
+
+    function _encodedContextFor(ArmEasContext arm, uint256 tokenId) internal view returns (bytes memory) {
+        bytes32[3] memory pu;
+        bytes32[3] memory cu;
+        bytes32[3] memory vu;
+        for (uint8 s; s < 3; ++s) {
+            pu[s] = headUid[writers[s]][tokenId];
+            cu[s] = cycleCloseUid[writers[s]];
+            vu[s] = coverageUid[writers[s]][tokenId];
+        }
+        return arm.encodeContext(pu, cu, vu, new bytes32[][](0));
+    }
 }

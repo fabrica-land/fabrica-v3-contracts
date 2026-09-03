@@ -183,12 +183,32 @@ abstract contract BenchAggregatorBase is IPriceOracle {
     }
 
     /// @notice Encode the context bytes a pool would forward. Only Option C needs it.
-    function encodeContext(bytes32[3] memory priceUids, bytes32[3] memory cycleCloseUids, bytes32[][] memory proofs)
+    /// @dev Must stay in lockstep with `_decodeContext`. An earlier version encoded three members
+    ///      while the decoder read four, so the bytes this produced could not be decoded: word 6 was
+    ///      the `proofs` offset but was read as `coverageUids[0]`. Nothing measured called it, which
+    ///      is exactly why it survived. `test_contextRoundTrips` now pins the two together.
+    function encodeContext(
+        bytes32[3] memory priceUids,
+        bytes32[3] memory cycleCloseUids,
+        bytes32[3] memory coverageUids,
+        bytes32[][] memory proofs
+    ) external pure returns (bytes memory) {
+        return abi.encode(priceUids, cycleCloseUids, coverageUids, proofs);
+    }
+
+    /// @notice Decode context bytes back to their members, so a round-trip is assertable.
+    function decodeContext(bytes calldata oracleContext)
         external
         pure
-        returns (bytes memory)
+        returns (
+            bytes32[3] memory priceUids,
+            bytes32[3] memory cycleCloseUids,
+            bytes32[3] memory coverageUids,
+            bytes32[][] memory proofs
+        )
     {
-        return abi.encode(priceUids, cycleCloseUids, proofs);
+        Ctx memory ctx = _decodeContext(oracleContext);
+        return (ctx.priceUids, ctx.cycleCloseUids, ctx.coverageUids, ctx.proofs);
     }
 
     // -------------------------------------------------------------------------
@@ -207,40 +227,46 @@ abstract contract BenchAggregatorBase is IPriceOracle {
         returns (bool pass, bytes32 failedCheck, uint256 usable, uint256 walkHops)
     {
         if (currencyToken != usdc) return (false, CHECK_CURRENCY, 0, 0);
-        (uint256 liveCount, uint128 currentMin, uint128 currentMax, bool anyFresh) = _collectLiveMinMax(tokenId, ctx);
-        if (!anyFresh) return (false, CHECK_HEARTBEAT, 0, 0);
+        (uint256 liveCount, uint128 currentMin, uint128 currentMax, bytes32 firstReason, bool[3] memory live) =
+            _collectLiveMinMax(tokenId, ctx);
+        if (liveCount == 0) return (false, firstReason, 0, 0);
         if (liveCount < uint256(minLiveSources) || currentMin == 0) return (false, CHECK_MIN_SOURCES, 0, 0);
         uint256 ratioBps = (uint256(currentMax) * uint256(BPS_DENOMINATOR)) / uint256(currentMin);
         if (ratioBps > uint256(maxDispersionBps)) return (false, CHECK_DISPERSION, 0, 0);
-        (uint128 usablePrice, uint256 hops) = _applyTemporalFloor(tokenId, currentMin, ctx);
+        (uint128 usablePrice, uint256 hops) = _applyTemporalFloor(tokenId, currentMin, ctx, live);
         return (true, bytes32(0), uint256(usablePrice), hops);
     }
 
     /// @notice Whether this oracle source counts as live for this token, and its price if so.
+    /// @notice Whether this oracle source counts as live for this token, and why not when it does not.
+    /// @return live Whether the source contributes a valuation.
+    /// @return reason The rule that rejected it, or `bytes32(0)` when it is live. An earlier version
+    ///         folded lock and coverage rejections into a bare `live == false`, so `price()` reported
+    ///         `CHECK_MIN_SOURCES` for a lock and `CHECK_LOCK`/`CHECK_CYCLE` were dead constants.
+    ///         The ticket asks for lock and coverage evidence, so the failing check names the rule.
+    /// @return fact The valuation, when there is one.
     function _liveFact(uint8 sourceId, uint256 tokenId, Ctx memory ctx)
         internal
         view
-        returns (bool live, bool fresh, PriceFact memory fact)
+        returns (bool live, bytes32 reason, PriceFact memory fact)
     {
-        uint64 closedCycle;
-        bytes32 root;
-        (fresh, closedCycle, root) = _writerLiveness(sourceId, ctx);
-        if (!fresh) return (false, false, fact);
-        if (_isLocked(sourceId, tokenId, ctx)) return (false, true, fact);
+        (bool fresh, uint64 closedCycle, bytes32 root) = _writerLiveness(sourceId, ctx);
+        if (!fresh) return (false, CHECK_HEARTBEAT, fact);
+        if (_isLocked(sourceId, tokenId, ctx)) return (false, CHECK_LOCK, fact);
         if (coverage == CoverageMode.ProofAtRead && !_provenUnderRoot(sourceId, tokenId, ctx, root)) {
-            return (false, true, fact);
+            return (false, CHECK_CYCLE, fact);
         }
         fact = _current(sourceId, tokenId, ctx);
-        if (!fact.present || fact.priceUsdc6 == 0) return (false, true, fact);
+        if (!fact.present || fact.priceUsdc6 == 0) return (false, CHECK_MIN_SOURCES, fact);
         if (coverage == CoverageMode.ClosedCycle && (fact.cycle == 0 || fact.cycle > closedCycle)) {
-            return (false, true, fact);
+            return (false, CHECK_CYCLE, fact);
         }
         if (coverage == CoverageMode.CoverageStamp) {
             uint64 covered = _coveredThrough(sourceId, tokenId, ctx);
-            if (covered == 0 || covered < closedCycle) return (false, true, fact);
+            if (covered == 0 || covered < closedCycle) return (false, CHECK_CYCLE, fact);
         }
-        if (_trippedBreaker(sourceId, tokenId, fact, ctx)) return (false, true, fact);
-        return (true, true, fact);
+        if (_trippedBreaker(sourceId, tokenId, fact, ctx)) return (false, CHECK_MIN_SOURCES, fact);
+        return (true, bytes32(0), fact);
     }
 
     /// @notice Merkle membership of the token under the writer's cycle root.
@@ -264,16 +290,26 @@ abstract contract BenchAggregatorBase is IPriceOracle {
         return computed == root;
     }
 
+    /// @notice Evaluate every oracle source ONCE, and carry the result out.
+    /// @dev The live mask is returned rather than recomputed. An earlier version had the temporal
+    ///      floor call `_liveFact` again for every source, so every fact-layer read the breaker and
+    ///      the liveness check make — `_writerLiveness`, `_isLocked`, `_current`, `_previous` —
+    ///      happened TWICE on every `price()` whenever `seasoningWindow != 0`. That inflated the
+    ///      reported read gas on every arm and, because the EAS arms pay far more per fact-layer
+    ///      read, it inflated them unequally.
     function _collectLiveMinMax(uint256 tokenId, Ctx memory ctx)
         internal
         view
-        returns (uint256 liveCount, uint128 currentMin, uint128 currentMax, bool anyFresh)
+        returns (uint256 liveCount, uint128 currentMin, uint128 currentMax, bytes32 firstReason, bool[3] memory live)
     {
         currentMin = type(uint128).max;
         for (uint8 sid; sid < SOURCE_COUNT; ++sid) {
-            (bool live, bool fresh, PriceFact memory f) = _liveFact(sid, tokenId, ctx);
-            if (fresh) anyFresh = true;
-            if (!live) continue;
+            (bool isLive, bytes32 reason, PriceFact memory f) = _liveFact(sid, tokenId, ctx);
+            if (!isLive) {
+                if (firstReason == bytes32(0)) firstReason = reason;
+                continue;
+            }
+            live[sid] = true;
             if (f.priceUsdc6 < currentMin) currentMin = f.priceUsdc6;
             if (f.priceUsdc6 > currentMax) currentMax = f.priceUsdc6;
             unchecked {
@@ -286,7 +322,9 @@ abstract contract BenchAggregatorBase is IPriceOracle {
         }
     }
 
-    function _applyTemporalFloor(uint256 tokenId, uint128 currentMin, Ctx memory ctx)
+    /// @notice MIN of each live oracle source's price as of the seasoning cutoff.
+    /// @param live The mask `_collectLiveMinMax` already computed; liveness is not re-evaluated.
+    function _applyTemporalFloor(uint256 tokenId, uint128 currentMin, Ctx memory ctx, bool[3] memory live)
         internal
         view
         returns (uint128 usablePrice, uint256 walkHops)
@@ -297,8 +335,7 @@ abstract contract BenchAggregatorBase is IPriceOracle {
         uint128 pastMin = type(uint128).max;
         bool any;
         for (uint8 sid; sid < SOURCE_COUNT; ++sid) {
-            (bool live,,) = _liveFact(sid, tokenId, ctx);
-            if (!live) continue;
+            if (!live[sid]) continue;
             (bool found, uint128 p, uint256 hops) = _asOf(sid, tokenId, targetTs, ctx);
             walkHops += hops;
             if (!found) continue;

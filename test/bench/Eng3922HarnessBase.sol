@@ -3,6 +3,7 @@ pragma solidity ^0.8.24;
 
 import {Test} from "forge-std/Test.sol";
 import {
+    SchemaRecord,
     IEAS,
     ISchemaRegistry,
     IEASIndexer,
@@ -107,16 +108,19 @@ abstract contract Eng3922HarnessBase is Test {
             vm.skip(true);
             return;
         }
-        vm.createSelectFork(rpc, FORK_BLOCK);
+        // Select by the `sepolia` alias from foundry.toml rpc_endpoints, per the repo's fork-test
+        // convention; `vm.envOr` above is only the skip decision.
+        rpc;
+        vm.createSelectFork("sepolia", FORK_BLOCK);
         forked = true;
         writers[0] = makeAddr("oracle-source-prycd");
         writers[1] = makeAddr("oracle-source-openavm");
         writers[2] = makeAddr("oracle-source-regrid");
-        priceSchema = registry.register(PRICE_SCHEMA_DEF, address(0), true);
-        attributeSchema = registry.register(ATTRIBUTE_SCHEMA_DEF, address(0), true);
-        lockSchema = registry.register(LOCK_SCHEMA_DEF, address(0), true);
-        cycleCloseSchema = registry.register(CYCLE_CLOSE_SCHEMA_DEF, address(0), true);
-        coverageSchema = registry.register(COVERAGE_SCHEMA_DEF, address(0), true);
+        priceSchema = _ensureSchema(PRICE_SCHEMA_DEF);
+        attributeSchema = _ensureSchema(ATTRIBUTE_SCHEMA_DEF);
+        lockSchema = _ensureSchema(LOCK_SCHEMA_DEF);
+        cycleCloseSchema = _ensureSchema(CYCLE_CLOSE_SCHEMA_DEF);
+        coverageSchema = _ensureSchema(COVERAGE_SCHEMA_DEF);
         pointer = new FactPointer();
         ownerlessStore = new OwnerlessFactStore(48);
         // The calibration arm reads the LIVE round-1 store, so the same prices have to exist
@@ -127,6 +131,17 @@ abstract contract Eng3922HarnessBase is Test {
             vm.prank(round1Owner);
             round1Store.setPricePublisher(1, writers[i], true);
         }
+    }
+
+    /// @notice Register a schema, or reuse it when it already exists.
+    /// @dev A schema uid is `keccak256(schema, resolver, revocable)` and schemas are global and
+    ///      permanent on EAS, so re-registering the same shape reverts `AlreadyExists()`. The pinned
+    ///      fork block predates this experiment's own registrations, but a future re-pin past them
+    ///      would fail every test in `setUp`. Matches `Eng3922Sepolia.s.sol`.
+    function _ensureSchema(string memory def) internal returns (bytes32 uid) {
+        uid = keccak256(abi.encodePacked(def, address(0), true));
+        if (registry.getSchema(uid).uid == uid) return uid;
+        return registry.register(def, address(0), true);
     }
 
     // -------------------------------------------------------------------------
@@ -141,6 +156,31 @@ abstract contract Eng3922HarnessBase is Test {
         return abi.encode(
             tokenId, sourceId, priceUsdc6, uint24(9000), cycle, keccak256(abi.encode("inputs", tokenId, sourceId))
         );
+    }
+
+    /// @notice An extra price attestation for the same row, deliberately NOT chained.
+    /// @dev Used to deepen an Indexer row without deepening the `refUID` history, so the two
+    ///      effects can be measured apart. It becomes the newest, is indexed, and is pointed at.
+    function _easPublishUnchained(uint8 sourceId, uint256 tokenId, uint128 priceUsdc6) internal {
+        address w = writers[sourceId];
+        vm.startPrank(w);
+        bytes32 uid = eas.attest(
+            AttestationRequest({
+                schema: priceSchema,
+                data: AttestationRequestData({
+                    recipient: address(uint160(tokenId)),
+                    expirationTime: uint64(block.timestamp) + MAX_SILENCE,
+                    revocable: true,
+                    refUID: bytes32(0),
+                    data: _priceData(tokenId, sourceId, priceUsdc6, 1),
+                    value: 0
+                })
+            })
+        );
+        pointer.point(tokenId, keccak256("price"), uid);
+        indexer.indexAttestation(uid);
+        vm.stopPrank();
+        headUid[w][tokenId] = uid;
     }
 
     /// @notice One EAS price attestation, chained to the previous one by `refUID`, plus the
@@ -402,8 +442,23 @@ abstract contract Eng3922HarnessBase is Test {
         return spent;
     }
 
-    /// @notice One measured row: the arm's `price()` gas and the seasoning walk depth it needed.
+    /// @notice One measured row, ASSERTING the arm produced a price.
+    /// @dev The headline arm numbers are the go/no-go output of the experiment, so a row that
+    ///      silently logs "not eligible" and passes is worse than a failing test. Only the coverage
+    ///      suites, where ineligibility under a rule is a real result, may use `_rowAllowIneligible`.
     function _row(string memory label, BenchAggregatorBase arm, uint256 tokenId, bytes memory ctx) internal {
+        (bool ok, bytes32 failed,, uint256 hops) = arm.eligibilityReport(SEPOLIA_USDC, tokenId, ctx);
+        assertTrue(ok, string.concat(label, ": arm produced no price, failed check ", vm.toString(failed)));
+        emit log_named_uint(
+            string.concat(label, " depth/source=", vm.toString(hops / 3), " price() execution gas"),
+            _measure(arm, tokenId, ctx)
+        );
+    }
+
+    /// @notice A measured row that tolerates ineligibility, for the coverage-rule suites only.
+    function _rowAllowIneligible(string memory label, BenchAggregatorBase arm, uint256 tokenId, bytes memory ctx)
+        internal
+    {
         (bool ok,,, uint256 hops) = arm.eligibilityReport(SEPOLIA_USDC, tokenId, ctx);
         if (!ok) {
             emit log_named_string(label, "not eligible on this fact layer under this rule");
