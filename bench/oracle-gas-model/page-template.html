@@ -773,7 +773,19 @@ total                                                    = ${fmt(m.totalGas)} ga
       <li>gas inside <code>price()</code> for a three-source read on each arm, including the
         <code>refUID</code> walk depth the seasoning window needs — <em>the go/no-go number</em></li>
       <li>a prototype batched <code>writePrice</code> on the custom store, for the same comparison</li>
+      <li><strong><code>indexAttestation</code></strong> — see the warning below; it is a separate
+        write and it is easy to leave out of an EAS estimate</li>
     </ul>
+    <p><strong>⚠ On EAS, <code>attest</code> is not the whole write cost, and this is the easiest
+    way to underestimate that arm.</strong> EAS's <code>Indexer</code> does <em>not</em> index on
+    attestation: <code>indexAttestation</code> is a separate transaction, measured by ENG-3922 on
+    real Sepolia at <strong>176,107 gas per token</strong> in a 20-item batch. Any EAS design that
+    needs to look an attestation up by (writer, token, kind) pays that on top of the attest — and
+    the <code>Indexer</code> is <strong>not deployed on Ethereum mainnet at all</strong>, which is
+    why the adoption survey's Option A carries an ownerless pointer contract of our own instead.
+    So the honest comparison is attest + lookup-write versus the custom store's single write, not
+    attest alone. That figure is quoted here because it is not an arm result; the arm results stay
+    <span class="pending">pending</span>.</p>
     <p class="small">When they publish, this page gains a second arm and the fact-layer question is
     answered off one screen. Until then the honest answer to “what would EAS cost?” is that nobody
     has measured it.</p></div>`;
@@ -842,6 +854,22 @@ total                                                    = ${fmt(m.totalGas)} ga
     and only two tokens have ever been written. Quoting the wrapped figure as “the” per-write cost
     would understate the next year by ${(100 * (1 - G("writePrice:write 49+ (ring wrapped), price moved")
       / G("writePrice:writes 3-48 (ring slot fresh, counter warm)"))).toFixed(0)}%.</p></div>
+
+    <h3>Does a Foundry measurement predict real on-chain gas?</h3>
+    <div class="note ok"><p>Every write-side number on this page is a Foundry measurement, so
+    the page rests on the assumption that a properly cooled Foundry figure predicts what a
+    transaction actually burns. That assumption has now been tested directly rather than
+    assumed. <a href="https://linear.app/fabrica/issue/ENG-3922">ENG-3922</a> ran every read arm
+    twice — once on a Sepolia fork with <code>vm.cool</code>, and once as a <strong>real Sepolia
+    transaction</strong> through a probe contract that performs the read inside a transaction and
+    emits the gas it consumed. <strong>The two methods agree to within 0.7% on all four arms, and
+    to 0.2% on three of them.</strong> Evidence and transaction hashes are in that ticket's
+    Sepolia evidence report (fabrica-v3-contracts PR 42,
+    <code>bench-reports/eng3922-sepolia-evidence.md</code>) — it is their artifact, not this
+    page's, and it is cited rather than reproduced here.</p>
+    <p class="small">This is a cross-check of the <em>method</em>, on the read path, by another
+    lane. It is not a re-measurement of this page's write-side numbers, and it does not remove
+    the write-1 discrepancy below.</p></div>
 
     <h3>Corroboration, and one thing that does not reconcile</h3>
     <p class="small">ENG-3922 measured the <em>deployed</em> contract on a Sepolia fork — different
