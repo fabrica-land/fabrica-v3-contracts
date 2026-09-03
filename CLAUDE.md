@@ -87,5 +87,17 @@ Notes:
   is the harness call overhead, show it rather than fold it in.
 - The `FabricaAttributeOracle` history ring (`historyDepth = 48`) means writes
   1-48 on a row allocate fresh slots (~20k gas/word) and write 49+ overwrite
-  (~2.9k/word); state which regime a write-side number is in. Reference:
-  ENG-3913 and ENG-3922 comments on Linear.
+  (~2.9k/word); state which regime a write-side number is in. There are four
+  distinguishable regimes, not two: write 1 pushes no history at all; write 2
+  pays a cold `_historyCount` as well as a cold slot; writes 3-48 pay the cold
+  slot only; write 49+ overwrites. Measured whole-transaction, they are
+  169,737 / 154,372 / 137,308 / 103,096 gas. Reference: ENG-3913 and ENG-3922
+  comments on Linear, and `bench/oracle-gas-model/`.
+- Provenance hashes must VARY between writes when benching. `rawPayloadHash`
+  and `inputsHash` are two of the three provenance words; reusing one constant
+  pair makes them no-op stores (100 gas instead of ~2,900) and understates
+  every repeat write by ~5,600 gas. A real oracle writer hashes each cycle's
+  payload and inputs, so they change every time.
+- Run a gas bench WITHOUT `--gas-report`. The gas-report instrumentation
+  inflates the `gasleft()` deltas a bench reads; keep the `--gas-report` run as
+  a separate cross-check artifact rather than reading both off one run.
