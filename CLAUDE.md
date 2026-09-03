@@ -69,3 +69,23 @@ Notes:
   v5 layout. If so, a gap that points reads back at the old v4 slots will
   REGRESS that data — patch the lagging variable(s) instead (see ENG-3256: the
   validator `initializeV2` data-repair vs. the token's ENG-2764 `__legacy_gap`).
+
+## Measuring gas in Foundry
+
+- Measuring several scenarios inside one test function warms storage slots,
+  and EIP-2200/2929 warm-access discounts silently deflate the result. Two
+  lanes hit this independently on 2026-09-03: a three-source `price()` read
+  came out at 119,573 gas against a true 197,573; a `writePrice` came out 3.9x
+  low.
+- Guard: one scenario per test function (prime state in `setUp`, measure in
+  the test), and call `vm.cool(address(contractUnderTest))` immediately before
+  the measured call. The guard should change no number; if it does, the
+  isolation was not holding.
+- Report whole-transaction gas (21,000 intrinsic + calldata per EIP-2028 +
+  execution), not execution alone, when the number is a cost. Cross-check
+  against `forge test --gas-report` Min/Max; a constant small delta (~115 gas)
+  is the harness call overhead, show it rather than fold it in.
+- The `FabricaAttributeOracle` history ring (`historyDepth = 48`) means writes
+  1-48 on a row allocate fresh slots (~20k gas/word) and write 49+ overwrite
+  (~2.9k/word); state which regime a write-side number is in. Reference:
+  ENG-3913 and ENG-3922 comments on Linear.
