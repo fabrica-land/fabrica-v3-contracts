@@ -1,0 +1,36 @@
+Ran 3 tests for test/bench/Eng3922Baseline.t.sol:Eng3922BaselineTest
+[PASS] test_baselineThreeSourcePriceGas() (gas: 19642772)
+Logs:
+  baseline price() gas, 3 sources, seasoning walk depth 0: 200073
+  baseline price() gas, 3 sources, seasoning walk depth 1: 227105
+  baseline price() gas, 3 sources, seasoning walk depth 3: 281176
+  baseline price() gas, 3 sources, seasoning walk depth 7: 389354
+
+[PASS] test_baselineWriteGas() (gas: 615364)
+Logs:
+  baseline writePrice gas, first write (no history push): 177961
+  baseline writePrice gas, repeat write (history push): 156992
+  baseline writePrice gas, repeat write 2 (warm ring slot): 139894
+  baseline heartbeat gas: 37697
+
+[PASS] test_liveTwoSourceAggregatorConfig() (gas: 29087)
+Suite result: ok. 3 passed; 0 failed; 0 skipped; finished in 89.42ms (7.14ms CPU time)
+
+╭------------------------------------------------------------------+-----------------+--------+--------+--------+---------╮
+| src/FabricaOracleAggregator.sol:FabricaOracleAggregator Contract |                 |        |        |        |         |
++=========================================================================================================================+
+| Deployment Cost                                                  | Deployment Size |        |        |        |         |
+|------------------------------------------------------------------+-----------------+--------+--------+--------+---------|
+|                                                          2321477 |           11804 |        |        |        |         |
+|------------------------------------------------------------------+-----------------+--------+--------+--------+---------|
+|                                                                  |                 |        |        |        |         |
+|------------------------------------------------------------------+-----------------+--------+--------+--------+---------|
+| Function Name                                                    | Min             | Avg    | Median | Max    | # Calls |
+|------------------------------------------------------------------+-----------------+--------+--------+--------+---------|
+| price                                                            |          199097 | 273451 | 253164 | 388378 |       4 |
+|------------------------------------------------------------------+-----------------+--------+--------+--------+---------|
+| renounceAggregator                                               |           63340 |  63340 |  63340 |  63340 |       4 |
+╰------------------------------------------------------------------+-----------------+--------+--------+--------+---------╯
+
+
+Ran 1 test suite in 90.70ms (89.42ms CPU time): 3 tests passed, 0 failed, 0 skipped (3 total tests)
