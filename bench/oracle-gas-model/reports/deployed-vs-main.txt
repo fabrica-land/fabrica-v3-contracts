@@ -1,0 +1,39 @@
+# ENG-3913 — deployed round-1 code vs main, same harness
+#
+# repo:    fabrica-v3-contracts
+# base:    origin/main @ 4b9201d17d78c7296545a6bd5ef6ac8da1d5a86e
+# branch:  tozzetto/eng-3913-oracle-gas-model
+# command: forge test --match-path test/Eng3913DeployedVsMainGas.t.sol -vv
+# forge:   forge Version: 1.7.1 (Commit SHA: 4072e48705af9d93e3c0f6e29e93b5e9a40caed8)
+# profile: optimizer=true, optimizer_runs=1, via_ir=false (foundry.toml [profile.default])
+# knobs:   FabricaAttributeOracle.defaultKnobs() — the config
+#          script/FabricaAttributeOracleDeploy.s.sol deploys with.
+#
+# ⚠ RUN THIS WITHOUT --gas-report.
+#   Foundry's gas-report instrumentation inflates the gasleft() deltas these benches
+#   read, and the codeless-control subtraction absorbs most but not all of it. The CSV
+#   rows here are valid ONLY from a plain -vv run. Under --gas-report the steady-state
+#   writePrice row reads 72,268 instead of 73,812.
+
+No files changed, compilation skipped
+
+Ran 4 tests for test/Eng3913DeployedVsMainGas.t.sol:Eng3913DeployedVsMainGas
+[PASS] test_gas_writePrice_first() (gas: 410893)
+Logs:
+  ENG3913CMP,writePrice:first,main_exec=146053,deployed_exec=145742,delta_exec_deployed_minus_main=-311,calldataGas=2684,main_tx=169737,deployed_tx=169426
+
+[PASS] test_gas_writePrice_midRing() (gas: 346348)
+Logs:
+  ENG3913CMP,writePrice:writes 3-48 (ring slot fresh, counter warm),main_exec=113612,deployed_exec=112955,delta_exec_deployed_minus_main=-657,calldataGas=2696,main_tx=137308,deployed_tx=136651
+
+[PASS] test_gas_writePrice_second() (gas: 380228)
+Logs:
+  ENG3913CMP,writePrice:second (ring slot cold),main_exec=130712,deployed_exec=130055,delta_exec_deployed_minus_main=-657,calldataGas=2660,main_tx=154372,deployed_tx=153715
+
+[PASS] test_gas_writePrice_wrapped() (gas: 277868)
+Logs:
+  ENG3913CMP,writePrice:write 49+ (ring wrapped),main_exec=79412,deployed_exec=78755,delta_exec_deployed_minus_main=-657,calldataGas=2684,main_tx=103096,deployed_tx=102439
+
+Suite result: ok. 4 passed; 0 failed; 0 skipped; finished in 4.17ms (1.07ms CPU time)
+
+Ran 1 test suite in 4.70ms (4.17ms CPU time): 4 tests passed, 0 failed, 0 skipped (4 total tests)

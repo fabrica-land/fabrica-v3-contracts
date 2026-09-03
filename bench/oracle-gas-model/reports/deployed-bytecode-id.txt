@@ -1,0 +1,21 @@
+deployed round-1 fact store : 0xFfA7535eF090C9193f44399843a05b60808ffC0D (Sepolia)
+runtime bytes, metadata stripped : 13458
+
+candidate 062f049
+  built runtime bytes            : 13458
+  differing bytes                : 147 of 13458
+  of those, inside an immutable  : 147
+  of those, OUTSIDE an immutable : 0
+  VERDICT: MATCH. Every differing byte is in a slot the compiler reserved
+           for a constructor-set immutable, so the logic is identical and
+           only the deployed knob values differ.
+  sample   : @2425 live=30 built=00, @2628 live=30 built=00, @4160 live=30 built=00, @5982 live=ff built=00, @5983 live=a7 built=00, @5984 live=53 built=00
+
+candidate 23f200f
+  built runtime bytes            : 13381
+  LENGTH MISMATCH -> not this commit
+
+candidate 10aafd6
+  built runtime bytes            : 13588
+  LENGTH MISMATCH -> not this commit
+

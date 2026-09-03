@@ -1,0 +1,103 @@
+# ENG-3913 — per-scenario gas bench, literal output
+#
+# repo:    fabrica-v3-contracts
+# base:    origin/main @ 4b9201d17d78c7296545a6bd5ef6ac8da1d5a86e
+# branch:  tozzetto/eng-3913-oracle-gas-model
+# command: forge test --match-path test/Eng3913OracleGasBench.t.sol -vv
+# forge:   forge Version: 1.7.1 (Commit SHA: 4072e48705af9d93e3c0f6e29e93b5e9a40caed8)
+# profile: optimizer=true, optimizer_runs=1, via_ir=false (foundry.toml [profile.default])
+# knobs:   FabricaAttributeOracle.defaultKnobs() — the config
+#          script/FabricaAttributeOracleDeploy.s.sol deploys with.
+#
+# ⚠ RUN THIS WITHOUT --gas-report.
+#   Foundry's gas-report instrumentation inflates the gasleft() deltas these benches
+#   read, and the codeless-control subtraction absorbs most but not all of it. The CSV
+#   rows here are valid ONLY from a plain -vv run. Under --gas-report the steady-state
+#   writePrice row reads 72,268 instead of 73,812.
+
+No files changed, compilation skipped
+
+Ran 20 tests for test/Eng3913OracleGasBench.t.sol:Eng3913OracleGasBench
+[PASS] test_gas_heartbeat_first() (gas: 95632)
+Logs:
+  ENG3913ROW,heartbeat:first,52494,472,52022,68,344,73366
+
+[PASS] test_gas_heartbeat_repeat() (gas: 62303)
+Logs:
+  ENG3913ROW,heartbeat:repeat,18341,472,17869,68,344,39213
+
+[PASS] test_gas_registerBatch_1() (gas: 118247)
+Logs:
+  ENG3913ROW,registerBatch:1,59124,478,58646,132,648,80294
+
+[PASS] test_gas_registerBatch_10() (gas: 634516)
+Logs:
+  ENG3913ROW,registerBatch:10,510285,505,509780,420,2124,532904
+
+[PASS] test_gas_registerBatch_100() (gas: 5802362)
+Logs:
+  ENG3913ROW,registerBatch:100,5021895,775,5021120,3300,16884,5059004
+
+[PASS] test_gas_registerBatch_1000() (gas: 57494970)
+Logs:
+  ENG3913ROW,registerBatch:1000,50137995,3475,50134520,32100,164448,50319968
+
+[PASS] test_gas_register_firstUnderValidator() (gas: 118972)
+Logs:
+  ENG3913ROW,register:first under validator,75744,472,75272,68,368,96640
+
+[PASS] test_gas_register_subsequent() (gas: 102158)
+Logs:
+  ENG3913ROW,register:subsequent,58644,472,58172,68,368,79540
+
+[PASS] test_gas_writeAttribute_first() (gas: 217906)
+Logs:
+  ENG3913ROW,writeAttribute:first,123072,493,122579,292,2692,146271
+
+[PASS] test_gas_writeAttribute_repeatChanged() (gas: 129362)
+Logs:
+  ENG3913ROW,writeAttribute:repeat, value changed,34919,493,34426,292,2668,58094
+
+[PASS] test_gas_writeAttribute_repeatUnchanged() (gas: 126914)
+Logs:
+  ENG3913ROW,writeAttribute:repeat, value unchanged,32119,493,31626,292,2668,55294
+
+[PASS] test_gas_writePriceRelayed_first() (gas: 374953)
+Logs:
+  ENG3913ROW,writePriceRelayed:first,175174,520,174654,580,4444,200098
+
+[PASS] test_gas_writePriceRelayed_midRing() (gas: 326316)
+Logs:
+  ENG3913ROW,writePriceRelayed:writes 3-48 (ring slot fresh, counter warm),125634,520,125114,580,4456,150570
+
+[PASS] test_gas_writePriceRelayed_second() (gas: 343192)
+Logs:
+  ENG3913ROW,writePriceRelayed:second (ring slot cold),142734,520,142214,580,4432,167646
+
+[PASS] test_gas_writePriceRelayed_wrapped() (gas: 292138)
+Logs:
+  ENG3913ROW,writePriceRelayed:write 49+ (ring wrapped), price moved,91434,520,90914,580,4456,116370
+
+[PASS] test_gas_writePrice_first() (gas: 255377)
+Logs:
+  ENG3913ROW,writePrice:first,146552,499,146053,356,2684,169737
+
+[PASS] test_gas_writePrice_midRing() (gas: 223769)
+Logs:
+  ENG3913ROW,writePrice:writes 3-48 (ring slot fresh, counter warm),114111,499,113612,356,2696,137308
+
+[PASS] test_gas_writePrice_second() (gas: 240370)
+Logs:
+  ENG3913ROW,writePrice:second (ring slot cold),131211,499,130712,356,2660,154372
+
+[PASS] test_gas_writePrice_wrappedMoved() (gas: 189644)
+Logs:
+  ENG3913ROW,writePrice:write 49+ (ring wrapped), price moved,79911,499,79412,356,2684,103096
+
+[PASS] test_gas_writePrice_wrappedUnchanged() (gas: 189446)
+Logs:
+  ENG3913ROW,writePrice:write 49+ (ring wrapped), price unchanged,79911,499,79412,356,2684,103096
+
+Suite result: ok. 20 passed; 0 failed; 0 skipped; finished in 33.98ms (35.59ms CPU time)
+
+Ran 1 test suite in 47.90ms (33.98ms CPU time): 20 tests passed, 0 failed, 0 skipped (20 total tests)

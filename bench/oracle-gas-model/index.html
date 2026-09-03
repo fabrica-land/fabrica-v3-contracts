@@ -1,0 +1,3677 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Oracle gas-cost model — ENG-3913</title>
+<style>
+:root{
+  --bg:#fbfaf8; --panel:#fff; --ink:#1a1a1a; --muted:#5d5d5d; --line:#e2ded8;
+  --accent:#7a4b1e; --accent-soft:#f3ece3; --warn:#8a5a00; --warn-soft:#fdf4e0;
+  --bad:#8c2f2f; --bad-soft:#fbecec; --ok:#2f6b45; --ok-soft:#e9f3ec;
+  --mono:ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,monospace;
+  --sans:ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+}
+@media (prefers-color-scheme:dark){
+  :root:not([data-theme="light"]){
+    --bg:#16151a; --panel:#1e1d23; --ink:#eceaf0; --muted:#a3a0ab; --line:#332f3a;
+    --accent:#d4a373; --accent-soft:#2a2430; --warn:#e0b45c; --warn-soft:#2e2718;
+    --bad:#e08585; --bad-soft:#2e1c1c; --ok:#8fc9a5; --ok-soft:#1c2a20;
+  }
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.55 var(--sans)}
+a{color:var(--accent)}
+code,.num{font-family:var(--mono);font-variant-numeric:tabular-nums}
+header.top{padding:24px 20px 18px;border-bottom:1px solid var(--line);background:var(--panel)}
+header.top h1{margin:0 0 6px;font-size:23px;letter-spacing:-.01em}
+.prov{color:var(--muted);font-size:12.5px;line-height:1.7}
+.prov code{font-size:12px}
+.wrap{max-width:1280px;margin:0 auto;padding:0 20px}
+.layout{display:grid;grid-template-columns:330px minmax(0,1fr);gap:22px;align-items:start;padding:22px 0 60px}
+@media (max-width:980px){.layout{grid-template-columns:1fr}}
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:9px;padding:16px 16px 18px;margin-bottom:16px}
+.panel > h2{margin:0 0 12px;font-size:13px;text-transform:uppercase;letter-spacing:.09em;color:var(--muted);font-weight:650}
+.dials{position:sticky;top:14px;max-height:calc(100vh - 28px);overflow:auto}
+@media (max-width:980px){.dials{position:static;max-height:none}}
+.dial{margin-bottom:14px}
+.dial > label{display:block;font-weight:600;font-size:13px;margin-bottom:4px}
+.dial .hint{color:var(--muted);font-size:11.5px;margin-top:3px;line-height:1.45}
+select,input[type=number],input[type=text]{width:100%;padding:6px 8px;border:1px solid var(--line);border-radius:6px;
+  background:var(--bg);color:var(--ink);font:13px var(--mono)}
+.seg{display:flex;flex-wrap:wrap;gap:4px}
+.seg button{flex:1 1 auto;padding:5px 8px;border:1px solid var(--line);background:var(--bg);color:var(--ink);
+  border-radius:6px;font:12px var(--mono);cursor:pointer;min-width:52px}
+.seg button[aria-pressed=true]{background:var(--accent);border-color:var(--accent);color:#fff}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]) .seg button[aria-pressed=true]{color:#1a1a1a}}
+.row2{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:12px}
+.card{border:1px solid var(--line);border-radius:8px;padding:12px 13px;background:var(--bg)}
+.card .k{font-size:11.5px;text-transform:uppercase;letter-spacing:.07em;color:var(--muted)}
+.card .v{font:600 21px/1.25 var(--mono);margin-top:4px;letter-spacing:-.02em}
+.card .s{font-size:11.5px;color:var(--muted);margin-top:3px}
+table{width:100%;border-collapse:collapse;font-size:13px}
+th,td{padding:6px 8px;text-align:right;border-bottom:1px solid var(--line);white-space:nowrap}
+th:first-child,td:first-child{text-align:left;white-space:normal}
+thead th{font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);font-weight:650}
+tbody tr:last-child td{border-bottom:none}
+td.n,th.n{font-family:var(--mono);font-variant-numeric:tabular-nums}
+.scroll{overflow-x:auto}
+.note{border-left:3px solid var(--accent);background:var(--accent-soft);padding:10px 12px;border-radius:0 6px 6px 0;
+  font-size:13px;margin:12px 0}
+.note.warn{border-left-color:var(--warn);background:var(--warn-soft)}
+.note.bad{border-left-color:var(--bad);background:var(--bad-soft)}
+.note.ok{border-left-color:var(--ok);background:var(--ok-soft)}
+.note p{margin:0 0 7px}.note p:last-child{margin:0}
+.pending{display:inline-block;padding:1px 7px;border-radius:99px;background:var(--warn-soft);color:var(--warn);
+  font:600 11px var(--mono);border:1px solid var(--warn)}
+.src{color:var(--muted);font-size:11.5px}
+h3{font-size:15px;margin:20px 0 8px}
+h3:first-child{margin-top:0}
+.bar{display:flex;height:26px;border-radius:5px;overflow:hidden;border:1px solid var(--line);margin:8px 0 4px}
+.bar span{display:block;min-width:0}
+.legend{display:flex;flex-wrap:wrap;gap:14px;font-size:12px;color:var(--muted)}
+.legend i{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:5px;vertical-align:-1px}
+details{border:1px solid var(--line);border-radius:7px;padding:9px 12px;margin:10px 0;background:var(--bg)}
+summary{cursor:pointer;font-weight:600;font-size:13px}
+details[open] summary{margin-bottom:8px}
+.small{font-size:12.5px;color:var(--muted)}
+.eq{font-family:var(--mono);font-size:12.5px;background:var(--bg);border:1px solid var(--line);
+  border-radius:6px;padding:8px 10px;margin:8px 0;overflow-x:auto;white-space:pre}
+footer{border-top:1px solid var(--line);padding:18px 20px 40px;color:var(--muted);font-size:12.5px;background:var(--panel)}
+</style>
+</head>
+<body>
+<header class="top"><div class="wrap">
+  <h1>Oracle gas-cost model — what the fact layer costs to run</h1>
+  <div class="prov" id="prov"></div>
+</div></header>
+
+<div class="wrap"><div class="layout">
+
+<div>
+<div class="panel dials">
+  <h2>Dials</h2>
+
+  <div class="dial">
+    <label for="d-layer">Oracle contract</label>
+    <select id="d-layer">
+      <option value="bespoke">Bespoke — the custom fact store</option>
+      <option value="eas">EAS — Ethereum Attestation Service</option>
+    </select>
+    <div class="hint" id="layer-hint"></div>
+  </div>
+
+  <div class="dial">
+    <label for="d-tokens">Token count</label>
+    <div class="seg" id="d-tokens-seg" role="group" aria-label="Token count presets">
+      <button data-v="100">100</button><button data-v="1000">1,000</button><button data-v="100000">100,000</button>
+    </div>
+    <input type="number" id="d-tokens" min="1" step="1" style="margin-top:6px">
+  </div>
+
+  <div class="dial">
+    <label for="d-sources">Oracle sources writing</label>
+    <input type="number" id="d-sources" min="1" max="20" step="1">
+    <div class="hint">Each source publishes under its own address and heartbeats on its own
+      schedule, so this multiplies both the price writes and the cycle closes. Three today:
+      Prycd, OpenAVM, the Regrid assessor.</div>
+  </div>
+
+  <div class="dial">
+    <label for="d-cadence">Write cadence, per token per source</label>
+    <div class="seg" id="d-cadence-seg" role="group" aria-label="Write cadence presets">
+      <button data-v="0.25">6 h</button><button data-v="0.5">12 h</button>
+      <button data-v="1">1 day</button><button data-v="3">3 days</button>
+    </div>
+    <input type="number" id="d-cadence" min="0.01" step="0.01" style="margin-top:6px">
+    <div class="hint">Days between writes. Free entry: set it to 30.44 to put exactly one
+      write in a month, which is how the self-check below isolates a single regime.</div>
+  </div>
+
+  <div class="dial">
+    <label for="d-month">Month being priced <span id="d-month-v" class="num"></span></label>
+    <input type="range" id="d-month" min="1" max="36" step="1" style="width:100%">
+    <div class="hint" id="regime-hint"></div>
+  </div>
+
+  <div class="dial">
+    <label>Gas level</label>
+    <div class="seg" id="d-gas-seg" role="group" aria-label="Gas level presets"></div>
+    <div class="row2" style="margin-top:6px">
+      <div><input type="number" id="d-gas" min="0" step="0.0001" aria-label="Gas base fee, gwei"><div class="hint">base fee, gwei</div></div>
+      <div><input type="number" id="d-tip" min="0" step="0.0001" aria-label="Priority fee (tip), gwei"><div class="hint">priority fee, gwei</div></div>
+    </div>
+    <div class="hint" id="gas-hint"></div>
+  </div>
+
+  <div class="dial">
+    <label for="d-eth">ETH price, USD</label>
+    <input type="number" id="d-eth" min="0" step="0.01">
+    <div class="hint" id="eth-hint"></div>
+  </div>
+
+  <div class="dial">
+    <label for="d-maxsilence">Maximum silence, days</label>
+    <input type="number" id="d-maxsilence" min="0.1" step="0.1">
+    <div class="hint">Three days (Tim, 3 Sep 18:12Z, Fede's number). This is the HARD bound:
+      the point at which the aggregator's freshness gate trips. The cycle close's own deadline
+      is this less the safety margin below — which is why the close is deferrable and can wait
+      out a peak.</div>
+  </div>
+
+  <div class="dial">
+    <label for="d-margin">Cycle-close safety margin</label>
+    <input type="number" id="d-margin" min="0" max="90" step="5">
+    <div class="hint" id="hb-hint"></div>
+  </div>
+
+  <div class="dial">
+    <label for="d-hbpolicy">Cycle close</label>
+    <select id="d-hbpolicy">
+      <option value="whenSilent">Round 1 — a price write covers the window</option>
+      <option value="everyCycle">Round 1 — explicit close every window</option>
+      <option value="round2">Round 2 — daily cycle close</option>
+    </select>
+    <div class="hint" id="hbpolicy-hint"></div>
+  </div>
+
+  <div class="dial">
+    <label for="d-moved">Valuations that move per cycle, %</label>
+    <input type="number" id="d-moved" min="0" max="100" step="1">
+    <div class="hint">Tim, 3 Sep 18:21Z: a writer may skip rewriting an unchanged valuation and
+      still cover the token in the cycle. Only the movers cost anything; the rest cost nothing
+      because no transaction is sent. 100% is the conservative setting.</div>
+  </div>
+
+  <div class="dial">
+    <label for="d-attrs">Attribute writes per token per cycle</label>
+    <input type="number" id="d-attrs" min="0" max="10" step="1">
+  </div>
+
+  <div class="dial">
+    <label id="d-batch-label">Batch size</label>
+    <div class="seg" id="d-batch-seg" role="group" aria-labelledby="d-batch-label">
+      <button data-v="1">1</button><button data-v="10">10</button>
+      <button data-v="100">100</button><button data-v="1000">1000</button>
+    </div>
+    <div class="hint" id="batch-hint"></div>
+  </div>
+
+  <div class="dial">
+    <label for="d-urgent">Urgent writes per 1,000 tokens per month</label>
+    <input type="number" id="d-urgent" min="0" step="0.1">
+    <div class="hint">A token-score collapse or a lock. Must land within a bounded time even
+      at peak. The heartbeat is <em>not</em> in this class (Tim, 3 Sep 16:29Z).</div>
+  </div>
+
+  <div class="dial">
+    <label for="d-urgentmult">Urgent priority-fee multiplier</label>
+    <input type="number" id="d-urgentmult" min="1" step="0.5">
+    <div class="hint">What the urgent class pays over the ordinary tip to be included
+      promptly at peak. Your assumption, not a measurement.</div>
+  </div>
+
+  <div class="dial">
+    <label for="d-defer">Deferral threshold, gwei</label>
+    <input type="number" id="d-defer" min="0" step="0.01">
+    <div class="hint">Deferrable work waits for the base fee to fall below this.</div>
+  </div>
+
+  <div class="dial">
+    <label><input type="checkbox" id="d-reg" style="width:auto;margin-right:6px">Include one-time registration</label>
+    <div class="hint" id="reg-hint"></div>
+  </div>
+
+  <div style="margin-top:14px"><button id="d-reset" class="seg" style="padding:6px 10px;border:1px solid var(--line);
+    background:var(--bg);color:var(--ink);border-radius:6px;font:12px var(--mono);cursor:pointer;width:100%">Reset to defaults</button></div>
+</div>
+</div>
+
+<div>
+  <div id="eas-banner"></div>
+
+  <div class="panel">
+    <h2>Cost of running the fact layer</h2>
+    <div id="headline-caveat"></div>
+    <div class="cards" id="headline"></div>
+    <div class="eq" id="headline-eq"></div>
+  </div>
+
+  <div class="panel">
+    <h2>Where the money goes</h2>
+    <div class="bar" id="sharebar"></div>
+    <div class="legend" id="sharelegend"></div>
+    <div class="scroll" style="margin-top:12px"><table id="breakdown"></table></div>
+    <div id="crossover"></div>
+  </div>
+
+  <div class="panel">
+    <h2>Congestion: what a peak costs, and what deferring saves</h2>
+    <div class="scroll"><table id="urgency"></table></div>
+    <div id="urgency-notes"></div>
+  </div>
+
+  <div class="panel">
+    <h2>Batching</h2>
+    <div class="scroll"><table id="batch"></table></div>
+    <div id="batch-notes"></div>
+  </div>
+
+  <div class="panel">
+    <h2>Every number, and where it came from</h2>
+    <h3>Measured per-operation gas — the custom fact store</h3>
+    <p class="small">Whole-transaction gas: the 21,000 EIP-2 intrinsic, plus the calldata counted
+      byte by byte at EIP-2028 rates, plus execution measured against a codeless control.
+      Nothing here is estimated.</p>
+    <div class="scroll"><table id="measured"></table></div>
+    <h3>Mainnet figures, read from the chain</h3>
+    <div class="scroll"><table id="chaintable"></table></div>
+    <h3>The EAS arm</h3>
+    <div id="eas-section"></div>
+  </div>
+
+  <div class="panel">
+    <h2>Self-check — do the dials reproduce the measured gas?</h2>
+    <p class="small">ENG-3913's verification bar: <em>“the dials reproduce the measured per-op gas
+      exactly at batch size 1”</em>. This runs that check in the page, on load, against the same
+      measured table shown above. If any row says FAIL the model has drifted from its inputs and
+      nothing else on this page should be believed.</p>
+    <div class="scroll"><table id="selfcheck"></table></div>
+    <div id="selfcheck-verdict"></div>
+  </div>
+
+  <div class="panel">
+    <h2>Method, and what would falsify it</h2>
+    <div id="method"></div>
+  </div>
+</div>
+
+</div></div>
+
+<footer><div class="wrap" id="footer"></div></footer>
+
+<script>
+"use strict";
+const DATA = {
+ "chain": {
+  "chain": "ethereum mainnet",
+  "dailyYear": {
+   "baseFeeGweiMax": 5.985977569,
+   "baseFeeGweiMean": 0.24878560786027398,
+   "baseFeeGweiMedian": 0.120230704,
+   "baseFeeGweiMin": 0.023265403,
+   "gasLimitMax": 60058592,
+   "gasLimitMedian": 60000000,
+   "gasLimitMin": 44868126,
+   "samples": 365,
+   "series": [
+    {
+     "baseFeeGwei": 0.167515274,
+     "block": 25898748,
+     "gasLimit": 60000000,
+     "timeUtc": "2026-09-03T19:03:23Z"
+    },
+    {
+     "baseFeeGwei": 0.147192166,
+     "block": 25891548,
+     "gasLimit": 60000000,
+     "timeUtc": "2026-09-02T18:57:35Z"
+    },
+    {
+     "baseFeeGwei": 0.425224062,
+     "block": 25884348,
+     "gasLimit": 60000000,
+     "timeUtc": "2026-09-01T18:52:35Z"
+    },
+    {
+     "baseFeeGwei": 0.15905329,
+     "block": 25877148,
+     "gasLimit": 60000000,
+     "timeUtc": "2026-08-31T18:47:23Z"
+    },
+    {
+     "baseFeeGwei": 0.223150497,
+     "block": 25869948,
+     "gasLimit": 60000000,
+     "timeUtc": "2026-08-30T18:41:35Z"
+    },
+    {
+     "baseFeeGwei": 0.052325544,
+     "block": 25862748,
+     "gasLimit": 60000000,
+     "timeUtc": "2026-08-29T18:37:35Z"
+    },
+    {
+     "baseFeeGwei": 0.182698279,
+     "block": 25855548,
+     "gasLimit": 60000000,
+     "timeUtc": "2026-08-28T18:31:47Z"
+    },
+    {
+     "baseFeeGwei": 0.32178605,
+     "block": 25848348,
+     "gasLimit": 60000000,
+     "timeUtc": "2026-08-27T18:26:47Z"
+    },
+    {
+     "baseFeeGwei": 0.114255787,
+     "block": 25841148,
+     "gasLimit": 60000000,
+     "timeUtc": "2026-08-26T18:21:47Z"
+    },
+    {
+     "baseFeeGwei": 0.146372912,
+     "block": 25833948,
+     "gasLimit": 60000000,
+     "timeUtc": "2026-08-25T18:17:23Z"
+    },
+    {
+     "baseFeeGwei": 4.224129601,
+     "block": 25826748,
+     "gasLimit": 59999943,
+     "timeUtc": "2026-08-24T18:10:59Z"
+    },
+    {
+     "baseFeeGwei": 0.107807414,
+     "block": 25819548,
+     "gasLimit": 59941408,
+     "timeUtc": "2026-08-23T18:07:23Z"
+    },
+    {
+     "baseFeeGwei": 0.08374334,
+     "block": 25812348,
+     "gasLimit": 60000000,
+     "timeUtc": "2026-08-22T18:01:59Z"
+    },
+    {
+     "baseFeeGwei": 0.780056039,
+     "block": 25805148,
+     "gasLimit": 60000000,
+     "timeUtc": "2026-08-21T17:56:47Z"
+    },
+    {
+     "baseFeeGwei": 0.305639886,
+     "block": 25797948,
+     "gasLimit": 60000000,
+     "timeUtc": "2026-08-20T17:52:47Z"
+    },
+    {
+     "baseFeeGwei": 0.4471737,
+     "block": 25790748,
+     "gasLimit": 60000000,
+     "timeUtc": "2026-08-19T17:48:23Z"
+    },
+    {
+     "baseFeeGwei": 0.180366734,
+     "block": 25783548,
+     "gasLimit": 60000000,
+     "timeUtc": "2026-08-18T17:44:23Z"
+    },
+    {
+     "baseFeeGwei": 0.103812744,
+     "block": 25776348,
+     "gasLimit": 60000000,
+     "timeUtc": "2026-08-17T17:38:23Z"
+    },
+    {
+     "baseFeeGwei": 0.049703607,
+     "block": 25769148,
+     "gasLimit": 60000000,
+     "timeUtc": "2026-08-16T17:33:59Z"
+    },
+    {
+     "baseFeeGwei": 0.049327401,
+     "block": 25761948,
+     "gasLimit": 60000000,
+     "timeUtc": "2026-08-15T17:29:59Z"
+    },
+    {
+     "baseFeeGwei": 0.111333431,
+     "block": 25754748,
+     "gasLimit": 60000000,
+     "timeUtc": "2026-08-14T17:23:47Z"
+    },
+    {
+     "baseFeeGwei": 0.093762426,
+     "block": 25747548,
+     "gasLimit": 60000000,
+     "timeUtc": "2026-08-13T17:18:47Z"
+    },
+    {
+     "baseFeeGwei": 0.108176495,
+     "block": 25740348,
+     "gasLimit": 60000000,
+     "timeUtc": "2026-08-12T17:15:35Z"
+    },
+    {
+     "baseFeeGwei": 0.158821522,
+     "block": 25733148,
+     "gasLimit": 60000000,
+     "timeUtc": "2026-08-11T17:08:35Z"
+    },
+    {
+     "baseFeeGwei": 0.11287434,
+     "block": 25725948,
+     "gasLimit": 60000000,
+     "timeUtc": "2026-08-10T16:59:47Z"
+    },
+    {
+     "baseFeeGwei": 0.109144453,
+     "block": 25718748,
+     "gasLimit": 60000000,
+     "timeUtc": "2026-08-09T16:54:23Z"
+    },
+    {
+     "baseFeeGwei": 0.037067711,
+     "block": 25711548,
+     "gasLimit": 60000000,
+     "timeUtc": "2026-08-08T16:50:23Z"
+    },
+    {
+     "baseFeeGwei": 0.148890574,
+     "block": 25704348,
+     "gasLimit": 60000000,
+     "timeUtc": "2026-08-07T16:41:23Z"
+    },
+    {
+     "baseFeeGwei": 0.213503981,
+     "block": 25697148,
+     "gasLimit": 60000000,
+     "timeUtc": "2026-08-06T16:36:11Z"
+    },
+    {
+     "baseFeeGwei": 0.246987714,
+     "block": 25689948,
+     "gasLimit": 60000000,
+     "timeUtc": "2026-08-05T16:33:47Z"
+    },
+    {
+     "baseFeeGwei": 0.332904201,
+     "block": 25682748,
+     "gasLimit": 60000000,
+     "timeUtc": "2026-08-04T16:28:11Z"
+    },
+    {
+     "baseFeeGwei": 0.177302819,
+     "block": 25675548,
+     "gasLimit": 60000000,
+     "timeUtc": "2026-08-03T16:24:47Z"
+    },
+    {
+     "baseFeeGwei": 0.131669015,
+     "block": 25668348,
+     "gasLimit": 60000000,
+     "timeUtc": "2026-08-02T16:19:11Z"
+    },
+    {
+     "baseFeeGwei": 0.0450818,
+     "block": 25661148,
+     "gasLimit": 60000000,
+     "timeUtc": "2026-08-01T16:13:23Z"
+    },
+    {
+     "baseFeeGwei": 0.926637226,
+     "block": 25653948,
+     "gasLimit": 60000000,
+     "timeUtc": "2026-07-31T16:09:59Z"
+    },
+    {
+     "baseFeeGwei": 5.985977569,
+     "block": 25646748,
+     "gasLimit": 60000000,
+     "timeUtc": "2026-07-30T16:03:59Z"
+    },
+    {
+     "baseFeeGwei": 0.646580423,
+     "block": 25639548,
+     "gasLimit": 60000000,
+     "timeUtc": "2026-07-29T16:00:35Z"
+    },
+    {
+     "baseFeeGwei": 0.541257063,
+     "block": 25632348,
+     "gasLimit": 60000000,
+     "timeUtc": "2026-07-28T15:54:59Z"
+    },
+    {
+     "baseFeeGwei": 0.808419607,
+     "block": 25625148,
+     "gasLimit": 60000000,
+     "timeUtc": "2026-07-27T15:49:47Z"
+    },
+    {
+     "baseFeeGwei": 0.207552808,
+     "block": 25617948,
+     "gasLimit": 60000000,
+     "timeUtc": "2026-07-26T15:45:11Z"
+    },
+    {
+     "baseFeeGwei": 0.111799046,
+     "block": 25610748,
+     "gasLimit": 60000000,
+     "timeUtc": "2026-07-25T15:41:47Z"
+    },
+    {
+     "baseFeeGwei": 0.17763396,
+     "block": 25603548,
+     "gasLimit": 60000000,
+     "timeUtc": "2026-07-24T15:38:23Z"
+    },
+    {
+     "baseFeeGwei": 0.398648359,
+     "block": 25596348,
+     "gasLimit": 60000000,
+     "timeUtc": "2026-07-23T15:33:11Z"
+    },
+    {
+     "baseFeeGwei": 0.30097096,
+     "block": 25589148,
+     "gasLimit": 60000000,
+     "timeUtc": "2026-07-22T15:25:23Z"
+    },
+    {
+     "baseFeeGwei": 0.24608498,
+     "block": 25581948,
+     "gasLimit": 60000000,
+     "timeUtc": "2026-07-21T15:18:35Z"
+    },
+    {
+     "baseFeeGwei": 0.319606292,
+     "block": 25574748,
+     "gasLimit": 60000000,
+     "timeUtc": "2026-07-20T15:13:47Z"
+    },
+    {
+     "baseFeeGwei": 0.045320843,
+     "block": 25567548,
+     "gasLimit": 60000000,
+     "timeUtc": "2026-07-19T15:07:47Z"
+    },
+    {
+     "baseFeeGwei": 0.149226367,
+     "block": 25560348,
+     "gasLimit": 60000000,
+     "timeUtc": "2026-07-18T15:01:11Z"
+    },
+    {
+     "baseFeeGwei": 0.144714379,
+     "block": 25553148,
+     "gasLimit": 60000000,
+     "timeUtc": "2026-07-17T14:56:59Z"
+    },
+    {
+     "baseFeeGwei": 0.367071888,
+     "block": 25545948,
+     "gasLimit": 60000000,
+     "timeUtc": "2026-07-16T14:52:35Z"
+    },
+    {
+     "baseFeeGwei": 0.24639471,
+     "block": 25538748,
+     "gasLimit": 60000000,
+     "timeUtc": "2026-07-15T14:47:35Z"
+    },
+    {
+     "baseFeeGwei": 0.400866666,
+     "block": 25531548,
+     "gasLimit": 60000000,
+     "timeUtc": "2026-07-14T14:41:47Z"
+    },
+    {
+     "baseFeeGwei": 0.256054884,
+     "block": 25524348,
+     "gasLimit": 60000000,
+     "timeUtc": "2026-07-13T14:37:11Z"
+    },
+    {
+     "baseFeeGwei": 0.098451136,
+     "block": 25517148,
+     "gasLimit": 60000000,
+     "timeUtc": "2026-07-12T14:30:23Z"
+    },
+    {
+     "baseFeeGwei": 0.157229906,
+     "block": 25509948,
+     "gasLimit": 59999943,
+     "timeUtc": "2026-07-11T14:24:11Z"
+    },
+    {
+     "baseFeeGwei": 0.189565476,
+     "block": 25502748,
+     "gasLimit": 60000000,
+     "timeUtc": "2026-07-10T14:20:23Z"
+    },
+    {
+     "baseFeeGwei": 0.120254063,
+     "block": 25495548,
+     "gasLimit": 60000000,
+     "timeUtc": "2026-07-09T14:13:59Z"
+    },
+    {
+     "baseFeeGwei": 0.256336609,
+     "block": 25488348,
+     "gasLimit": 60000000,
+     "timeUtc": "2026-07-08T14:08:35Z"
+    },
+    {
+     "baseFeeGwei": 0.323279026,
+     "block": 25481148,
+     "gasLimit": 60000000,
+     "timeUtc": "2026-07-07T14:03:59Z"
+    },
+    {
+     "baseFeeGwei": 0.296225108,
+     "block": 25473948,
+     "gasLimit": 60000000,
+     "timeUtc": "2026-07-06T13:59:11Z"
+    },
+    {
+     "baseFeeGwei": 0.110610655,
+     "block": 25466748,
+     "gasLimit": 60000000,
+     "timeUtc": "2026-07-05T13:53:59Z"
+    },
+    {
+     "baseFeeGwei": 0.077688061,
+     "block": 25459548,
+     "gasLimit": 60000000,
+     "timeUtc": "2026-07-04T13:46:11Z"
+    },
+    {
+     "baseFeeGwei": 0.126105089,
+     "block": 25452348,
+     "gasLimit": 60000000,
+     "timeUtc": "2026-07-03T13:40:47Z"
+    },
+    {
+     "baseFeeGwei": 1.036008118,
+     "block": 25445148,
+     "gasLimit": 60000000,
+     "timeUtc": "2026-07-02T13:32:59Z"
+    },
+    {
+     "baseFeeGwei": 0.375692822,
+     "block": 25437948,
+     "gasLimit": 59941408,
+     "timeUtc": "2026-07-01T13:25:23Z"
+    },
+    {
+     "baseFeeGwei": 0.389829857,
+     "block": 25430748,
+     "gasLimit": 60000000,
+     "timeUtc": "2026-06-30T13:19:47Z"
+    },
+    {
+     "baseFeeGwei": 0.19039333,
+     "block": 25423548,
+     "gasLimit": 60000000,
+     "timeUtc": "2026-06-29T13:13:35Z"
+    },
+    {
+     "baseFeeGwei": 0.08314635,
+     "block": 25416348,
+     "gasLimit": 60000000,
+     "timeUtc": "2026-06-28T13:06:23Z"
+    },
+    {
+     "baseFeeGwei": 0.085103001,
+     "block": 25409148,
+     "gasLimit": 60000000,
+     "timeUtc": "2026-06-27T13:02:23Z"
+    },
+    {
+     "baseFeeGwei": 0.255615367,
+     "block": 25401948,
+     "gasLimit": 60000000,
+     "timeUtc": "2026-06-26T12:56:59Z"
+    },
+    {
+     "baseFeeGwei": 0.347721637,
+     "block": 25394748,
+     "gasLimit": 60000000,
+     "timeUtc": "2026-06-25T12:49:59Z"
+    },
+    {
+     "baseFeeGwei": 0.113403358,
+     "block": 25387548,
+     "gasLimit": 60000000,
+     "timeUtc": "2026-06-24T12:43:35Z"
+    },
+    {
+     "baseFeeGwei": 0.189835279,
+     "block": 25380348,
+     "gasLimit": 60000000,
+     "timeUtc": "2026-06-23T12:35:23Z"
+    },
+    {
+     "baseFeeGwei": 0.263401866,
+     "block": 25373148,
+     "gasLimit": 60000000,
+     "timeUtc": "2026-06-22T12:29:35Z"
+    },
+    {
+     "baseFeeGwei": 0.104880958,
+     "block": 25365948,
+     "gasLimit": 60000000,
+     "timeUtc": "2026-06-21T12:24:59Z"
+    },
+    {
+     "baseFeeGwei": 0.18827878,
+     "block": 25358748,
+     "gasLimit": 60000000,
+     "timeUtc": "2026-06-20T12:17:59Z"
+    },
+    {
+     "baseFeeGwei": 0.33332735,
+     "block": 25351548,
+     "gasLimit": 60000000,
+     "timeUtc": "2026-06-19T12:12:47Z"
+    },
+    {
+     "baseFeeGwei": 0.448790794,
+     "block": 25344348,
+     "gasLimit": 59941408,
+     "timeUtc": "2026-06-18T12:07:59Z"
+    },
+    {
+     "baseFeeGwei": 0.149923217,
+     "block": 25337148,
+     "gasLimit": 60000000,
+     "timeUtc": "2026-06-17T12:04:35Z"
+    },
+    {
+     "baseFeeGwei": 0.080276372,
+     "block": 25329948,
+     "gasLimit": 60000000,
+     "timeUtc": "2026-06-16T12:01:35Z"
+    },
+    {
+     "baseFeeGwei": 0.160865558,
+     "block": 25322748,
+     "gasLimit": 60000000,
+     "timeUtc": "2026-06-15T11:57:35Z"
+    },
+    {
+     "baseFeeGwei": 0.11960563,
+     "block": 25315548,
+     "gasLimit": 60000000,
+     "timeUtc": "2026-06-14T11:52:35Z"
+    },
+    {
+     "baseFeeGwei": 0.151328387,
+     "block": 25308348,
+     "gasLimit": 59999943,
+     "timeUtc": "2026-06-13T11:46:23Z"
+    },
+    {
+     "baseFeeGwei": 0.146946634,
+     "block": 25301148,
+     "gasLimit": 60000000,
+     "timeUtc": "2026-06-12T11:40:23Z"
+    },
+    {
+     "baseFeeGwei": 0.172636977,
+     "block": 25293948,
+     "gasLimit": 60000000,
+     "timeUtc": "2026-06-11T11:34:23Z"
+    },
+    {
+     "baseFeeGwei": 0.170904257,
+     "block": 25286748,
+     "gasLimit": 60000000,
+     "timeUtc": "2026-06-10T11:27:59Z"
+    },
+    {
+     "baseFeeGwei": 0.143460218,
+     "block": 25279548,
+     "gasLimit": 59941408,
+     "timeUtc": "2026-06-09T11:24:11Z"
+    },
+    {
+     "baseFeeGwei": 0.145004011,
+     "block": 25272348,
+     "gasLimit": 60000000,
+     "timeUtc": "2026-06-08T11:18:47Z"
+    },
+    {
+     "baseFeeGwei": 0.05788002,
+     "block": 25265148,
+     "gasLimit": 60000000,
+     "timeUtc": "2026-06-07T11:14:23Z"
+    },
+    {
+     "baseFeeGwei": 0.142642692,
+     "block": 25257948,
+     "gasLimit": 60000000,
+     "timeUtc": "2026-06-06T11:08:35Z"
+    },
+    {
+     "baseFeeGwei": 0.417147451,
+     "block": 25250748,
+     "gasLimit": 60000000,
+     "timeUtc": "2026-06-05T11:02:35Z"
+    },
+    {
+     "baseFeeGwei": 0.612022738,
+     "block": 25243548,
+     "gasLimit": 60000000,
+     "timeUtc": "2026-06-04T10:52:35Z"
+    },
+    {
+     "baseFeeGwei": 0.161145872,
+     "block": 25236348,
+     "gasLimit": 60000000,
+     "timeUtc": "2026-06-03T10:44:59Z"
+    },
+    {
+     "baseFeeGwei": 0.322762823,
+     "block": 25229148,
+     "gasLimit": 60000000,
+     "timeUtc": "2026-06-02T10:37:47Z"
+    },
+    {
+     "baseFeeGwei": 0.426537484,
+     "block": 25221948,
+     "gasLimit": 60000000,
+     "timeUtc": "2026-06-01T10:33:11Z"
+    },
+    {
+     "baseFeeGwei": 0.181727847,
+     "block": 25214748,
+     "gasLimit": 60000000,
+     "timeUtc": "2026-05-31T10:27:35Z"
+    },
+    {
+     "baseFeeGwei": 0.202749402,
+     "block": 25207548,
+     "gasLimit": 59941408,
+     "timeUtc": "2026-05-30T10:19:35Z"
+    },
+    {
+     "baseFeeGwei": 0.155234244,
+     "block": 25200348,
+     "gasLimit": 60000000,
+     "timeUtc": "2026-05-29T10:12:59Z"
+    },
+    {
+     "baseFeeGwei": 0.170209228,
+     "block": 25193148,
+     "gasLimit": 60000000,
+     "timeUtc": "2026-05-28T10:08:47Z"
+    },
+    {
+     "baseFeeGwei": 0.148413848,
+     "block": 25185948,
+     "gasLimit": 59999943,
+     "timeUtc": "2026-05-27T10:03:35Z"
+    },
+    {
+     "baseFeeGwei": 0.062920776,
+     "block": 25178748,
+     "gasLimit": 60000000,
+     "timeUtc": "2026-05-26T09:59:11Z"
+    },
+    {
+     "baseFeeGwei": 0.101834987,
+     "block": 25171548,
+     "gasLimit": 60000000,
+     "timeUtc": "2026-05-25T09:53:23Z"
+    },
+    {
+     "baseFeeGwei": 0.104103065,
+     "block": 25164348,
+     "gasLimit": 59999943,
+     "timeUtc": "2026-05-24T09:47:35Z"
+    },
+    {
+     "baseFeeGwei": 0.110103111,
+     "block": 25157148,
+     "gasLimit": 60000000,
+     "timeUtc": "2026-05-23T09:42:35Z"
+    },
+    {
+     "baseFeeGwei": 0.104665278,
+     "block": 25149948,
+     "gasLimit": 59941351,
+     "timeUtc": "2026-05-22T09:37:59Z"
+    },
+    {
+     "baseFeeGwei": 0.266423977,
+     "block": 25142748,
+     "gasLimit": 60000000,
+     "timeUtc": "2026-05-21T09:33:23Z"
+    },
+    {
+     "baseFeeGwei": 0.188510663,
+     "block": 25135548,
+     "gasLimit": 60000000,
+     "timeUtc": "2026-05-20T09:27:47Z"
+    },
+    {
+     "baseFeeGwei": 0.110284011,
+     "block": 25128348,
+     "gasLimit": 60000000,
+     "timeUtc": "2026-05-19T09:24:11Z"
+    },
+    {
+     "baseFeeGwei": 0.178654693,
+     "block": 25121148,
+     "gasLimit": 59999943,
+     "timeUtc": "2026-05-18T09:19:35Z"
+    },
+    {
+     "baseFeeGwei": 0.132299875,
+     "block": 25113948,
+     "gasLimit": 60000000,
+     "timeUtc": "2026-05-17T09:15:59Z"
+    },
+    {
+     "baseFeeGwei": 0.125172813,
+     "block": 25106748,
+     "gasLimit": 60000000,
+     "timeUtc": "2026-05-16T09:11:23Z"
+    },
+    {
+     "baseFeeGwei": 0.158315665,
+     "block": 25099548,
+     "gasLimit": 60000000,
+     "timeUtc": "2026-05-15T09:08:11Z"
+    },
+    {
+     "baseFeeGwei": 0.17258511,
+     "block": 25092348,
+     "gasLimit": 60000000,
+     "timeUtc": "2026-05-14T09:02:47Z"
+    },
+    {
+     "baseFeeGwei": 0.256432641,
+     "block": 25085148,
+     "gasLimit": 59999886,
+     "timeUtc": "2026-05-13T08:53:35Z"
+    },
+    {
+     "baseFeeGwei": 1.159646013,
+     "block": 25077948,
+     "gasLimit": 60000000,
+     "timeUtc": "2026-05-12T08:49:47Z"
+    },
+    {
+     "baseFeeGwei": 2.722053245,
+     "block": 25070748,
+     "gasLimit": 60000000,
+     "timeUtc": "2026-05-11T08:44:35Z"
+    },
+    {
+     "baseFeeGwei": 0.274000558,
+     "block": 25063548,
+     "gasLimit": 59941408,
+     "timeUtc": "2026-05-10T08:37:59Z"
+    },
+    {
+     "baseFeeGwei": 0.314271964,
+     "block": 25056348,
+     "gasLimit": 60000000,
+     "timeUtc": "2026-05-09T08:32:23Z"
+    },
+    {
+     "baseFeeGwei": 0.418433861,
+     "block": 25049148,
+     "gasLimit": 60000000,
+     "timeUtc": "2026-05-08T08:29:23Z"
+    },
+    {
+     "baseFeeGwei": 0.193625863,
+     "block": 25041948,
+     "gasLimit": 60000000,
+     "timeUtc": "2026-05-07T08:25:11Z"
+    },
+    {
+     "baseFeeGwei": 0.129660753,
+     "block": 25034748,
+     "gasLimit": 59999943,
+     "timeUtc": "2026-05-06T08:19:59Z"
+    },
+    {
+     "baseFeeGwei": 0.105382498,
+     "block": 25027548,
+     "gasLimit": 59999943,
+     "timeUtc": "2026-05-05T08:16:35Z"
+    },
+    {
+     "baseFeeGwei": 0.345459486,
+     "block": 25020348,
+     "gasLimit": 59941408,
+     "timeUtc": "2026-05-04T08:09:47Z"
+    },
+    {
+     "baseFeeGwei": 0.156918992,
+     "block": 25013148,
+     "gasLimit": 59999886,
+     "timeUtc": "2026-05-03T08:04:35Z"
+    },
+    {
+     "baseFeeGwei": 0.326681402,
+     "block": 25005948,
+     "gasLimit": 60000000,
+     "timeUtc": "2026-05-02T08:00:59Z"
+    },
+    {
+     "baseFeeGwei": 0.193506371,
+     "block": 24998748,
+     "gasLimit": 59999943,
+     "timeUtc": "2026-05-01T07:58:11Z"
+    },
+    {
+     "baseFeeGwei": 0.448937844,
+     "block": 24991548,
+     "gasLimit": 60000000,
+     "timeUtc": "2026-04-30T07:52:35Z"
+    },
+    {
+     "baseFeeGwei": 0.626686774,
+     "block": 24984348,
+     "gasLimit": 60000000,
+     "timeUtc": "2026-04-29T07:48:35Z"
+    },
+    {
+     "baseFeeGwei": 0.560116517,
+     "block": 24977148,
+     "gasLimit": 60000000,
+     "timeUtc": "2026-04-28T07:44:23Z"
+    },
+    {
+     "baseFeeGwei": 0.853609422,
+     "block": 24969948,
+     "gasLimit": 60000000,
+     "timeUtc": "2026-04-27T07:41:35Z"
+    },
+    {
+     "baseFeeGwei": 0.52842337,
+     "block": 24962748,
+     "gasLimit": 60000000,
+     "timeUtc": "2026-04-26T07:38:35Z"
+    },
+    {
+     "baseFeeGwei": 0.17998519,
+     "block": 24955548,
+     "gasLimit": 59941408,
+     "timeUtc": "2026-04-25T07:35:23Z"
+    },
+    {
+     "baseFeeGwei": 0.334387377,
+     "block": 24948348,
+     "gasLimit": 59999943,
+     "timeUtc": "2026-04-24T07:32:23Z"
+    },
+    {
+     "baseFeeGwei": 0.279886709,
+     "block": 24941148,
+     "gasLimit": 60000000,
+     "timeUtc": "2026-04-23T07:28:11Z"
+    },
+    {
+     "baseFeeGwei": 1.958236578,
+     "block": 24933948,
+     "gasLimit": 60000000,
+     "timeUtc": "2026-04-22T07:23:11Z"
+    },
+    {
+     "baseFeeGwei": 0.389449423,
+     "block": 24926748,
+     "gasLimit": 59941408,
+     "timeUtc": "2026-04-21T07:18:35Z"
+    },
+    {
+     "baseFeeGwei": 0.350100406,
+     "block": 24919548,
+     "gasLimit": 60000000,
+     "timeUtc": "2026-04-20T07:15:35Z"
+    },
+    {
+     "baseFeeGwei": 0.62874847,
+     "block": 24912348,
+     "gasLimit": 60000000,
+     "timeUtc": "2026-04-19T07:10:23Z"
+    },
+    {
+     "baseFeeGwei": 0.137989563,
+     "block": 24905148,
+     "gasLimit": 60000000,
+     "timeUtc": "2026-04-18T07:06:23Z"
+    },
+    {
+     "baseFeeGwei": 1.451051132,
+     "block": 24897948,
+     "gasLimit": 59941408,
+     "timeUtc": "2026-04-17T07:03:11Z"
+    },
+    {
+     "baseFeeGwei": 0.049026868,
+     "block": 24890748,
+     "gasLimit": 60000000,
+     "timeUtc": "2026-04-16T06:59:35Z"
+    },
+    {
+     "baseFeeGwei": 0.040160884,
+     "block": 24883548,
+     "gasLimit": 60000000,
+     "timeUtc": "2026-04-15T06:54:35Z"
+    },
+    {
+     "baseFeeGwei": 0.041142048,
+     "block": 24876348,
+     "gasLimit": 60000000,
+     "timeUtc": "2026-04-14T06:50:23Z"
+    },
+    {
+     "baseFeeGwei": 0.13886262,
+     "block": 24869148,
+     "gasLimit": 60000000,
+     "timeUtc": "2026-04-13T06:46:11Z"
+    },
+    {
+     "baseFeeGwei": 0.069388444,
+     "block": 24861948,
+     "gasLimit": 60000000,
+     "timeUtc": "2026-04-12T06:42:23Z"
+    },
+    {
+     "baseFeeGwei": 0.050050098,
+     "block": 24854748,
+     "gasLimit": 60000000,
+     "timeUtc": "2026-04-11T06:37:35Z"
+    },
+    {
+     "baseFeeGwei": 0.044948076,
+     "block": 24847548,
+     "gasLimit": 60000000,
+     "timeUtc": "2026-04-10T06:31:11Z"
+    },
+    {
+     "baseFeeGwei": 0.051737307,
+     "block": 24840348,
+     "gasLimit": 60000000,
+     "timeUtc": "2026-04-09T06:24:35Z"
+    },
+    {
+     "baseFeeGwei": 0.175336377,
+     "block": 24833148,
+     "gasLimit": 60000000,
+     "timeUtc": "2026-04-08T06:19:35Z"
+    },
+    {
+     "baseFeeGwei": 0.075445631,
+     "block": 24825948,
+     "gasLimit": 60000000,
+     "timeUtc": "2026-04-07T06:14:47Z"
+    },
+    {
+     "baseFeeGwei": 0.047732482,
+     "block": 24818748,
+     "gasLimit": 60000000,
+     "timeUtc": "2026-04-06T06:10:11Z"
+    },
+    {
+     "baseFeeGwei": 0.126093608,
+     "block": 24811548,
+     "gasLimit": 59999943,
+     "timeUtc": "2026-04-05T06:04:35Z"
+    },
+    {
+     "baseFeeGwei": 0.084168981,
+     "block": 24804348,
+     "gasLimit": 60000000,
+     "timeUtc": "2026-04-04T06:00:11Z"
+    },
+    {
+     "baseFeeGwei": 0.102965143,
+     "block": 24797148,
+     "gasLimit": 59941408,
+     "timeUtc": "2026-04-03T05:56:23Z"
+    },
+    {
+     "baseFeeGwei": 0.134534922,
+     "block": 24789948,
+     "gasLimit": 60000000,
+     "timeUtc": "2026-04-02T05:52:11Z"
+    },
+    {
+     "baseFeeGwei": 0.102579555,
+     "block": 24782748,
+     "gasLimit": 60000000,
+     "timeUtc": "2026-04-01T05:45:59Z"
+    },
+    {
+     "baseFeeGwei": 0.140986935,
+     "block": 24775548,
+     "gasLimit": 60000000,
+     "timeUtc": "2026-03-31T05:38:59Z"
+    },
+    {
+     "baseFeeGwei": 0.132879511,
+     "block": 24768348,
+     "gasLimit": 60000000,
+     "timeUtc": "2026-03-30T05:32:47Z"
+    },
+    {
+     "baseFeeGwei": 0.10853397,
+     "block": 24761148,
+     "gasLimit": 60000000,
+     "timeUtc": "2026-03-29T05:27:11Z"
+    },
+    {
+     "baseFeeGwei": 0.05500042,
+     "block": 24753948,
+     "gasLimit": 60000000,
+     "timeUtc": "2026-03-28T05:23:11Z"
+    },
+    {
+     "baseFeeGwei": 0.048799729,
+     "block": 24746748,
+     "gasLimit": 59941408,
+     "timeUtc": "2026-03-27T05:16:35Z"
+    },
+    {
+     "baseFeeGwei": 0.040433741,
+     "block": 24739548,
+     "gasLimit": 60000000,
+     "timeUtc": "2026-03-26T05:08:47Z"
+    },
+    {
+     "baseFeeGwei": 0.033377089,
+     "block": 24732348,
+     "gasLimit": 60000000,
+     "timeUtc": "2026-03-25T05:02:35Z"
+    },
+    {
+     "baseFeeGwei": 0.039314491,
+     "block": 24725148,
+     "gasLimit": 60000000,
+     "timeUtc": "2026-03-24T04:58:35Z"
+    },
+    {
+     "baseFeeGwei": 0.034380304,
+     "block": 24717948,
+     "gasLimit": 60000000,
+     "timeUtc": "2026-03-23T04:51:59Z"
+    },
+    {
+     "baseFeeGwei": 4.694559758,
+     "block": 24710748,
+     "gasLimit": 60000000,
+     "timeUtc": "2026-03-22T04:45:47Z"
+    },
+    {
+     "baseFeeGwei": 0.041004827,
+     "block": 24703548,
+     "gasLimit": 59999943,
+     "timeUtc": "2026-03-21T04:39:59Z"
+    },
+    {
+     "baseFeeGwei": 0.049161182,
+     "block": 24696348,
+     "gasLimit": 59999943,
+     "timeUtc": "2026-03-20T04:34:23Z"
+    },
+    {
+     "baseFeeGwei": 0.071640382,
+     "block": 24689148,
+     "gasLimit": 60000000,
+     "timeUtc": "2026-03-19T04:29:47Z"
+    },
+    {
+     "baseFeeGwei": 0.043579184,
+     "block": 24681948,
+     "gasLimit": 60000000,
+     "timeUtc": "2026-03-18T04:21:59Z"
+    },
+    {
+     "baseFeeGwei": 0.066258895,
+     "block": 24674748,
+     "gasLimit": 60000000,
+     "timeUtc": "2026-03-17T04:11:35Z"
+    },
+    {
+     "baseFeeGwei": 0.23653625,
+     "block": 24667548,
+     "gasLimit": 60000000,
+     "timeUtc": "2026-03-16T04:02:23Z"
+    },
+    {
+     "baseFeeGwei": 0.025863942,
+     "block": 24660348,
+     "gasLimit": 60058592,
+     "timeUtc": "2026-03-15T03:57:59Z"
+    },
+    {
+     "baseFeeGwei": 0.027933855,
+     "block": 24653148,
+     "gasLimit": 60000000,
+     "timeUtc": "2026-03-14T03:51:47Z"
+    },
+    {
+     "baseFeeGwei": 0.034459103,
+     "block": 24645948,
+     "gasLimit": 60000000,
+     "timeUtc": "2026-03-13T03:46:47Z"
+    },
+    {
+     "baseFeeGwei": 0.034617537,
+     "block": 24638748,
+     "gasLimit": 60000000,
+     "timeUtc": "2026-03-12T03:38:35Z"
+    },
+    {
+     "baseFeeGwei": 0.031215147,
+     "block": 24631548,
+     "gasLimit": 60000000,
+     "timeUtc": "2026-03-11T03:29:11Z"
+    },
+    {
+     "baseFeeGwei": 0.038072465,
+     "block": 24624348,
+     "gasLimit": 60000000,
+     "timeUtc": "2026-03-10T03:20:23Z"
+    },
+    {
+     "baseFeeGwei": 0.105825337,
+     "block": 24617148,
+     "gasLimit": 60000000,
+     "timeUtc": "2026-03-09T03:12:47Z"
+    },
+    {
+     "baseFeeGwei": 0.038199862,
+     "block": 24609948,
+     "gasLimit": 60000000,
+     "timeUtc": "2026-03-08T03:06:47Z"
+    },
+    {
+     "baseFeeGwei": 0.033981944,
+     "block": 24602748,
+     "gasLimit": 60000000,
+     "timeUtc": "2026-03-07T02:59:35Z"
+    },
+    {
+     "baseFeeGwei": 0.031367722,
+     "block": 24595548,
+     "gasLimit": 60000000,
+     "timeUtc": "2026-03-06T02:49:35Z"
+    },
+    {
+     "baseFeeGwei": 0.082462103,
+     "block": 24588348,
+     "gasLimit": 60000000,
+     "timeUtc": "2026-03-05T02:42:23Z"
+    },
+    {
+     "baseFeeGwei": 0.039896236,
+     "block": 24581148,
+     "gasLimit": 59999943,
+     "timeUtc": "2026-03-04T02:36:47Z"
+    },
+    {
+     "baseFeeGwei": 0.044116288,
+     "block": 24573948,
+     "gasLimit": 60000000,
+     "timeUtc": "2026-03-03T02:28:59Z"
+    },
+    {
+     "baseFeeGwei": 0.040050733,
+     "block": 24566748,
+     "gasLimit": 59941408,
+     "timeUtc": "2026-03-02T02:22:11Z"
+    },
+    {
+     "baseFeeGwei": 0.259311067,
+     "block": 24559548,
+     "gasLimit": 60000000,
+     "timeUtc": "2026-03-01T02:17:11Z"
+    },
+    {
+     "baseFeeGwei": 0.047241053,
+     "block": 24552348,
+     "gasLimit": 60000000,
+     "timeUtc": "2026-02-28T02:08:23Z"
+    },
+    {
+     "baseFeeGwei": 0.044036836,
+     "block": 24545148,
+     "gasLimit": 60000000,
+     "timeUtc": "2026-02-27T02:02:23Z"
+    },
+    {
+     "baseFeeGwei": 0.043198802,
+     "block": 24537948,
+     "gasLimit": 60000000,
+     "timeUtc": "2026-02-26T01:57:23Z"
+    },
+    {
+     "baseFeeGwei": 0.10229096,
+     "block": 24530748,
+     "gasLimit": 60000000,
+     "timeUtc": "2026-02-25T01:49:35Z"
+    },
+    {
+     "baseFeeGwei": 0.074063889,
+     "block": 24523548,
+     "gasLimit": 60000000,
+     "timeUtc": "2026-02-24T01:43:59Z"
+    },
+    {
+     "baseFeeGwei": 0.169499324,
+     "block": 24516348,
+     "gasLimit": 60000000,
+     "timeUtc": "2026-02-23T01:38:11Z"
+    },
+    {
+     "baseFeeGwei": 0.030718253,
+     "block": 24509148,
+     "gasLimit": 60000000,
+     "timeUtc": "2026-02-22T01:33:35Z"
+    },
+    {
+     "baseFeeGwei": 0.043967293,
+     "block": 24501948,
+     "gasLimit": 60000000,
+     "timeUtc": "2026-02-21T01:27:59Z"
+    },
+    {
+     "baseFeeGwei": 0.031473145,
+     "block": 24494748,
+     "gasLimit": 60000000,
+     "timeUtc": "2026-02-20T01:23:11Z"
+    },
+    {
+     "baseFeeGwei": 0.050383458,
+     "block": 24487548,
+     "gasLimit": 60000000,
+     "timeUtc": "2026-02-19T01:16:35Z"
+    },
+    {
+     "baseFeeGwei": 0.041087221,
+     "block": 24480348,
+     "gasLimit": 60000000,
+     "timeUtc": "2026-02-18T01:11:11Z"
+    },
+    {
+     "baseFeeGwei": 0.03540254,
+     "block": 24473148,
+     "gasLimit": 60000000,
+     "timeUtc": "2026-02-17T01:04:35Z"
+    },
+    {
+     "baseFeeGwei": 0.035155623,
+     "block": 24465948,
+     "gasLimit": 60000000,
+     "timeUtc": "2026-02-16T00:59:11Z"
+    },
+    {
+     "baseFeeGwei": 0.030064704,
+     "block": 24458748,
+     "gasLimit": 59999886,
+     "timeUtc": "2026-02-15T00:54:59Z"
+    },
+    {
+     "baseFeeGwei": 0.036519773,
+     "block": 24451548,
+     "gasLimit": 60000000,
+     "timeUtc": "2026-02-14T00:49:35Z"
+    },
+    {
+     "baseFeeGwei": 0.051534945,
+     "block": 24444348,
+     "gasLimit": 59882873,
+     "timeUtc": "2026-02-13T00:42:11Z"
+    },
+    {
+     "baseFeeGwei": 0.040379514,
+     "block": 24437148,
+     "gasLimit": 60000000,
+     "timeUtc": "2026-02-12T00:35:23Z"
+    },
+    {
+     "baseFeeGwei": 0.06205372,
+     "block": 24429948,
+     "gasLimit": 60000000,
+     "timeUtc": "2026-02-11T00:28:35Z"
+    },
+    {
+     "baseFeeGwei": 0.045149713,
+     "block": 24422748,
+     "gasLimit": 60000000,
+     "timeUtc": "2026-02-10T00:18:59Z"
+    },
+    {
+     "baseFeeGwei": 0.047630137,
+     "block": 24415548,
+     "gasLimit": 60000000,
+     "timeUtc": "2026-02-09T00:11:11Z"
+    },
+    {
+     "baseFeeGwei": 0.078908204,
+     "block": 24408348,
+     "gasLimit": 60000000,
+     "timeUtc": "2026-02-07T23:52:47Z"
+    },
+    {
+     "baseFeeGwei": 0.229292176,
+     "block": 24401148,
+     "gasLimit": 60000000,
+     "timeUtc": "2026-02-06T23:44:59Z"
+    },
+    {
+     "baseFeeGwei": 1.184649884,
+     "block": 24393948,
+     "gasLimit": 60000000,
+     "timeUtc": "2026-02-05T23:36:35Z"
+    },
+    {
+     "baseFeeGwei": 0.149121631,
+     "block": 24386748,
+     "gasLimit": 60000000,
+     "timeUtc": "2026-02-04T23:26:35Z"
+    },
+    {
+     "baseFeeGwei": 0.129450145,
+     "block": 24379548,
+     "gasLimit": 59941408,
+     "timeUtc": "2026-02-03T23:16:59Z"
+    },
+    {
+     "baseFeeGwei": 0.108579327,
+     "block": 24372348,
+     "gasLimit": 60000000,
+     "timeUtc": "2026-02-02T23:06:59Z"
+    },
+    {
+     "baseFeeGwei": 0.092599566,
+     "block": 24365148,
+     "gasLimit": 60000000,
+     "timeUtc": "2026-02-01T22:58:47Z"
+    },
+    {
+     "baseFeeGwei": 0.110430739,
+     "block": 24357948,
+     "gasLimit": 60000000,
+     "timeUtc": "2026-01-31T22:50:35Z"
+    },
+    {
+     "baseFeeGwei": 0.153734151,
+     "block": 24350748,
+     "gasLimit": 60000000,
+     "timeUtc": "2026-01-30T22:43:47Z"
+    },
+    {
+     "baseFeeGwei": 0.084350549,
+     "block": 24343548,
+     "gasLimit": 60000000,
+     "timeUtc": "2026-01-29T22:38:11Z"
+    },
+    {
+     "baseFeeGwei": 0.048324705,
+     "block": 24336348,
+     "gasLimit": 60000000,
+     "timeUtc": "2026-01-28T22:31:47Z"
+    },
+    {
+     "baseFeeGwei": 0.043887313,
+     "block": 24329148,
+     "gasLimit": 59999943,
+     "timeUtc": "2026-01-27T22:26:59Z"
+    },
+    {
+     "baseFeeGwei": 0.048850242,
+     "block": 24321948,
+     "gasLimit": 59941237,
+     "timeUtc": "2026-01-26T22:20:35Z"
+    },
+    {
+     "baseFeeGwei": 0.161225873,
+     "block": 24314748,
+     "gasLimit": 60000000,
+     "timeUtc": "2026-01-25T22:14:35Z"
+    },
+    {
+     "baseFeeGwei": 0.036513853,
+     "block": 24307548,
+     "gasLimit": 59941408,
+     "timeUtc": "2026-01-24T22:09:23Z"
+    },
+    {
+     "baseFeeGwei": 0.107073307,
+     "block": 24300348,
+     "gasLimit": 59941408,
+     "timeUtc": "2026-01-23T22:03:47Z"
+    },
+    {
+     "baseFeeGwei": 0.04228031,
+     "block": 24293148,
+     "gasLimit": 60000000,
+     "timeUtc": "2026-01-22T21:55:35Z"
+    },
+    {
+     "baseFeeGwei": 0.07067622,
+     "block": 24285948,
+     "gasLimit": 60000000,
+     "timeUtc": "2026-01-21T21:47:23Z"
+    },
+    {
+     "baseFeeGwei": 0.047209369,
+     "block": 24278748,
+     "gasLimit": 60000000,
+     "timeUtc": "2026-01-20T21:42:11Z"
+    },
+    {
+     "baseFeeGwei": 0.049092759,
+     "block": 24271548,
+     "gasLimit": 60000000,
+     "timeUtc": "2026-01-19T21:36:23Z"
+    },
+    {
+     "baseFeeGwei": 0.0310914,
+     "block": 24264348,
+     "gasLimit": 60000000,
+     "timeUtc": "2026-01-18T21:31:23Z"
+    },
+    {
+     "baseFeeGwei": 0.03250518,
+     "block": 24257148,
+     "gasLimit": 60000000,
+     "timeUtc": "2026-01-17T21:26:59Z"
+    },
+    {
+     "baseFeeGwei": 0.046117187,
+     "block": 24249948,
+     "gasLimit": 60000000,
+     "timeUtc": "2026-01-16T21:21:35Z"
+    },
+    {
+     "baseFeeGwei": 0.060485087,
+     "block": 24242748,
+     "gasLimit": 60000000,
+     "timeUtc": "2026-01-15T21:17:35Z"
+    },
+    {
+     "baseFeeGwei": 0.108557992,
+     "block": 24235548,
+     "gasLimit": 59941408,
+     "timeUtc": "2026-01-14T21:11:35Z"
+    },
+    {
+     "baseFeeGwei": 0.088317989,
+     "block": 24228348,
+     "gasLimit": 60000000,
+     "timeUtc": "2026-01-13T21:05:11Z"
+    },
+    {
+     "baseFeeGwei": 0.059067486,
+     "block": 24221148,
+     "gasLimit": 60000000,
+     "timeUtc": "2026-01-12T20:54:23Z"
+    },
+    {
+     "baseFeeGwei": 0.030889438,
+     "block": 24213948,
+     "gasLimit": 60000000,
+     "timeUtc": "2026-01-11T20:45:23Z"
+    },
+    {
+     "baseFeeGwei": 0.030719426,
+     "block": 24206748,
+     "gasLimit": 60000000,
+     "timeUtc": "2026-01-10T20:40:23Z"
+    },
+    {
+     "baseFeeGwei": 0.032966866,
+     "block": 24199548,
+     "gasLimit": 60000000,
+     "timeUtc": "2026-01-09T20:34:59Z"
+    },
+    {
+     "baseFeeGwei": 0.043550565,
+     "block": 24192348,
+     "gasLimit": 60000000,
+     "timeUtc": "2026-01-08T20:28:59Z"
+    },
+    {
+     "baseFeeGwei": 0.074838507,
+     "block": 24185148,
+     "gasLimit": 59941408,
+     "timeUtc": "2026-01-07T20:19:23Z"
+    },
+    {
+     "baseFeeGwei": 0.053447639,
+     "block": 24177948,
+     "gasLimit": 60000000,
+     "timeUtc": "2026-01-06T20:13:11Z"
+    },
+    {
+     "baseFeeGwei": 0.078713523,
+     "block": 24170748,
+     "gasLimit": 60000000,
+     "timeUtc": "2026-01-05T20:07:23Z"
+    },
+    {
+     "baseFeeGwei": 0.037919488,
+     "block": 24163548,
+     "gasLimit": 60000000,
+     "timeUtc": "2026-01-04T19:59:59Z"
+    },
+    {
+     "baseFeeGwei": 0.11969324,
+     "block": 24156348,
+     "gasLimit": 59941408,
+     "timeUtc": "2026-01-03T19:55:23Z"
+    },
+    {
+     "baseFeeGwei": 0.114916107,
+     "block": 24149148,
+     "gasLimit": 59941408,
+     "timeUtc": "2026-01-02T19:49:35Z"
+    },
+    {
+     "baseFeeGwei": 0.104835715,
+     "block": 24141948,
+     "gasLimit": 60000000,
+     "timeUtc": "2026-01-01T19:43:59Z"
+    },
+    {
+     "baseFeeGwei": 0.055719846,
+     "block": 24134748,
+     "gasLimit": 60000000,
+     "timeUtc": "2025-12-31T19:38:23Z"
+    },
+    {
+     "baseFeeGwei": 0.075464611,
+     "block": 24127548,
+     "gasLimit": 59882873,
+     "timeUtc": "2025-12-30T19:30:35Z"
+    },
+    {
+     "baseFeeGwei": 0.107007535,
+     "block": 24120348,
+     "gasLimit": 60000000,
+     "timeUtc": "2025-12-29T19:19:59Z"
+    },
+    {
+     "baseFeeGwei": 0.035310542,
+     "block": 24113148,
+     "gasLimit": 60000000,
+     "timeUtc": "2025-12-28T19:13:11Z"
+    },
+    {
+     "baseFeeGwei": 0.029058784,
+     "block": 24105948,
+     "gasLimit": 59999886,
+     "timeUtc": "2025-12-27T19:06:47Z"
+    },
+    {
+     "baseFeeGwei": 0.027542978,
+     "block": 24098748,
+     "gasLimit": 60000000,
+     "timeUtc": "2025-12-26T18:59:11Z"
+    },
+    {
+     "baseFeeGwei": 0.024185032,
+     "block": 24091548,
+     "gasLimit": 60000000,
+     "timeUtc": "2025-12-25T18:51:35Z"
+    },
+    {
+     "baseFeeGwei": 0.02610487,
+     "block": 24084348,
+     "gasLimit": 60000000,
+     "timeUtc": "2025-12-24T18:43:47Z"
+    },
+    {
+     "baseFeeGwei": 0.089902128,
+     "block": 24077148,
+     "gasLimit": 60000000,
+     "timeUtc": "2025-12-23T18:37:23Z"
+    },
+    {
+     "baseFeeGwei": 0.027592224,
+     "block": 24069948,
+     "gasLimit": 59941294,
+     "timeUtc": "2025-12-22T18:29:35Z"
+    },
+    {
+     "baseFeeGwei": 0.027224974,
+     "block": 24062748,
+     "gasLimit": 59941408,
+     "timeUtc": "2025-12-21T18:22:11Z"
+    },
+    {
+     "baseFeeGwei": 0.025755633,
+     "block": 24055548,
+     "gasLimit": 60000000,
+     "timeUtc": "2025-12-20T18:16:59Z"
+    },
+    {
+     "baseFeeGwei": 0.060696119,
+     "block": 24048348,
+     "gasLimit": 60000000,
+     "timeUtc": "2025-12-19T18:11:35Z"
+    },
+    {
+     "baseFeeGwei": 0.055452982,
+     "block": 24041148,
+     "gasLimit": 59999943,
+     "timeUtc": "2025-12-18T18:01:59Z"
+    },
+    {
+     "baseFeeGwei": 0.042734417,
+     "block": 24033948,
+     "gasLimit": 60000000,
+     "timeUtc": "2025-12-17T17:53:11Z"
+    },
+    {
+     "baseFeeGwei": 0.039811043,
+     "block": 24026748,
+     "gasLimit": 60000000,
+     "timeUtc": "2025-12-16T17:45:47Z"
+    },
+    {
+     "baseFeeGwei": 0.147769542,
+     "block": 24019548,
+     "gasLimit": 60000000,
+     "timeUtc": "2025-12-15T17:38:59Z"
+    },
+    {
+     "baseFeeGwei": 0.052411289,
+     "block": 24012348,
+     "gasLimit": 59824395,
+     "timeUtc": "2025-12-14T17:30:35Z"
+    },
+    {
+     "baseFeeGwei": 0.036204948,
+     "block": 24005148,
+     "gasLimit": 59941408,
+     "timeUtc": "2025-12-13T17:23:23Z"
+    },
+    {
+     "baseFeeGwei": 0.057896256,
+     "block": 23997948,
+     "gasLimit": 59941408,
+     "timeUtc": "2025-12-12T17:11:47Z"
+    },
+    {
+     "baseFeeGwei": 0.13662606,
+     "block": 23990748,
+     "gasLimit": 59999943,
+     "timeUtc": "2025-12-11T16:51:47Z"
+    },
+    {
+     "baseFeeGwei": 0.156607117,
+     "block": 23983548,
+     "gasLimit": 60000000,
+     "timeUtc": "2025-12-10T16:38:11Z"
+    },
+    {
+     "baseFeeGwei": 0.75349134,
+     "block": 23976348,
+     "gasLimit": 60000000,
+     "timeUtc": "2025-12-09T16:16:35Z"
+    },
+    {
+     "baseFeeGwei": 0.321934945,
+     "block": 23969148,
+     "gasLimit": 60000000,
+     "timeUtc": "2025-12-08T16:02:47Z"
+    },
+    {
+     "baseFeeGwei": 0.341828798,
+     "block": 23961948,
+     "gasLimit": 59941351,
+     "timeUtc": "2025-12-07T15:47:47Z"
+    },
+    {
+     "baseFeeGwei": 0.023265403,
+     "block": 23954748,
+     "gasLimit": 60000000,
+     "timeUtc": "2025-12-06T15:34:11Z"
+    },
+    {
+     "baseFeeGwei": 0.12588519,
+     "block": 23947548,
+     "gasLimit": 59999886,
+     "timeUtc": "2025-12-05T15:10:35Z"
+    },
+    {
+     "baseFeeGwei": 0.073125606,
+     "block": 23940348,
+     "gasLimit": 59941408,
+     "timeUtc": "2025-12-04T14:43:35Z"
+    },
+    {
+     "baseFeeGwei": 0.038275856,
+     "block": 23933148,
+     "gasLimit": 59999943,
+     "timeUtc": "2025-12-03T13:14:47Z"
+    },
+    {
+     "baseFeeGwei": 0.060024287,
+     "block": 23925948,
+     "gasLimit": 59824395,
+     "timeUtc": "2025-12-02T13:02:11Z"
+    },
+    {
+     "baseFeeGwei": 0.10211927,
+     "block": 23918748,
+     "gasLimit": 59882357,
+     "timeUtc": "2025-12-01T12:52:23Z"
+    },
+    {
+     "baseFeeGwei": 0.03395022,
+     "block": 23911548,
+     "gasLimit": 59940950,
+     "timeUtc": "2025-11-30T12:42:23Z"
+    },
+    {
+     "baseFeeGwei": 0.044270602,
+     "block": 23904348,
+     "gasLimit": 59941123,
+     "timeUtc": "2025-11-29T12:33:47Z"
+    },
+    {
+     "baseFeeGwei": 0.103343735,
+     "block": 23897148,
+     "gasLimit": 59999943,
+     "timeUtc": "2025-11-28T12:22:59Z"
+    },
+    {
+     "baseFeeGwei": 0.055313074,
+     "block": 23889948,
+     "gasLimit": 59707382,
+     "timeUtc": "2025-11-27T12:08:11Z"
+    },
+    {
+     "baseFeeGwei": 0.056214854,
+     "block": 23882748,
+     "gasLimit": 59124791,
+     "timeUtc": "2025-11-26T11:53:35Z"
+    },
+    {
+     "baseFeeGwei": 0.083757761,
+     "block": 23875548,
+     "gasLimit": 49088311,
+     "timeUtc": "2025-11-25T11:34:59Z"
+    },
+    {
+     "baseFeeGwei": 0.091082584,
+     "block": 23868348,
+     "gasLimit": 45175730,
+     "timeUtc": "2025-11-24T11:13:23Z"
+    },
+    {
+     "baseFeeGwei": 0.077945205,
+     "block": 23861148,
+     "gasLimit": 45437862,
+     "timeUtc": "2025-11-23T10:59:35Z"
+    },
+    {
+     "baseFeeGwei": 0.062824183,
+     "block": 23853948,
+     "gasLimit": 45263877,
+     "timeUtc": "2025-11-22T10:39:35Z"
+    },
+    {
+     "baseFeeGwei": 2.975984589,
+     "block": 23846748,
+     "gasLimit": 45087888,
+     "timeUtc": "2025-11-21T10:19:35Z"
+    },
+    {
+     "baseFeeGwei": 0.114229672,
+     "block": 23839548,
+     "gasLimit": 45043858,
+     "timeUtc": "2025-11-20T10:06:23Z"
+    },
+    {
+     "baseFeeGwei": 0.129048945,
+     "block": 23832348,
+     "gasLimit": 45043901,
+     "timeUtc": "2025-11-19T09:50:23Z"
+    },
+    {
+     "baseFeeGwei": 0.241503983,
+     "block": 23825148,
+     "gasLimit": 44999657,
+     "timeUtc": "2025-11-18T09:35:35Z"
+    },
+    {
+     "baseFeeGwei": 0.116680954,
+     "block": 23817948,
+     "gasLimit": 45043772,
+     "timeUtc": "2025-11-17T09:17:47Z"
+    },
+    {
+     "baseFeeGwei": 0.061027469,
+     "block": 23810748,
+     "gasLimit": 45000000,
+     "timeUtc": "2025-11-16T09:07:47Z"
+    },
+    {
+     "baseFeeGwei": 0.087645817,
+     "block": 23803548,
+     "gasLimit": 44999914,
+     "timeUtc": "2025-11-15T08:58:23Z"
+    },
+    {
+     "baseFeeGwei": 0.301894129,
+     "block": 23796348,
+     "gasLimit": 44956056,
+     "timeUtc": "2025-11-14T08:50:59Z"
+    },
+    {
+     "baseFeeGwei": 0.081839945,
+     "block": 23789148,
+     "gasLimit": 45043858,
+     "timeUtc": "2025-11-13T08:39:35Z"
+    },
+    {
+     "baseFeeGwei": 0.098277683,
+     "block": 23781948,
+     "gasLimit": 44999871,
+     "timeUtc": "2025-11-12T08:26:59Z"
+    },
+    {
+     "baseFeeGwei": 0.134993708,
+     "block": 23774748,
+     "gasLimit": 45043944,
+     "timeUtc": "2025-11-11T08:17:23Z"
+    },
+    {
+     "baseFeeGwei": 0.114496599,
+     "block": 23767548,
+     "gasLimit": 44912155,
+     "timeUtc": "2025-11-10T08:04:11Z"
+    },
+    {
+     "baseFeeGwei": 0.071250864,
+     "block": 23760348,
+     "gasLimit": 44956013,
+     "timeUtc": "2025-11-09T07:55:23Z"
+    },
+    {
+     "baseFeeGwei": 0.115058506,
+     "block": 23753148,
+     "gasLimit": 45043944,
+     "timeUtc": "2025-11-08T07:47:59Z"
+    },
+    {
+     "baseFeeGwei": 0.459900571,
+     "block": 23745948,
+     "gasLimit": 45087931,
+     "timeUtc": "2025-11-07T07:37:47Z"
+    },
+    {
+     "baseFeeGwei": 0.604458157,
+     "block": 23738748,
+     "gasLimit": 45000000,
+     "timeUtc": "2025-11-06T07:27:23Z"
+    },
+    {
+     "baseFeeGwei": 0.334275199,
+     "block": 23731548,
+     "gasLimit": 44999656,
+     "timeUtc": "2025-11-05T07:16:11Z"
+    },
+    {
+     "baseFeeGwei": 0.773278938,
+     "block": 23724348,
+     "gasLimit": 44999957,
+     "timeUtc": "2025-11-04T07:04:23Z"
+    },
+    {
+     "baseFeeGwei": 0.190267513,
+     "block": 23717148,
+     "gasLimit": 45000000,
+     "timeUtc": "2025-11-03T06:56:47Z"
+    },
+    {
+     "baseFeeGwei": 0.070602958,
+     "block": 23709948,
+     "gasLimit": 44912155,
+     "timeUtc": "2025-11-02T06:47:47Z"
+    },
+    {
+     "baseFeeGwei": 0.090593798,
+     "block": 23702748,
+     "gasLimit": 45000000,
+     "timeUtc": "2025-11-01T06:38:11Z"
+    },
+    {
+     "baseFeeGwei": 0.105169248,
+     "block": 23695548,
+     "gasLimit": 45000000,
+     "timeUtc": "2025-10-31T06:27:11Z"
+    },
+    {
+     "baseFeeGwei": 0.106517653,
+     "block": 23688348,
+     "gasLimit": 44999871,
+     "timeUtc": "2025-10-30T06:15:35Z"
+    },
+    {
+     "baseFeeGwei": 0.097494611,
+     "block": 23681148,
+     "gasLimit": 45000000,
+     "timeUtc": "2025-10-29T06:04:35Z"
+    },
+    {
+     "baseFeeGwei": 0.130043848,
+     "block": 23673948,
+     "gasLimit": 44956056,
+     "timeUtc": "2025-10-28T05:49:59Z"
+    },
+    {
+     "baseFeeGwei": 0.10225888,
+     "block": 23666748,
+     "gasLimit": 45000000,
+     "timeUtc": "2025-10-27T05:38:47Z"
+    },
+    {
+     "baseFeeGwei": 0.079837676,
+     "block": 23659548,
+     "gasLimit": 44956056,
+     "timeUtc": "2025-10-26T05:28:23Z"
+    },
+    {
+     "baseFeeGwei": 0.086708552,
+     "block": 23652348,
+     "gasLimit": 45043944,
+     "timeUtc": "2025-10-25T05:19:59Z"
+    },
+    {
+     "baseFeeGwei": 0.128950437,
+     "block": 23645148,
+     "gasLimit": 45043944,
+     "timeUtc": "2025-10-24T05:09:35Z"
+    },
+    {
+     "baseFeeGwei": 0.100888808,
+     "block": 23637948,
+     "gasLimit": 45000000,
+     "timeUtc": "2025-10-23T04:52:59Z"
+    },
+    {
+     "baseFeeGwei": 0.109652025,
+     "block": 23630748,
+     "gasLimit": 44999957,
+     "timeUtc": "2025-10-22T04:40:23Z"
+    },
+    {
+     "baseFeeGwei": 0.107826336,
+     "block": 23623548,
+     "gasLimit": 44999957,
+     "timeUtc": "2025-10-21T04:24:47Z"
+    },
+    {
+     "baseFeeGwei": 0.184132142,
+     "block": 23616348,
+     "gasLimit": 44999914,
+     "timeUtc": "2025-10-20T04:09:23Z"
+    },
+    {
+     "baseFeeGwei": 0.120230704,
+     "block": 23609148,
+     "gasLimit": 44912069,
+     "timeUtc": "2025-10-19T03:58:47Z"
+    },
+    {
+     "baseFeeGwei": 0.122210615,
+     "block": 23601948,
+     "gasLimit": 44999957,
+     "timeUtc": "2025-10-18T03:47:47Z"
+    },
+    {
+     "baseFeeGwei": 0.118023381,
+     "block": 23594748,
+     "gasLimit": 44956013,
+     "timeUtc": "2025-10-17T03:38:23Z"
+    },
+    {
+     "baseFeeGwei": 0.204329522,
+     "block": 23587548,
+     "gasLimit": 45000000,
+     "timeUtc": "2025-10-16T03:27:11Z"
+    },
+    {
+     "baseFeeGwei": 0.140340222,
+     "block": 23580348,
+     "gasLimit": 45000000,
+     "timeUtc": "2025-10-15T03:14:47Z"
+    },
+    {
+     "baseFeeGwei": 0.210613558,
+     "block": 23573148,
+     "gasLimit": 44999957,
+     "timeUtc": "2025-10-14T03:05:23Z"
+    },
+    {
+     "baseFeeGwei": 0.131670904,
+     "block": 23565948,
+     "gasLimit": 44956056,
+     "timeUtc": "2025-10-13T02:54:23Z"
+    },
+    {
+     "baseFeeGwei": 0.17419892,
+     "block": 23558748,
+     "gasLimit": 44956056,
+     "timeUtc": "2025-10-12T02:46:35Z"
+    },
+    {
+     "baseFeeGwei": 5.506388848,
+     "block": 23551548,
+     "gasLimit": 45043944,
+     "timeUtc": "2025-10-11T02:37:35Z"
+    },
+    {
+     "baseFeeGwei": 0.10314318,
+     "block": 23544348,
+     "gasLimit": 45000000,
+     "timeUtc": "2025-10-10T02:28:23Z"
+    },
+    {
+     "baseFeeGwei": 0.118430296,
+     "block": 23537148,
+     "gasLimit": 44868126,
+     "timeUtc": "2025-10-09T02:17:47Z"
+    },
+    {
+     "baseFeeGwei": 0.142184746,
+     "block": 23529948,
+     "gasLimit": 45087888,
+     "timeUtc": "2025-10-08T02:06:23Z"
+    },
+    {
+     "baseFeeGwei": 0.116822206,
+     "block": 23522748,
+     "gasLimit": 45000000,
+     "timeUtc": "2025-10-07T01:57:47Z"
+    },
+    {
+     "baseFeeGwei": 0.125562396,
+     "block": 23515548,
+     "gasLimit": 45000000,
+     "timeUtc": "2025-10-06T01:47:47Z"
+    },
+    {
+     "baseFeeGwei": 0.128152096,
+     "block": 23508348,
+     "gasLimit": 44999914,
+     "timeUtc": "2025-10-05T01:40:23Z"
+    },
+    {
+     "baseFeeGwei": 0.134543303,
+     "block": 23501148,
+     "gasLimit": 45000000,
+     "timeUtc": "2025-10-04T01:31:11Z"
+    },
+    {
+     "baseFeeGwei": 0.19876097,
+     "block": 23493948,
+     "gasLimit": 45000000,
+     "timeUtc": "2025-10-03T01:24:11Z"
+    },
+    {
+     "baseFeeGwei": 0.231939198,
+     "block": 23486748,
+     "gasLimit": 45000000,
+     "timeUtc": "2025-10-02T01:13:11Z"
+    },
+    {
+     "baseFeeGwei": 0.150694609,
+     "block": 23479548,
+     "gasLimit": 44999957,
+     "timeUtc": "2025-10-01T01:01:35Z"
+    },
+    {
+     "baseFeeGwei": 0.267055251,
+     "block": 23472348,
+     "gasLimit": 44956013,
+     "timeUtc": "2025-09-30T00:52:11Z"
+    },
+    {
+     "baseFeeGwei": 0.345688628,
+     "block": 23465148,
+     "gasLimit": 45000000,
+     "timeUtc": "2025-09-29T00:43:59Z"
+    },
+    {
+     "baseFeeGwei": 0.158372071,
+     "block": 23457948,
+     "gasLimit": 44956056,
+     "timeUtc": "2025-09-28T00:33:59Z"
+    },
+    {
+     "baseFeeGwei": 0.117294527,
+     "block": 23450748,
+     "gasLimit": 45000000,
+     "timeUtc": "2025-09-27T00:24:35Z"
+    },
+    {
+     "baseFeeGwei": 0.303888395,
+     "block": 23443548,
+     "gasLimit": 45000000,
+     "timeUtc": "2025-09-26T00:13:35Z"
+    },
+    {
+     "baseFeeGwei": 0.132794298,
+     "block": 23436348,
+     "gasLimit": 45000000,
+     "timeUtc": "2025-09-25T00:02:47Z"
+    },
+    {
+     "baseFeeGwei": 0.114307954,
+     "block": 23429148,
+     "gasLimit": 45000000,
+     "timeUtc": "2025-09-23T23:54:59Z"
+    },
+    {
+     "baseFeeGwei": 0.313717992,
+     "block": 23421948,
+     "gasLimit": 44999957,
+     "timeUtc": "2025-09-22T23:48:11Z"
+    },
+    {
+     "baseFeeGwei": 0.111141875,
+     "block": 23414748,
+     "gasLimit": 45087888,
+     "timeUtc": "2025-09-21T23:38:23Z"
+    },
+    {
+     "baseFeeGwei": 0.126321865,
+     "block": 23407548,
+     "gasLimit": 44868211,
+     "timeUtc": "2025-09-20T23:27:23Z"
+    },
+    {
+     "baseFeeGwei": 0.158092849,
+     "block": 23400348,
+     "gasLimit": 44956056,
+     "timeUtc": "2025-09-19T23:16:47Z"
+    },
+    {
+     "baseFeeGwei": 0.318606267,
+     "block": 23393148,
+     "gasLimit": 44955927,
+     "timeUtc": "2025-09-18T23:09:23Z"
+    },
+    {
+     "baseFeeGwei": 0.375138377,
+     "block": 23385948,
+     "gasLimit": 44956056,
+     "timeUtc": "2025-09-17T23:00:59Z"
+    },
+    {
+     "baseFeeGwei": 0.171555403,
+     "block": 23378748,
+     "gasLimit": 44956013,
+     "timeUtc": "2025-09-16T22:54:35Z"
+    },
+    {
+     "baseFeeGwei": 0.275319123,
+     "block": 23371548,
+     "gasLimit": 44956013,
+     "timeUtc": "2025-09-15T22:46:11Z"
+    },
+    {
+     "baseFeeGwei": 0.126405968,
+     "block": 23364348,
+     "gasLimit": 45000000,
+     "timeUtc": "2025-09-14T22:36:59Z"
+    },
+    {
+     "baseFeeGwei": 0.159292268,
+     "block": 23357148,
+     "gasLimit": 45000000,
+     "timeUtc": "2025-09-13T22:31:11Z"
+    },
+    {
+     "baseFeeGwei": 0.6685406,
+     "block": 23349948,
+     "gasLimit": 45000000,
+     "timeUtc": "2025-09-12T22:23:47Z"
+    },
+    {
+     "baseFeeGwei": 0.196203256,
+     "block": 23342748,
+     "gasLimit": 44999914,
+     "timeUtc": "2025-09-11T22:17:35Z"
+    },
+    {
+     "baseFeeGwei": 0.25638216,
+     "block": 23335548,
+     "gasLimit": 45000000,
+     "timeUtc": "2025-09-10T22:08:35Z"
+    },
+    {
+     "baseFeeGwei": 0.244900736,
+     "block": 23328348,
+     "gasLimit": 44999957,
+     "timeUtc": "2025-09-09T21:51:47Z"
+    },
+    {
+     "baseFeeGwei": 0.215520747,
+     "block": 23321148,
+     "gasLimit": 45000000,
+     "timeUtc": "2025-09-08T21:46:47Z"
+    },
+    {
+     "baseFeeGwei": 0.139371903,
+     "block": 23313948,
+     "gasLimit": 45000000,
+     "timeUtc": "2025-09-07T21:37:47Z"
+    },
+    {
+     "baseFeeGwei": 0.134993268,
+     "block": 23306748,
+     "gasLimit": 45043901,
+     "timeUtc": "2025-09-06T21:30:47Z"
+    },
+    {
+     "baseFeeGwei": 0.205386796,
+     "block": 23299548,
+     "gasLimit": 44955884,
+     "timeUtc": "2025-09-05T21:19:59Z"
+    },
+    {
+     "baseFeeGwei": 0.37352551,
+     "block": 23292348,
+     "gasLimit": 44868254,
+     "timeUtc": "2025-09-04T21:11:59Z"
+    },
+    {
+     "baseFeeGwei": 0.470513366,
+     "block": 23285148,
+     "gasLimit": 44999914,
+     "timeUtc": "2025-09-03T21:03:35Z"
+    },
+    {
+     "baseFeeGwei": 0.311098381,
+     "block": 23277948,
+     "gasLimit": 45043944,
+     "timeUtc": "2025-09-02T20:56:47Z"
+    }
+   ],
+   "windowFromUtc": "2025-09-02T20:56:47Z",
+   "windowToUtc": "2026-09-03T19:03:23Z"
+  },
+  "ethUsd": {
+   "price": 2506.16956849,
+   "source": "Chainlink ETH/USD 0x5f4eC3Df9cbd43714FE2740f5E3616155c5b8419",
+   "updatedAtUtc": "2026-09-03T18:07:11Z"
+  },
+  "gasAnchors": [
+   {
+    "baseFeeGwei": 0.167515274,
+    "baseFeeWei": 167515274,
+    "block": 25898748,
+    "gasLimit": 60000000,
+    "gasUsed": 44673332,
+    "label": "now",
+    "timeUtc": "2026-09-03T19:03:23Z",
+    "why": "the latest block at generation time, so the page can say what gas costs right now rather than only what it has cost"
+   },
+   {
+    "baseFeeGwei": 23.50405637,
+    "baseFeeWei": 23504056370,
+    "block": 24710557,
+    "gasLimit": 60000000,
+    "gasUsed": 7316264,
+    "label": "high",
+    "timeUtc": "2026-03-22T04:07:35Z",
+    "why": "the busiest moment of the dearest day in the trailing year's daily sample (2026-03-22); a bad day on a normal network, not a crisis"
+   },
+   {
+    "baseFeeGwei": 547.228205708,
+    "baseFeeWei": 547228205708,
+    "block": 23550029,
+    "gasLimit": 45000000,
+    "gasUsed": 12443664,
+    "label": "extremely high",
+    "timeUtc": "2025-10-10T21:32:23Z",
+    "why": "the worst moment of the trailing year, during the 2025-10-10 market-wide liquidation event; the network still works, but every write is ~4,500x the median"
+   },
+   {
+    "baseFeeGwei": 8629.051173688,
+    "baseFeeWei": 8629051173688,
+    "block": 14688911,
+    "gasLimit": 30000000,
+    "gasUsed": 4339812,
+    "label": "historical peak",
+    "timeUtc": "2022-05-01T01:09:03Z",
+    "why": "the highest base fee since EIP-1559 went live: the Otherdeed land mint, 2022-05-01. Kept because the ticket asks for a real historical peak and because it is the honest ceiling, even though a 30M-gas-limit chain in 2022 is not the 60M chain of today"
+   }
+  ],
+  "generatedAtUtc": "2026-09-03T19:04:24Z",
+  "method": {
+   "anchorSearch": {
+    "extremely high": {
+     "candidateDay": "2025-10-10",
+     "coarseHit": 23550015,
+     "refinedWindow": [
+      23549879,
+      23550179
+     ]
+    },
+    "high": {
+     "candidateDay": "2026-03-22",
+     "coarseHit": 24710490,
+     "refinedWindow": [
+      24710407,
+      24710707
+     ]
+    },
+    "historical peak": {
+     "candidateDay": "2022-05-01",
+     "coarseHit": 14688929,
+     "refinedWindow": [
+      14688809,
+      14689049
+     ]
+    }
+   },
+   "candidateDaySelection": "the two recent anchors are the dearest days in the 365-sample dailyYear series below (max 16.45 gwei on 2026-03-22; the 2025-10-10 liquidation event surfaced via the 2025-10-11 sample at 10.64 gwei, whose day scan ran back into 2025-10-10). The historical peak is the Otherdeed mint, the known highest base fee since EIP-1559; it is named rather than searched for",
+   "dailySample": "one block per calendar day for 365 days, stepping back in exact 7200-block strides (12s slots) from the latest block; the base fee of that single block, not a daily average",
+   "ethPrice": "Chainlink ETH/USD aggregator 0x5f4eC3Df9cbd43714FE2740f5E3616155c5b8419 latestRoundData() on mainnet, 8 decimals",
+   "peakRefinement": "each anchor block below was found in two steps, both reproducible with peak_in_window(): (1) a coarse scan of the candidate UTC day at 100-block strides (72 samples), (2) an exhaustive scan of every block in a +/-150 window around that coarse hit. The recorded block is the maximum base fee of that ~1 hour window, not of the whole day -- a higher block may exist elsewhere in the day and the label says 'the busiest moment found', not 'the maximum possible'"
+  },
+  "notes": {
+   "baseFeeOnly": "Every gas figure here is the BASE FEE only. A real transaction also pays a priority fee to be included. The model exposes the priority fee as its own dial rather than baking a guess into these anchors.",
+   "medianIsTheAverageDial": "Tim's 'average' dial uses the MEDIAN of the daily sample, not the mean. The mean (0.2488 gwei) is dragged up by a handful of spike days and is not what a normal day costs; the median (0.1202 gwei) is.",
+   "preLondon": "No anchor predates block 12965000 (EIP-1559). Before that there is no base fee in the header, only per-transaction gas prices, which are not comparable."
+  },
+  "now": {
+   "baseFeeGwei": 0.167515274,
+   "block": 25898748,
+   "gasLimit": 60000000,
+   "gasUsed": 44673332,
+   "timeUtc": "2026-09-03T19:03:23Z"
+  },
+  "priorityFee": {
+   "blocksSampled": 20,
+   "fromBlock": 25898729,
+   "medianPriorityFeeGwei": 0.1966327725,
+   "medianPriorityFeeWei": 196632772.5,
+   "toBlock": 25898748
+  }
+ },
+ "compare": [
+  {
+   "calldataGas": "2684",
+   "delta_exec_deployed_minus_main": "-311",
+   "deployed_exec": "145742",
+   "deployed_tx": "169426",
+   "main_exec": "146053",
+   "main_tx": "169737",
+   "scenario": "writePrice:first"
+  },
+  {
+   "calldataGas": "2696",
+   "delta_exec_deployed_minus_main": "-657",
+   "deployed_exec": "112955",
+   "deployed_tx": "136651",
+   "main_exec": "113612",
+   "main_tx": "137308",
+   "scenario": "writePrice:writes 3-48 (ring slot fresh, counter warm)"
+  },
+  {
+   "calldataGas": "2660",
+   "delta_exec_deployed_minus_main": "-657",
+   "deployed_exec": "130055",
+   "deployed_tx": "153715",
+   "main_exec": "130712",
+   "main_tx": "154372",
+   "scenario": "writePrice:second (ring slot cold)"
+  },
+  {
+   "calldataGas": "2684",
+   "delta_exec_deployed_minus_main": "-657",
+   "deployed_exec": "78755",
+   "deployed_tx": "102439",
+   "main_exec": "79412",
+   "main_tx": "103096",
+   "scenario": "writePrice:write 49+ (ring wrapped)"
+  }
+ ],
+ "meta": {
+  "commit": "83429726ad1a5de12134a1b5044710b7aea6bebb",
+  "commitShort": "8342972",
+  "historyDepth": 48,
+  "inputDigest": "bdba3e7eff258910",
+  "reportHeader": "# ENG-3913 \u2014 per-scenario gas bench, literal output\n#\n# repo:    fabrica-v3-contracts\n# base:    origin/main @ 4b9201d17d78c7296545a6bd5ef6ac8da1d5a86e\n# branch:  tozzetto/eng-3913-oracle-gas-model\n# command: forge test --match-path test/Eng3913OracleGasBench.t.sol -vv\n# forge:   forge Version: 1.7.1 (Commit SHA: 4072e48705af9d93e3c0f6e29e93b5e9a40caed8)\n# profile: optimizer=true, optimizer_runs=1, via_ir=false (foundry.toml [profile.default])\n# knobs:   FabricaAttributeOracle.defaultKnobs() \u2014 the config\n#          script/FabricaAttributeOracleDeploy.s.sol deploys with.\n#\n# \u26a0 RUN THIS WITHOUT --gas-report.\n#   Foundry's gas-report instrumentation inflates the gasleft() deltas these benches\n#   read, and the codeless-control subtraction absorbs most but not all of it. The CSV\n#   rows here are valid ONLY from a plain -vv run. Under --gas-report the steady-state\n#   writePrice row reads 72,268 instead of 73,812."
+ },
+ "rows": {
+  "heartbeat:first": {
+   "callGas": 52494,
+   "calldataBytes": 68,
+   "calldataGas": 344,
+   "execGas": 52022,
+   "overheadGas": 472,
+   "txTotal": 73366
+  },
+  "heartbeat:repeat": {
+   "callGas": 18341,
+   "calldataBytes": 68,
+   "calldataGas": 344,
+   "execGas": 17869,
+   "overheadGas": 472,
+   "txTotal": 39213
+  },
+  "register:first under validator": {
+   "callGas": 75744,
+   "calldataBytes": 68,
+   "calldataGas": 368,
+   "execGas": 75272,
+   "overheadGas": 472,
+   "txTotal": 96640
+  },
+  "register:subsequent": {
+   "callGas": 58644,
+   "calldataBytes": 68,
+   "calldataGas": 368,
+   "execGas": 58172,
+   "overheadGas": 472,
+   "txTotal": 79540
+  },
+  "registerBatch:1": {
+   "callGas": 59124,
+   "calldataBytes": 132,
+   "calldataGas": 648,
+   "execGas": 58646,
+   "overheadGas": 478,
+   "txTotal": 80294
+  },
+  "registerBatch:10": {
+   "callGas": 510285,
+   "calldataBytes": 420,
+   "calldataGas": 2124,
+   "execGas": 509780,
+   "overheadGas": 505,
+   "txTotal": 532904
+  },
+  "registerBatch:100": {
+   "callGas": 5021895,
+   "calldataBytes": 3300,
+   "calldataGas": 16884,
+   "execGas": 5021120,
+   "overheadGas": 775,
+   "txTotal": 5059004
+  },
+  "registerBatch:1000": {
+   "callGas": 50137995,
+   "calldataBytes": 32100,
+   "calldataGas": 164448,
+   "execGas": 50134520,
+   "overheadGas": 3475,
+   "txTotal": 50319968
+  },
+  "writeAttribute:first": {
+   "callGas": 123072,
+   "calldataBytes": 292,
+   "calldataGas": 2692,
+   "execGas": 122579,
+   "overheadGas": 493,
+   "txTotal": 146271
+  },
+  "writeAttribute:repeat, value changed": {
+   "callGas": 34919,
+   "calldataBytes": 292,
+   "calldataGas": 2668,
+   "execGas": 34426,
+   "overheadGas": 493,
+   "txTotal": 58094
+  },
+  "writeAttribute:repeat, value unchanged": {
+   "callGas": 32119,
+   "calldataBytes": 292,
+   "calldataGas": 2668,
+   "execGas": 31626,
+   "overheadGas": 493,
+   "txTotal": 55294
+  },
+  "writePrice:first": {
+   "callGas": 146552,
+   "calldataBytes": 356,
+   "calldataGas": 2684,
+   "execGas": 146053,
+   "overheadGas": 499,
+   "txTotal": 169737
+  },
+  "writePrice:second (ring slot cold)": {
+   "callGas": 131211,
+   "calldataBytes": 356,
+   "calldataGas": 2660,
+   "execGas": 130712,
+   "overheadGas": 499,
+   "txTotal": 154372
+  },
+  "writePrice:write 49+ (ring wrapped), price moved": {
+   "callGas": 79911,
+   "calldataBytes": 356,
+   "calldataGas": 2684,
+   "execGas": 79412,
+   "overheadGas": 499,
+   "txTotal": 103096
+  },
+  "writePrice:write 49+ (ring wrapped), price unchanged": {
+   "callGas": 79911,
+   "calldataBytes": 356,
+   "calldataGas": 2684,
+   "execGas": 79412,
+   "overheadGas": 499,
+   "txTotal": 103096
+  },
+  "writePrice:writes 3-48 (ring slot fresh, counter warm)": {
+   "callGas": 114111,
+   "calldataBytes": 356,
+   "calldataGas": 2696,
+   "execGas": 113612,
+   "overheadGas": 499,
+   "txTotal": 137308
+  },
+  "writePriceRelayed:first": {
+   "callGas": 175174,
+   "calldataBytes": 580,
+   "calldataGas": 4444,
+   "execGas": 174654,
+   "overheadGas": 520,
+   "txTotal": 200098
+  },
+  "writePriceRelayed:second (ring slot cold)": {
+   "callGas": 142734,
+   "calldataBytes": 580,
+   "calldataGas": 4432,
+   "execGas": 142214,
+   "overheadGas": 520,
+   "txTotal": 167646
+  },
+  "writePriceRelayed:write 49+ (ring wrapped), price moved": {
+   "callGas": 91434,
+   "calldataBytes": 580,
+   "calldataGas": 4456,
+   "execGas": 90914,
+   "overheadGas": 520,
+   "txTotal": 116370
+  },
+  "writePriceRelayed:writes 3-48 (ring slot fresh, counter warm)": {
+   "callGas": 125634,
+   "calldataBytes": 580,
+   "calldataGas": 4456,
+   "execGas": 125114,
+   "overheadGas": 520,
+   "txTotal": 150570
+  }
+ }
+};
+const R = DATA.rows, CHAIN = DATA.chain, META = DATA.meta;
+const MONTH_DAYS = 30.436875;           // mean Gregorian month
+const HISTORY_DEPTH = META.historyDepth; // ring depth, 48, read from the contract in the bench
+const G = n => R[n].txTotal;            // whole-transaction gas for a measured scenario
+
+/* ---------- formatting ---------- */
+const fmt = (n, d = 0) => n === null || !isFinite(n) ? "—"
+  : n.toLocaleString("en-US", {minimumFractionDigits: d, maximumFractionDigits: d});
+const usd = n => !isFinite(n) ? "—"
+  : n >= 1000 ? "$" + fmt(n, 0) : n >= 1 ? "$" + fmt(n, 2)
+  : n >= 0.01 ? "$" + n.toFixed(4) : "$" + n.toPrecision(2);
+const eth = n => !isFinite(n) ? "—" : n >= 1 ? fmt(n, 4) : n.toPrecision(3);
+const gwei = n => n >= 100 ? fmt(n, 0) : n >= 1 ? fmt(n, 2) : n.toPrecision(3);
+
+/* ---------- state ---------- */
+const DEFAULTS = {
+  layer: "bespoke", tokens: 1000, sources: 3, cadence: 1, month: 1,
+  gasKey: "now", gas: CHAIN.now.baseFeeGwei, tip: CHAIN.priorityFee.medianPriorityFeeGwei,
+  eth: CHAIN.ethUsd.price, maxSilence: 3, margin: 20, hbPolicy: "whenSilent",
+  attrs: 0, batch: 100, urgent: 1, urgentMult: 20, defer: 5, reg: true, moved: 100,
+};
+let S = Object.assign({}, DEFAULTS);
+
+/* ---------- the model ----------
+   A price row is one (oracle source, token, price) slot. Its gas depends on how many
+   times that row has been written, because the fact store pushes the previous value into
+   a 48-deep history ring: writes 1 and 2 allocate cold storage, writes 3 to 48 each
+   allocate a fresh ring slot, and only from write 49 does the ring overwrite itself.
+   `costOfFirstNWrites` is the cumulative cost of a row's first n writes, so the cost of
+   any month is the difference between two of them. n may be fractional. */
+function priceRegimes(relayed) {
+  const p = relayed ? "writePriceRelayed" : "writePrice";
+  return {
+    r1: G(p + ":first"),
+    r2: G(p + ":second (ring slot cold)"),
+    r3: G(p + ":writes 3-48 (ring slot fresh, counter warm)"),
+    r4: G(p + ":write 49+ (ring wrapped), price moved"),
+  };
+}
+function costOfFirstNWrites(n, c) {
+  if (n <= 0) return 0;
+  return c.r1 * Math.min(n, 1)
+       + c.r2 * Math.max(0, Math.min(n, 2) - 1)
+       + c.r3 * Math.max(0, Math.min(n, HISTORY_DEPTH) - 2)
+       + c.r4 * Math.max(0, n - HISTORY_DEPTH);
+}
+function attrCostForMonth(writesBefore, writesThis) {
+  const first = G("writeAttribute:first"), rest = G("writeAttribute:repeat, value changed");
+  const cum = n => n <= 0 ? 0 : first * Math.min(n, 1) + rest * Math.max(0, n - 1);
+  return cum(writesBefore + writesThis) - cum(writesBefore);
+}
+
+function model() {
+  // Tim's 18:21Z ruling: an unchanged valuation need not be rewritten, and the token is
+  // still covered by the cycle. A skipped write costs nothing at all -- no transaction is
+  // sent -- so the mover share scales the number of writes actually SENT.
+  //
+  // That number, not the cadence, is what drives the history ring. A row that is rewritten
+  // on 20% of cycles reaches write 49 five times more slowly than one rewritten every
+  // cycle, so it stays in the dearer regimes far longer. Scaling only the cost while
+  // clocking the ring at the full cadence understated every month after the first --
+  // by 25% at 3-day cadence, month 12, 20% movers. Scale the write COUNT and the cost
+  // follows from it; never multiply by moverShare a second time.
+  const moverShare = S.moved / 100;
+  const rows = S.tokens * S.sources;
+  // What the cadence alone would send, kept only to show the effect of the skip policy.
+  const cadenceWritesPerRowPerMonth = MONTH_DAYS / S.cadence;
+  const writesPerRowPerMonth = cadenceWritesPerRowPerMonth * moverShare;
+  const before = (S.month - 1) * writesPerRowPerMonth;
+  const c = priceRegimes(false);
+  const perRow = costOfFirstNWrites(before + writesPerRowPerMonth, c) - costOfFirstNWrites(before, c);
+  const priceGas = rows * perRow;
+  const priceWrites = rows * writesPerRowPerMonth;
+
+  // Heartbeat. Its deadline is the max-silence window less the safety margin.
+  const hbInterval = S.maxSilence * (1 - S.margin / 100);
+  const hbPerWriterPerMonth = MONTH_DAYS / hbInterval;
+  // On the deployed round-1 contract every writePrice also refreshes the freshness clock, so a writer
+  // that writes at least once per window needs no bare heartbeat at all.
+  const coveredByWrites = S.cadence <= hbInterval;
+  let hbCount;
+  if (S.hbPolicy === "round2") hbCount = S.sources * MONTH_DAYS;      // one close per writer per day
+  else if (S.hbPolicy === "everyCycle") hbCount = S.sources * hbPerWriterPerMonth;
+  else hbCount = coveredByWrites ? 0 : S.sources * (hbPerWriterPerMonth - MONTH_DAYS / S.cadence);
+  hbCount = Math.max(0, hbCount);
+  // The first close under a writer bootstraps two cold storage words and costs more. It is
+  // a separate transaction only when no repeat close is already being charged; otherwise it
+  // upgrades one of them. Kept as its own term so the printed equation balances and so the
+  // twelve-month figure can pick it up too -- folding it into hbGas hid it from both.
+  const bootstrapCount = S.month === 1 ? S.sources : 0;
+  const bootstrapGas = S.month !== 1 ? 0
+    : hbCount > 0 ? S.sources * (G("heartbeat:first") - G("heartbeat:repeat"))
+                  : S.sources * G("heartbeat:first");
+  const hbTxns = hbCount + (hbCount > 0 ? 0 : bootstrapCount);
+  const hbGas = hbCount * G("heartbeat:repeat") + bootstrapGas;
+  // Round 2's close carries the cycle number only. The Merkle root came out of round 2 on
+  // 2026-09-03 (Tim, 18:47Z) and is a round-3 candidate, so this row is fully measured --
+  // it is the same contract call the round-1 close is, just made unconditionally.
+
+  // Attributes.
+  const attrWritesPerTokenPerMonth = S.attrs * writesPerRowPerMonth;
+  const attrGas = S.attrs > 0
+    ? S.tokens * attrCostForMonth(S.attrs * before, attrWritesPerTokenPerMonth) : 0;
+  const attrWrites = S.tokens * attrWritesPerTokenPerMonth;
+
+  // Registration: a one-time, round-1-only cost, so it lands in month 1 or nowhere.
+  const perItemReg = batchPerItem(S.batch);
+  const regGas = (S.reg && S.month === 1) ? S.tokens * perItemReg : 0;
+  const regTxns = regGas > 0 ? Math.ceil(S.tokens / S.batch) : 0;
+
+  const totalGas = priceGas + hbGas + attrGas + regGas;
+  const price = (S.gas + S.tip) * 1e-9;              // ETH per gas
+  const toEth = g => g * price;
+  const toUsd = g => toEth(g) * S.eth;
+
+  // Urgency split. Deferrable = routine price writes + the cycle close. Urgent = a
+  // token-score collapse or a lock, priced at the urgent tip.
+  const urgentCount = S.urgent * (S.tokens / 1000);
+  const urgentPerWrite = c.r4 <= 0 ? 0 : (before + writesPerRowPerMonth >= HISTORY_DEPTH ? c.r4 : c.r3);
+  const urgentGas = urgentCount * urgentPerWrite;
+  const urgentPrice = (S.gas + S.tip * S.urgentMult) * 1e-9;
+  const urgentUsd = urgentGas * urgentPrice * S.eth;
+  const deferrableGas = priceGas + hbGas + attrGas;
+  const deferredPrice = (Math.min(S.defer, S.gas) + S.tip) * 1e-9;
+  const deferrableAtNow = deferrableGas * price * S.eth;
+  const deferrableDeferred = deferrableGas * deferredPrice * S.eth;
+  const saving = deferrableAtNow - deferrableDeferred;
+  // The decision-relevant saving is bounded by the clock, not by the month: you may only
+  // defer for as long as the max-silence window (less the safety margin) allows, so only
+  // the deferrable work that falls inside that window can actually be held back.
+  // Two different bounds, and confusing them overstates or understates the saving:
+  //  - the HARD bound is max silence itself, the point at which the aggregator's freshness
+  //    gate trips and every pool trusting the feed stops lending;
+  //  - the OPERATING bound is that less the safety margin, which is what a writer would
+  //    actually plan to, since arriving exactly at the gate leaves no room for a failure.
+  const hardBoundDays = S.maxSilence;
+  const longestDeferralDays = S.maxSilence * (1 - S.margin / 100);
+  const hardShare = Math.min(1, hardBoundDays / MONTH_DAYS);
+  const hardGas = (priceGas + hbGas + attrGas) * hardShare;
+  const windowShare = Math.min(1, longestDeferralDays / MONTH_DAYS);
+  const windowGas = deferrableGas * windowShare;
+  const windowAtPeak = windowGas * price * S.eth;
+  const windowDeferred = windowGas * deferredPrice * S.eth;
+  const windowSaving = windowAtPeak - windowDeferred;
+  const hardSaving = hardGas * price * S.eth - hardGas * deferredPrice * S.eth;
+
+  // At what token count does the cycle close stop being the dominant cost? The close is
+  // a per-writer, per-window cost and does not grow with the book, so the crossover is the
+  // token count at which the price writes overtake it.
+  // `perRow` is already the cost of the writes actually sent this month, so the price cost
+  // per token is `sources * perRow` with no further mover factor. Multiplying again here
+  // understated the crossover by 1/moverShare.
+  const crossoverTokens = (hbTxns > 0 && perRow > 0) ? hbGas / (S.sources * perRow) : null;
+
+  // Twelve months from the selected one, each priced in its own regime rather than this
+  // month's multiplied by twelve -- the ring makes later months genuinely cheaper.
+  let yearGas = 0;
+  for (let k = 0; k < 12; k++) {
+    const b = (S.month - 1 + k) * writesPerRowPerMonth;
+    yearGas += rows * (costOfFirstNWrites(b + writesPerRowPerMonth, c) - costOfFirstNWrites(b, c));
+    yearGas += Math.max(0, hbCount) * G("heartbeat:repeat");
+    if (S.attrs > 0) yearGas += S.tokens * attrCostForMonth(S.attrs * b, attrWritesPerTokenPerMonth);
+  }
+  // Both one-time costs belong to the first month of the window and are charged once, not
+  // twelve times. The month figure charges them the same way.
+  yearGas += regGas + bootstrapGas;
+
+  return {rows, writesPerRowPerMonth, cadenceWritesPerRowPerMonth, perRow, priceGas, priceWrites,
+          hbInterval, hbCount, hbGas, hbTxns, bootstrapCount, bootstrapGas,
+          coveredByWrites, attrGas, attrWrites, regGas, regTxns, perItemReg, totalGas, toEth, toUsd,
+          moverShare, hbPerWriterPerMonth,
+          urgentCount, urgentGas, urgentUsd, urgentPerWrite, deferrableGas, deferrableAtNow,
+          deferrableDeferred, saving, crossoverTokens, price, urgentPrice, yearGas,
+          longestDeferralDays, windowShare, windowGas, windowAtPeak, windowDeferred, windowSaving,
+          hardBoundDays, hardShare, hardGas, hardSaving};
+}
+
+function batchPerItem(n) { return G("registerBatch:" + n) / n; }
+
+/* ---------- render ---------- */
+function render() {
+  const m = model();
+  const pending = S.layer === "eas";
+  document.getElementById("prov").innerHTML =
+    `Input digest <code>${META.inputDigest}</code> — a hash of this page's own inputs, which is
+     the identity that matters, because it does not change when the page is committed and does
+     not depend on which branch or checkout you are on.
+     <code>build-model-page.py --check</code> regenerates the page from the committed template,
+     reports and chain data and fails if it differs; it works on any checkout, detached
+     included. Built from <code>${META.commitShort}</code>, necessarily the <em>parent</em> of
+     the commit carrying this page — a committed file cannot name its own SHA, which is exactly
+     why the digest and not a SHA is the guarantee.
+     Mainnet figures read from the chain at ${CHAIN.now.timeUtc}, block
+     <span class="num">${fmt(CHAIN.now.block)}</span>.
+     Ticket <a href="https://linear.app/fabrica/issue/ENG-3913">ENG-3913</a>.
+     Generated — do not hand-edit.`;
+
+  document.getElementById("eas-banner").innerHTML = pending ? `
+    <div class="note warn"><p><strong>The EAS arm is <span class="pending">pending measurement</span>.</strong>
+    Nothing on this page estimates it. The EAS numbers are
+    <a href="https://linear.app/fabrica/issue/ENG-3922">ENG-3922</a>'s to publish — per
+    <code>attest</code> and <code>multiAttest</code> at batch 1/10/100, per <code>revoke</code>,
+    per pointer write, and the number that actually decides the fact-layer question, gas inside
+    <code>price()</code>. Until that lands, switch the dial back to <em>bespoke</em> to get numbers.</p>
+    <p class="small">Deliberate: an estimate here would be read as a measurement and would settle a
+    decision it has no standing to settle.</p></div>` : "";
+
+  /* A peak base fee is an instant, not a level. Multiplying it by a month's traffic gives
+     an upper bound that has never actually occurred, and a reader will take it for a
+     forecast unless told otherwise. */
+  const peakish = ["extremely high", "historical peak"].includes(S.gasKey);
+  document.getElementById("headline-caveat").innerHTML = peakish ? `
+    <div class="note warn"><p><strong>These figures assume the peak holds for a whole month.
+    It never has.</strong> ${S.gasKey === "historical peak"
+      ? "The 8,629 gwei base fee of 2022-05-01 lasted minutes."
+      : "The 547 gwei of 2025-10-10 lasted a matter of hours."} Read this row as
+    <em>an upper bound on what a month of unlucky timing could cost</em>, not as a forecast.
+    The realistic question is the one the congestion section below answers: what the urgent
+    class costs while a peak is running, and what deferring the rest saves. The deferral
+    dial exists precisely so this row never has to be paid.</p></div>` : "";
+
+  /* headline */
+  const cards = [];
+  const perTokenMonth = m.totalGas / S.tokens;
+  if (!pending) {
+    cards.push(["Gas per month", fmt(m.totalGas),
+                `${fmt(m.priceWrites + m.hbTxns + m.attrWrites + m.regTxns, 0)} transactions`]);
+    cards.push(["ETH per month", eth(m.toEth(m.totalGas)), `at ${gwei(S.gas)} + ${gwei(S.tip)} gwei`]);
+    cards.push(["USD per month", usd(m.toUsd(m.totalGas)), `ETH at ${usd(S.eth)}`]);
+    cards.push(["USD per day", usd(m.toUsd(m.totalGas) / MONTH_DAYS), "month ÷ 30.44"]);
+    cards.push(["USD per token per month", usd(m.toUsd(perTokenMonth)), `${fmt(S.tokens)} tokens`]);
+    cards.push(["USD per token per year", usd(m.toUsd(m.yearGas) / S.tokens),
+                `months ${S.month}–${S.month + 11}, each in its own regime`]);
+  } else {
+    for (const k of ["Gas per month", "ETH per month", "USD per month", "USD per day",
+                     "USD per token per month", "USD per token per year"])
+      cards.push([k, "—", "pending ENG-3922"]);
+  }
+  document.getElementById("headline").innerHTML = cards.map(([k, v, s]) =>
+    `<div class="card"><div class="k">${k}</div><div class="v">${v}</div><div class="s">${s}</div></div>`).join("");
+
+  document.getElementById("headline-eq").textContent = pending ? "" :
+`price rows        = ${fmt(S.tokens)} tokens x ${S.sources} sources         = ${fmt(m.rows)}
+writes per row    = 30.44 / ${S.cadence}d cadence x ${S.moved}% moved   = ${fmt(m.writesPerRowPerMonth, 2)} per month
+gas per row       = regime-weighted for month ${S.month}${S.month < 10 ? " " : ""}              = ${fmt(m.perRow)}
+price writes      = ${fmt(m.rows)} rows x ${fmt(m.perRow)} gas           = ${fmt(m.priceGas)}
+cycle closes      = ${fmt(m.hbCount, 1)} x ${fmt(G("heartbeat:repeat"))} gas       = ${fmt(m.hbCount * G("heartbeat:repeat"))}
+writer bootstrap  = ${m.bootstrapGas ? fmt(m.bootstrapCount, 0) + " writers, first close, one-time" : "not counted this month"}  = ${fmt(m.bootstrapGas)}
+attributes        = ${fmt(m.attrWrites, 0)} writes                       = ${fmt(m.attrGas)}
+registration      = ${m.regGas ? fmt(m.regTxns) + " tx x " + fmt(S.batch) + "/tx, one-time" : "not counted this month"}   = ${fmt(m.regGas)}
+                                                         ------------
+total                                                    = ${fmt(m.totalGas)} gas
+                    x ${(S.gas + S.tip).toPrecision(4)} gwei x ${usd(S.eth)}/ETH    = ${usd(m.toUsd(m.totalGas))}`;
+
+  /* share */
+  const parts = [
+    ["Price writes", m.priceGas, "#7a4b1e"],
+    ["Cycle close", m.hbGas, "#2f6b45"],
+    ["Attributes", m.attrGas, "#37618c"],
+    ["Registration (one-time)", m.regGas, "#8a5a00"],
+  ].filter(p => p[1] > 0);
+  const tot = parts.reduce((a, p) => a + p[1], 0) || 1;
+  document.getElementById("sharebar").innerHTML = pending ? "" :
+    parts.map(p => `<span style="flex:${p[1] / tot};background:${p[2]}" title="${p[0]}"></span>`).join("");
+  document.getElementById("sharelegend").innerHTML = pending ? "" :
+    parts.map(p => `<span><i style="background:${p[2]}"></i>${p[0]} — ${(100 * p[1] / tot).toFixed(1)}%</span>`).join("");
+
+  document.getElementById("breakdown").innerHTML = pending ? "" : `
+    <thead><tr><th>Component</th><th class="n">Transactions</th><th class="n">Gas each</th>
+      <th class="n">Gas total</th><th class="n">USD</th><th class="n">Share</th></tr></thead>
+    <tbody>
+      <tr><td>Price writes</td><td class="n">${fmt(m.priceWrites, 0)}</td>
+        <td class="n">${m.writesPerRowPerMonth > 0 ? fmt(m.perRow / m.writesPerRowPerMonth, 0) : "—"}</td>
+        <td class="n">${fmt(m.priceGas)}</td><td class="n">${usd(m.toUsd(m.priceGas))}</td>
+        <td class="n">${(100 * m.priceGas / tot).toFixed(1)}%</td></tr>
+      <tr><td>Cycle close${m.bootstrapGas ? " <span class=\"src\">incl. one-time writer bootstrap</span>" : ""}</td>
+        <td class="n">${fmt(m.hbTxns, 1)}</td>
+        <td class="n">${m.hbCount > 0 ? fmt(G("heartbeat:repeat")) : m.bootstrapGas ? fmt(G("heartbeat:first")) : "—"}</td>
+        <td class="n">${fmt(m.hbGas)}</td><td class="n">${usd(m.toUsd(m.hbGas))}</td>
+        <td class="n">${(100 * m.hbGas / tot).toFixed(1)}%</td></tr>
+      <tr><td>Attribute writes</td><td class="n">${fmt(m.attrWrites, 0)}</td>
+        <td class="n">${S.attrs ? fmt(G("writeAttribute:repeat, value changed")) : "—"}</td>
+        <td class="n">${fmt(m.attrGas)}</td><td class="n">${usd(m.toUsd(m.attrGas))}</td>
+        <td class="n">${(100 * m.attrGas / tot).toFixed(1)}%</td></tr>
+      <tr><td>Registration <span class="src">round 1 only</span></td>
+        <td class="n">${m.regTxns ? fmt(m.regTxns) : "—"}</td>
+        <td class="n">${m.regGas ? fmt(m.perItemReg, 0) + " /token" : "—"}</td>
+        <td class="n">${fmt(m.regGas)}</td><td class="n">${usd(m.toUsd(m.regGas))}</td>
+        <td class="n">${(100 * m.regGas / tot).toFixed(1)}%</td></tr>
+    </tbody>`;
+
+  const co = m.crossoverTokens;
+  const coBody = co === null
+    ? `<strong>On these dials the question does not arise: there are no bare cycle closes to pay
+       for.</strong> The write cadence (${S.cadence} day) is inside the cycle-close window
+       (${fmt(m.hbInterval, 2)} days), and on the deployed contract a price write refreshes the
+       freshness clock by itself, so the close costs nothing beyond bootstrapping each writer
+       once. Lengthen the cadence past the window, or switch the cycle-close dial to round 2, to make it a
+       real line item.`
+    : `On these dials the crossover is at <span class="num">${co < 1 ? "under 1" : fmt(Math.ceil(co))}</span>
+       token${co >= 2 ? "s" : ""} — ${co > S.tokens
+        ? `above your current ${fmt(S.tokens)}, so the cycle close still dominates here.`
+        : `well below your current ${fmt(S.tokens)}, so it does not dominate: it is
+           ${(100 * m.hbGas / tot).toFixed(2)}% of this month's bill.`}
+       The cycle close is a per-writer, per-window cost and does not grow with the book, so its
+       share collapses as soon as there is a real number of tokens. It is the dominant cost only
+       for a nearly empty book.`;
+  document.getElementById("crossover").innerHTML = pending ? "" : `
+    <div class="note ${co !== null && co > S.tokens ? "warn" : "ok"}"><p><strong>At what token count
+    does the cycle close stop being the dominant cost?</strong> ${coBody}</p>
+    ${m.coveredByWrites && S.hbPolicy === "whenSilent" ? `<p class="small">With this cadence
+    (${S.cadence} day) inside the cycle-close window (${fmt(m.hbInterval, 2)} days), the deployed
+    contract needs <strong>no bare closes at all</strong>: <code>_writePrice</code> calls
+    <code>_touchHeartbeat</code>, so every price write refreshes the freshness clock. Fede has
+    asked that a plain write <em>not</em> count as a cycle close; that is a change to the
+    contract, not a description of it. Switch the policy dial to see what charging for it
+    explicitly costs.</p>` : ""}</div>`;
+
+  /* urgency */
+  const peak = CHAIN.gasAnchors.find(a => a.label === "extremely high");
+  const hist = CHAIN.gasAnchors.find(a => a.label === "historical peak");
+  const atGas = (g, tip, gas) => gas * (g + tip) * 1e-9 * S.eth;
+  document.getElementById("urgency").innerHTML = pending ? "" : `
+    <thead><tr><th>Scenario</th><th class="n">Base fee</th><th class="n">Urgent class</th>
+      <th class="n">Deferrable class</th><th class="n">Total if nothing waits</th></tr></thead>
+    <tbody>
+      ${CHAIN.gasAnchors.map(a => `<tr>
+        <td>${a.label}<div class="src">block ${fmt(a.block)}, ${a.timeUtc}</div></td>
+        <td class="n">${gwei(a.baseFeeGwei)} gwei</td>
+        <td class="n">${usd(atGas(a.baseFeeGwei, S.tip * S.urgentMult, m.urgentGas))}</td>
+        <td class="n">${usd(atGas(a.baseFeeGwei, S.tip, m.deferrableGas))}</td>
+        <td class="n">${usd(atGas(a.baseFeeGwei, S.tip * S.urgentMult, m.urgentGas)
+                          + atGas(a.baseFeeGwei, S.tip, m.deferrableGas))}</td></tr>`).join("")}
+    </tbody>`;
+
+  const longest = S.maxSilence * (1 - S.margin / 100);
+  document.getElementById("urgency-notes").innerHTML = pending ? "" : `
+    <div class="note"><p><strong>Holding the urgent class to its bound at the worst moment of
+    the trailing year</strong> (${gwei(peak.baseFeeGwei)} gwei, ${peak.timeUtc}) costs
+    <strong>${usd(atGas(peak.baseFeeGwei, S.tip * S.urgentMult, m.urgentGas))}</strong> for
+    ${fmt(m.urgentCount, 1)} urgent writes. At the historical peak
+    (${gwei(hist.baseFeeGwei)} gwei, ${hist.timeUtc}) the same writes cost
+    <strong>${usd(atGas(hist.baseFeeGwei, S.tip * S.urgentMult, m.urgentGas))}</strong>.</p>
+    <p><strong>The longest deferral the max-silence dial permits is
+    ${fmt(m.hardBoundDays, 2)} days</strong> — that is the hard bound, the point at which the
+    aggregator's freshness gate trips and every pool trusting the feed stops lending. A writer
+    would plan to <strong>${fmt(m.longestDeferralDays, 2)} days</strong> instead, the same window
+    less a ${S.margin}% safety margin, because arriving exactly at the gate leaves no room for a
+    failed transaction. <em>That clock, not the gas price, is what bounds the saving.</em></p>
+    <p><strong>Deferring the price class and the cycle close for that full window</strong>, from
+    ${gwei(S.gas)} gwei until the base fee falls below ${gwei(S.defer)} gwei, holds back
+    ${fmt(m.windowGas)} gas — the ${(100 * m.windowShare).toFixed(1)}% of the month's deferrable
+    work that fits inside ${fmt(m.longestDeferralDays, 2)} days — and saves
+    <strong>${usd(m.windowSaving)}</strong>, taking that window's cost from
+    ${usd(m.windowAtPeak)} to ${usd(m.windowDeferred)}.
+    ${S.gas <= S.defer ? "<em>Gas is already below your threshold, so there is nothing to defer right now.</em>"
+      : ""}</p>
+    <p>Deferring to the <strong>hard bound</strong> of ${fmt(m.hardBoundDays, 2)} days instead
+    holds back ${fmt(m.hardGas)} gas and saves <strong>${usd(m.hardSaving)}</strong> — the extra
+    ${usd(m.hardSaving - m.windowSaving)} is what the safety margin costs, and it is the price of
+    not betting the whole feed on one transaction landing.</p>
+    <p class="small">For comparison, deferring a <em>whole month</em> of deferrable work would
+    save ${usd(m.saving)} of ${usd(m.deferrableAtNow)} — but that is not a thing the max-silence
+    window lets you do, and it is quoted only so the two numbers are not confused. Anything
+    beyond ${fmt(m.longestDeferralDays, 2)} days has to be written at whatever gas costs, or the
+    feed goes stale and every pool trusting it stops lending.</p></div>`;
+
+  /* batch. Gated on the arm like every other numeric panel: leaving a populated table of
+     bespoke registerBatch gas on screen beside six "—" cards invites it being read as the
+     EAS arm's. */
+  const blockLimit = CHAIN.now.gasLimit;
+  document.getElementById("batch").innerHTML = pending ? "" : `
+    <thead><tr><th>Batch size</th><th class="n">Gas per transaction</th><th class="n">Gas per token</th>
+      <th class="n">vs one-by-one</th><th class="n">Share of a block</th></tr></thead>
+    <tbody>${[1, 10, 100, 1000].map(n => {
+      const g = G("registerBatch:" + n), per = g / n, base = G("registerBatch:1");
+      const share = 100 * g / blockLimit;
+      return `<tr><td>${fmt(n)}</td><td class="n">${fmt(g)}</td><td class="n">${fmt(per, 0)}</td>
+        <td class="n">${n === 1 ? "—" : "−" + (100 * (1 - per / base)).toFixed(1) + "%"}</td>
+        <td class="n" ${share > 100 ? 'style="color:var(--bad);font-weight:600"' : share > 50 ? 'style="color:var(--warn);font-weight:600"' : ""}>${share.toFixed(1)}%</td></tr>`;
+    }).join("")}</tbody>`;
+
+  const b1000 = G("registerBatch:1000");
+  document.getElementById("batch-notes").innerHTML = pending ? `
+    <div class="note warn"><p>Batch figures are <span class="pending">pending measurement</span> for
+    the EAS arm: <code>multiAttest</code> grouped by schema at 1/10/100, <code>multiRevoke</code>,
+    and the pointer contract's batched write are all
+    <a href="https://linear.app/fabrica/issue/ENG-3922">ENG-3922</a>'s. Switch to the bespoke arm
+    for the measured registration figures.</p></div>` : `
+    <div class="note ${b1000 > blockLimit ? "bad" : "warn"}"><p><strong>Batching removes the
+    per-transaction overhead and nothing else.</strong> Per token it converges from
+    ${fmt(G("registerBatch:1"))} at n=1 to ${fmt(batchPerItem(1000), 0)} at n=1,000, and it is
+    essentially converged by n=100 (${fmt(batchPerItem(100), 0)}). The floor is the storage a
+    registry entry actually costs; the saving is the 21,000 intrinsic and the dispatch, spread
+    thinner.</p>
+    <p><strong>n=1,000 is one transaction of ${fmt(b1000)} gas.</strong> The live mainnet block
+    gas limit is <span class="num">${fmt(blockLimit)}</span> (block ${fmt(CHAIN.now.block)},
+    ${CHAIN.now.timeUtc}), so it ${b1000 > blockLimit
+      ? "<strong>does not fit in a block at all</strong>"
+      : `fits, but fills <strong>${(100 * b1000 / blockLimit).toFixed(0)}% of one</strong>`}.
+    Over the year sampled, the limit ranged ${fmt(CHAIN.dailyYear.gasLimitMin)} to
+    ${fmt(CHAIN.dailyYear.gasLimitMax)}, so this margin is not stable. A transaction that large
+    also drives the base fee up by its own inclusion, which this model does not attempt to
+    price. The dial is left at 1,000 because the ticket asks for it; treat n≈100 as the
+    practical setting.</p>
+    <p><strong>A batched <code>writePrice</code> does not exist to measure.</strong> Only
+    registration is batched on the deployed contract. The prototype is
+    <a href="https://linear.app/fabrica/issue/ENG-3922">ENG-3922</a>'s
+    <span class="pending">pending measurement</span>, as is EAS <code>multiAttest</code>, so this
+    table is registration only and the batch dial does not yet move the price-write arm.</p></div>`;
+
+  /* measured table */
+  const order = [
+    ["writePrice:first", "write 1 for a (source, token): no history push; every current-price word cold"],
+    ["writePrice:second (ring slot cold)", "write 2: ring slot and counter both zero → non-zero"],
+    ["writePrice:writes 3-48 (ring slot fresh, counter warm)", "writes 3–48: fresh ring slot, warm counter"],
+    ["writePrice:write 49+ (ring wrapped), price moved", "write 49+: ring wrapped, slot already holds an entry"],
+    ["writePrice:write 49+ (ring wrapped), price unchanged", "same, republishing an unchanged price"],
+    ["writePriceRelayed:first", "relayed write 1 (ecrecover + first nonce store)"],
+    ["writePriceRelayed:second (ring slot cold)", "relayed write 2"],
+    ["writePriceRelayed:writes 3-48 (ring slot fresh, counter warm)", "relayed writes 3–48"],
+    ["writePriceRelayed:write 49+ (ring wrapped), price moved", "relayed write 49+"],
+    ["writeAttribute:first", "first attribute fact for a token"],
+    ["writeAttribute:repeat, value changed", "re-stamping an attribute with a new value"],
+    ["writeAttribute:repeat, value unchanged", "re-stamping an attribute with the same value"],
+    ["heartbeat:first", "first cycle close under a writer (contract fn heartbeat()): bootstraps two cold words"],
+    ["heartbeat:repeat", "every cycle close after that"],
+    ["register:first under validator", "first token registered under a writer id"],
+    ["register:subsequent", "every token after that"],
+    ["registerBatch:1", "batched registration, n=1"],
+    ["registerBatch:10", "batched registration, n=10"],
+    ["registerBatch:100", "batched registration, n=100"],
+    ["registerBatch:1000", "batched registration, n=1,000"],
+  ];
+  document.getElementById("measured").innerHTML = `
+    <thead><tr><th>Scenario</th><th class="n">Intrinsic</th><th class="n">Calldata</th>
+      <th class="n">Execution</th><th class="n">Whole tx</th></tr></thead>
+    <tbody>${order.map(([k, why]) => {
+      const r = R[k];
+      return `<tr><td>${k}<div class="src">${why}</div></td>
+        <td class="n">21,000</td><td class="n">${fmt(r.calldataGas)}<div class="src">${r.calldataBytes} B</div></td>
+        <td class="n">${fmt(r.execGas)}</td><td class="n"><strong>${fmt(r.txTotal)}</strong></td></tr>`;
+    }).join("")}</tbody>`;
+
+  document.getElementById("chaintable").innerHTML = `
+    <thead><tr><th>Figure</th><th class="n">Value</th><th>Read from</th></tr></thead>
+    <tbody>
+      ${CHAIN.gasAnchors.map(a => `<tr><td>Base fee — ${a.label}<div class="src">${a.why}</div></td>
+        <td class="n">${gwei(a.baseFeeGwei)} gwei</td>
+        <td class="src">block ${fmt(a.block)}, ${a.timeUtc}<br>block gas limit ${fmt(a.gasLimit)}</td></tr>`).join("")}
+      <tr><td>Base fee — average (the “average” dial)<div class="src">${CHAIN.notes.medianIsTheAverageDial}</div></td>
+        <td class="n">${gwei(CHAIN.dailyYear.baseFeeGweiMedian)} gwei</td>
+        <td class="src">median of ${CHAIN.dailyYear.samples} daily samples,
+          ${CHAIN.dailyYear.windowFromUtc} → ${CHAIN.dailyYear.windowToUtc}<br>
+          mean ${gwei(CHAIN.dailyYear.baseFeeGweiMean)}, min ${gwei(CHAIN.dailyYear.baseFeeGweiMin)},
+          max ${gwei(CHAIN.dailyYear.baseFeeGweiMax)}</td></tr>
+      <tr><td>Priority fee (default tip)</td>
+        <td class="n">${gwei(CHAIN.priorityFee.medianPriorityFeeGwei)} gwei</td>
+        <td class="src">median of per-block medians of (gasPrice − baseFee) over blocks
+          ${fmt(CHAIN.priorityFee.fromBlock)}–${fmt(CHAIN.priorityFee.toBlock)}</td></tr>
+      <tr><td>ETH price</td><td class="n">${usd(CHAIN.ethUsd.price)}</td>
+        <td class="src">${CHAIN.ethUsd.source}<br><code>latestRoundData()</code>, updated ${CHAIN.ethUsd.updatedAtUtc}</td></tr>
+      <tr><td>Block gas limit</td><td class="n">${fmt(CHAIN.now.gasLimit)}</td>
+        <td class="src">block ${fmt(CHAIN.now.block)}, ${CHAIN.now.timeUtc};
+          ranged ${fmt(CHAIN.dailyYear.gasLimitMin)}–${fmt(CHAIN.dailyYear.gasLimitMax)} over the year sampled</td></tr>
+      <tr><td>History ring depth</td><td class="n">${HISTORY_DEPTH}</td>
+        <td class="src"><code>FabricaAttributeOracle.defaultKnobs()</code>, read from the contract in the bench</td></tr>
+    </tbody>`;
+
+  document.getElementById("eas-section").innerHTML = `
+    <div class="note warn"><p>Every EAS figure is <span class="pending">pending measurement</span> and
+    is <strong>not</strong> estimated anywhere on this page. The measurements belong to
+    <a href="https://linear.app/fabrica/issue/ENG-3922">ENG-3922</a>, whose pass mark is
+    pre-registered so the comparison cannot be tuned after the fact:</p>
+    <ul class="small">
+      <li><code>attest</code> at batch 1; <code>multiAttest</code> grouped by schema at 10 and 100</li>
+      <li><code>revoke</code>, and <code>multiRevoke</code></li>
+      <li>the ownerless pointer contract's write, single and batched</li>
+      <li>gas inside <code>price()</code> for a three-source read on each arm, including the
+        <code>refUID</code> walk depth the seasoning window needs — <em>the go/no-go number</em></li>
+      <li>a prototype batched <code>writePrice</code> on the custom store, for the same comparison</li>
+      <li><strong><code>indexAttestation</code></strong> — see the warning below; it is a separate
+        write and it is easy to leave out of an EAS estimate</li>
+    </ul>
+    <p><strong>⚠ On EAS, <code>attest</code> is not the whole write cost, and assuming it is is
+    the easiest way to underestimate that arm.</strong> EAS's <code>Indexer</code> does
+    <em>not</em> index on attestation: <code>indexAttestation</code> is a separate function in the
+    verified Sepolia ABI and therefore a separate transaction. Any EAS design that needs to look
+    an attestation up by (writer, token, kind) pays that write on top of the attest — and the
+    <code>Indexer</code> is <strong>not deployed on Ethereum mainnet at all</strong> (there is no
+    <code>Indexer.json</code> in the EAS repo's <code>deployments/mainnet/</code>), which is why
+    the adoption survey's Option A carries an ownerless pointer contract of our own instead. So
+    the honest comparison is attest + a lookup write against the custom store's single write, not
+    attest alone. <strong>The cost of that indexing write is
+    <span class="pending">pending measurement (ENG-3922)</span></strong> and is not estimated
+    here, like every other EAS figure on this page.</p>
+    <p class="small">The structural point above is a property of EAS's deployed contracts and of
+    the adoption survey, so it is stated now. The number is ENG-3922's, came out of the same run
+    as the arm results, and waits for the same pre-registered pass-mark acknowledgement they do —
+    at that lane's request, and rightly: pre-registration is worth nothing if the numbers leak out
+    of it one at a time.</p>
+    <p class="small">When they publish, this page gains a second arm and the fact-layer question is
+    answered off one screen. Until then the honest answer to “what would EAS cost?” is that nobody
+    has measured it.</p></div>`;
+
+  document.getElementById("method").innerHTML = `
+    <h3>How the per-operation numbers were taken</h3>
+    <p class="small">Each scenario is measured in its own Foundry test, primed in <code>setUp</code>.
+    That is not fussiness. Foundry gives a test body a fresh access list and clean storage — the
+    conditions a real transaction starts in — but measuring several scenarios inside one test lets
+    the first write warm and dirty the slots the next one touches, and EIP-2200's dirty-slot
+    discount then charges ~100 gas per word instead of ~2,900. An earlier draft of this bench did
+    exactly that and reported a wrapped-ring price write at 18,967 gas of execution; correctly
+    isolated it is ${fmt(R["writePrice:write 49+ (ring wrapped), price moved"].execGas)}. A
+    <code>vm.cool</code> call before each measurement makes the isolation explicit.</p>
+    <p class="small">Whole-transaction gas is built from parts that are each measured:
+    21,000 intrinsic (EIP-2), plus the exact calldata counted byte by byte at EIP-2028 rates,
+    plus execution. Execution is the gas of the call into the fact store minus the gas of an
+    identical call to a <em>codeless</em> address — so the harness's own CALL cost is measured,
+    not assumed, and a control with code (which costs 133 gas to enter) does not over-subtract.</p>
+    <p class="small"><code>forge test --gas-report</code> is the independent cross-check. The six
+    benched functions give <strong>twelve</strong> Min/Max cells; <strong>eleven are exactly 115
+    gas</strong> above this bench's whole-transaction figure. The twelfth,
+    <code>writePrice</code>'s Max, is 127 — and that is not a different constant, it is a
+    different call: the report's Max is pinned by a <code>setUp</code> priming write, not by the
+    benched <code>writePrice:first</code> scenario. The arithmetic closes exactly:
+    <code>21,000 + 2,696 + 146,053 + 115 = 169,864</code>, where 2,696 is that priming write's
+    calldata gas — twelve more than the benched first write's 2,684, being one further non-zero
+    byte in its provenance hashes. So the constant is 115 in all twelve cases; one cell simply
+    does not correspond to a scenario on this page. The delta is shown rather than folded in:
+    the figures above are the bench's, and are therefore 115 gas conservative in the low
+    direction.</p>
+
+    <h3>Two rulings that change what you should read off this page</h3>
+    <div class="note"><p><strong>An unchanged valuation need not be rewritten</strong>
+    (Tim, 3 Sep 18:21Z): a writer may skip it and the token is still covered by the cycle.
+    This matters because of a finding above — republishing an unchanged price costs
+    <em>exactly</em> what a moved one does
+    (${fmt(G("writePrice:write 49+ (ring wrapped), price unchanged"))} either way), since
+    <code>priceUsdc6</code> shares a storage word with <code>valuedAt</code>. There is no
+    contract-side saving to be had, so the only saving is not sending the transaction — which
+    is precisely what the ruling permits. The <em>“valuations that move per cycle”</em> dial is
+    that lever: at ${S.moved}% it is currently
+    ${S.moved < 100 ? `cutting the price-write arm by ${(100 - S.moved).toFixed(0)}%` : "off, which is the conservative setting"}.
+    Land prices move slowly, so the realistic setting is well under 100% and this is likely the
+    single largest cost lever on the page.</p>
+    <p><strong>The cycle close is a real per-cycle write in round 2</strong> (Tim, 3 Sep 18:21Z),
+    carrying the cycle number, daily. On the <em>deployed round-1</em> contract it is not needed
+    at all when writes are frequent, because <code>_writePrice</code> calls
+    <code>_touchHeartbeat</code>; that is what the round-1 settings on the cycle-close dial show.
+    Round 2 pays for one close per writer per day regardless. The Merkle root over the tokens a
+    cycle covered came <em>out</em> of round 2 later the same day (Tim, 18:47Z) and is a round-3
+    candidate, so the round-2 row here is fully measured rather than a floor — it is the same
+    contract call, made unconditionally. When the root lands it adds a write nobody has
+    measured yet.</p></div>
+
+    <h3>Two things that changed the answer</h3>
+    <div class="note"><p><strong>Provenance hashes must vary.</strong> A first draft reused one
+    constant <code>rawPayloadHash</code>/<code>inputsHash</code> pair, so two storage words were
+    written back with the values they already held — 100 gas each instead of ~2,900 — and every
+    repeat-write figure came out ~5,600 gas low. A real oracle writer hashes each cycle's payload
+    and inputs, so they change every time.</p>
+    <p><strong>“First versus repeat” is four regimes, not two.</strong> The ring is
+    ${HISTORY_DEPTH} deep, so a row does not reach its cheapest state until its 49th write — at
+    weekly cadence, eleven months. ENG-3922 read <code>historyLength</code> on the live round-1
+    store and found 0 and 2 against a depth of 48: <strong>nothing on Sepolia has wrapped</strong>,
+    and only two tokens have ever been written. Quoting the wrapped figure as “the” per-write cost
+    would understate the next year by ${(100 * (1 - G("writePrice:write 49+ (ring wrapped), price moved")
+      / G("writePrice:writes 3-48 (ring slot fresh, counter warm)"))).toFixed(0)}%.</p></div>
+
+    <h3>Does a Foundry measurement predict real on-chain gas?</h3>
+    <div class="note ok"><p>Every write-side number on this page is a Foundry measurement, so
+    the page rests on the assumption that a properly cooled Foundry figure predicts what a
+    transaction actually burns. That assumption has now been tested directly rather than
+    assumed. <a href="https://linear.app/fabrica/issue/ENG-3922">ENG-3922</a> ran every read arm
+    twice — once on a Sepolia fork with <code>vm.cool</code>, and once as a <strong>real Sepolia
+    transaction</strong> through a probe contract that performs the read inside a transaction and
+    emits the gas it consumed. <strong>The two methods agree to within 0.7% on all four arms, and
+    to 0.2% on three of them.</strong> Evidence and transaction hashes are in that ticket's
+    Sepolia evidence report (fabrica-v3-contracts PR 42,
+    <code>bench-reports/eng3922-sepolia-evidence.md</code>) — it is their artifact, not this
+    page's, and it is cited rather than reproduced here.</p>
+    <p class="small">This is a cross-check of the <em>method</em>, on the read path, by another
+    lane. It is not a re-measurement of this page's write-side numbers, and it does not remove
+    the write-1 discrepancy below.</p></div>
+
+    <h3>Cross-check against ENG-3922's write-side baseline — withdrawn, pending re-measurement</h3>
+    <div class="note warn"><p><strong>This page previously claimed its write-side figures agreed
+    with ENG-3922's independent measurement of the deployed contract to 0.2% on three of four
+    regimes. That claim is <span class="pending">withdrawn</span>, and no replacement number is
+    offered.</strong></p>
+    <p>Two reasons, either of which is sufficient. First, the quantities were taken from figures
+    relayed in conversation rather than from ENG-3922's committed report, and they do not match
+    it — against the committed baseline the agreements are 1.7–2.1%, not 0.2%, and the wrapped
+    regime is out by 11.7%, which is a different regime from the one this page named as the
+    outlier. Second, and decisive: <strong>that baseline report does not currently reproduce.</strong>
+    A reviewer re-running it at ENG-3922's own head, same forge and same pinned fork block, gets
+    materially different numbers, and this repo's <code>CLAUDE.md</code> measurement guard sides
+    with the re-run. That is an open finding on contracts#42.</p>
+    <p>So the source is unsettled in both directions, and substituting the committed values would
+    only move the error rather than remove it. The corroboration is marked
+    <span class="pending">pending: ENG-3922 baseline under re-measurement</span> and carries no
+    quantities until that report regenerates. <strong>Nothing on this page depends on it</strong>
+    — every figure here is measured by the benches in this repo, which reproduce exactly, and
+    none of them was derived from or reconciled against ENG-3922's baseline.</p>
+    <p class="small">The lesson, kept here deliberately: the withdrawn numbers came from a peer's
+    chat messages rather than from the artifact a reader would check. Corroboration is only worth
+    stating against a committed artifact, and only when that artifact regenerates.</p></div>
+    <details><summary>A hypothesis that was tested and killed: deployed code versus <code>main</code></summary>
+    <p class="small">The deployed round-1 fact store is <em>not</em> the code on <code>main</code>.
+    Diffing <code>cast code</code> on the live Sepolia address against builds of each historical
+    commit identifies it as commit <code>062f049</code> — 13,458 runtime bytes on both sides, 147
+    differing bytes, every one inside a slot listed in the artifact's
+    <code>immutableReferences</code> (the knobs; <code>historyDepth = 48 = 0x30</code>).
+    <code>main</code> moved afterwards at <code>10aafd6</code> (ENG-3523), which refactored
+    <code>_writePrice</code>. That looked like the explanation for the gap above. It is not:
+    running both codes through one harness gives a difference of only 311–657 gas, and in the
+    opposite direction.</p>
+    <div class="scroll"><table><thead><tr><th>Regime</th><th class="n">main</th>
+      <th class="n">deployed</th><th class="n">delta</th></tr></thead><tbody>
+      ${DATA.compare.map(c => `<tr><td>${c.scenario}</td><td class="n">${fmt(+c.main_tx)}</td>
+        <td class="n">${fmt(+c.deployed_tx)}</td>
+        <td class="n">${c.delta_exec_deployed_minus_main}</td></tr>`).join("")}
+    </tbody></table></div>
+    <p class="small">Reproduce with <code>forge test --match-path test/Eng3913DeployedVsMainGas.t.sol -vv</code>.</p>
+    </details>
+
+    <h3>What this model does not claim</h3>
+    <ul class="small">
+      <li><strong>Round 2 is a third codebase.</strong> These numbers are the round-1 fact store.
+        <a href="https://linear.app/fabrica/issue/ENG-3924">ENG-3924</a> deletes the owner, the
+        writer allowlist and the per-token registration gate, so <em>every registration row above
+        is a round-1 cost only</em> and the round-2 model carries no registration term at all.
+        Re-measure when it exists.</li>
+      <li><strong>Gas prices are base fees.</strong> The tip is a separate, separately measured
+        dial. Neither is a forecast; both are readings.</li>
+      <li><strong>A large transaction moves the price it pays.</strong> Filling most of a block
+        raises the next base fee. Not modelled.</li>
+      <li><strong>The 2022 peak was a 30M-gas-limit chain.</strong> It is kept because the ticket
+        asks for a real historical peak and it is the honest ceiling, but it is not a forecast of
+        what today's 60M chain would do under the same demand.</li>
+      <li><strong>Read gas is not here.</strong> This prices writing facts. What it costs a pool to
+        <em>read</em> them inside <code>price()</code> is ENG-3922's measurement, and per the
+        adoption survey it — not write gas — is the binding constraint on the fact-layer choice.</li>
+    </ul>
+
+    <h3>Reproducing the whole page</h3>
+    <div class="eq">git clone https://github.com/fabrica-land/fabrica-v3-contracts &amp;&amp; cd fabrica-v3-contracts
+git checkout &lt;sha&gt;          # the commit CONTAINING this page: the PR head, or the
+                             # merge commit on main. NOT ${META.commitShort}, which is its parent.
+                             # A detached checkout is fine and is what CI does.
+
+# 1. the page is exactly what its committed inputs produce (no RPC, no keys)
+python3 bench/oracle-gas-model/build-model-page.py --check
+
+# 2. those inputs are what the code on this branch actually measures (no RPC, no keys)
+forge test --match-path test/Eng3913OracleGasBench.t.sol -vv        # per-scenario gas
+forge test --match-path test/Eng3913DeployedVsMainGas.t.sol -vv     # deployed vs main
+
+# 3. the mainnet readings (needs an RPC; re-running moves "now" and the ETH price,
+#    the historical anchors are immutable)
+MAINNET_RPC_URL=... python3 bench/oracle-gas-model/collect-chain-data.py &gt; bench/oracle-gas-model/chain-data.json</div>
+    <p class="small">The forge runs need no RPC and no keys. Only the mainnet readings do, and
+    re-running those moves the “now” figures and the ETH price; the historical anchors are
+    immutable. If your gas numbers differ, check the foundry version and
+    <code>optimizer_runs = 1</code> first — both are in the report headers.</p>`;
+
+  /* self-check: the model's own cost function, evaluated over exactly one write in each
+     regime, must return the measured whole-transaction figure to the gas. */
+  const oneWrite = (n, c) => costOfFirstNWrites(n, c) - costOfFirstNWrites(n - 1, c);
+  const cc = priceRegimes(false), cr = priceRegimes(true);
+  // Each row must compare something the MODEL computed against something MEASURED. A row
+  // that compares a measured value to itself proves nothing; CodeRabbit caught two of those
+  // in the first draft (`heartbeat:repeat` against itself, and batchPerItem(n)*n against the
+  // batch total it was derived from). The model-side column below is therefore driven
+  // through `model()` with real dials wherever the quantity is one `model()` produces.
+  const at = over => { const save = S; S = Object.assign({}, DEFAULTS, over); const m = model(); S = save; return m; };
+  const checks = [
+    ["writePrice, write 1", oneWrite(1, cc), G("writePrice:first")],
+    ["writePrice, write 2", oneWrite(2, cc), G("writePrice:second (ring slot cold)")],
+    ["writePrice, write 25 (in 3–48)", oneWrite(25, cc), G("writePrice:writes 3-48 (ring slot fresh, counter warm)")],
+    ["writePrice, write 49 (wrapped)", oneWrite(49, cc), G("writePrice:write 49+ (ring wrapped), price moved")],
+    ["writePriceRelayed, write 1", oneWrite(1, cr), G("writePriceRelayed:first")],
+    ["writePriceRelayed, write 49 (wrapped)", oneWrite(49, cr), G("writePriceRelayed:write 49+ (ring wrapped), price moved")],
+    ["writeAttribute, first", attrCostForMonth(0, 1), G("writeAttribute:first")],
+    ["writeAttribute, repeat", attrCostForMonth(1, 1), G("writeAttribute:repeat, value changed")],
+    // model() drives these three, so they exercise the real code path rather than an identity.
+    // One writer, one token, cadence = one month: month 1 is exactly one write, so the whole
+    // month's price gas must BE the measured first-write figure.
+    ["model: 1 token x 1 source, 1 write in month 1",
+     at({tokens: 1, sources: 1, cadence: MONTH_DAYS, month: 1, moved: 100, attrs: 0, reg: false}).priceGas,
+     G("writePrice:first")],
+    // Same, but the skip policy halves the writes: the ring must advance at the halved rate,
+    // so month 2 is still write 1 for that row -- this is the regression test for F1.
+    ["model: 50% movers, month 2 is still write 1",
+     at({tokens: 1, sources: 1, cadence: MONTH_DAYS, month: 2, moved: 50, attrs: 0, reg: false}).priceGas,
+     0.5 * G("writePrice:first")],
+    // Registration at batch size 1: one token, one transaction, the measured batch-1 total.
+    ["model: registration, 1 token at batch 1",
+     at({tokens: 1, batch: 1, month: 1, reg: true}).regGas, G("registerBatch:1")],
+    ["model: registration, 100 tokens at batch 100",
+     at({tokens: 100, batch: 100, month: 1, reg: true}).regGas, G("registerBatch:100")],
+    // A writer's first cycle close costs the measured bootstrap figure, once.
+    ["model: one writer's first cycle close",
+     at({sources: 1, month: 1, hbPolicy: "round2", moved: 0, attrs: 0, reg: false}).hbGas
+       - at({sources: 1, month: 1, hbPolicy: "round2", moved: 0, attrs: 0, reg: false}).hbCount * G("heartbeat:repeat"),
+     G("heartbeat:first") - G("heartbeat:repeat")],
+    ["model: registration, 10 tokens at batch 10",
+     at({tokens: 10, batch: 10, month: 1, reg: true}).regGas, G("registerBatch:10")],
+    ["model: registration, 1000 tokens at batch 1000",
+     at({tokens: 1000, batch: 1000, month: 1, reg: true}).regGas, G("registerBatch:1000")],
+  ];
+  let allPass = true;
+  document.getElementById("selfcheck").innerHTML = `
+    <thead><tr><th>Check</th><th class="n">Model</th><th class="n">Measured</th>
+      <th class="n">Difference</th><th class="n">Result</th></tr></thead>
+    <tbody>${checks.map(([name, got, want]) => {
+      const d = Math.abs(got - want);
+      const ok = d < 0.5;
+      if (!ok) allPass = false;
+      return `<tr><td>${name}</td><td class="n">${fmt(got, 0)}</td><td class="n">${fmt(want, 0)}</td>
+        <td class="n">${d < 0.5 ? "0" : fmt(got - want, 0)}</td>
+        <td class="n" style="color:${ok ? "var(--ok)" : "var(--bad)"};font-weight:650">${ok ? "PASS" : "FAIL"}</td></tr>`;
+    }).join("")}</tbody>`;
+  document.getElementById("selfcheck-verdict").innerHTML = allPass
+    ? `<div class="note ok"><p><strong>PASS — all ${checks.length} checks.</strong> Every per-operation
+       figure the model uses is the measured figure, to the gas, with no rounding and no fitted
+       constant. The month and year outputs are sums of these and nothing else.</p></div>`
+    : `<div class="note bad"><p><strong>FAIL.</strong> The model has drifted from its measured inputs.
+       Do not use any number on this page until this is green.</p></div>`;
+
+  document.getElementById("footer").innerHTML =
+    `Generated ${CHAIN.generatedAtUtc} from <code>${META.commitShort}</code>.
+     Sources: <code>bench/oracle-gas-model/reports/bench-rows.txt</code>,
+     <code>reports/gas-report.txt</code>, <code>reports/deployed-vs-main.txt</code>,
+     <code>chain-data.json</code>. Terms follow the
+     <a href="https://linear.app/fabrica/document/fabrica-oracle-glossary-4aef17fa4e41">Fabrica Oracle Glossary</a>;
+     “registration” appears only because it is the deployed contract's function name, and the
+     glossary retires the concept.`;
+}
+
+/* ---------- wiring ---------- */
+function seg(id, key, then) {
+  const el = document.getElementById(id);
+  el.addEventListener("click", e => {
+    const b = e.target.closest("button[data-v]");
+    if (!b) return;
+    S[key] = parseFloat(b.dataset.v);
+    if (then) then();
+    sync();
+  });
+}
+function num(id, key, then) {
+  const el = document.getElementById(id);
+  el.addEventListener("input", () => {
+    const v = parseFloat(el.value);
+    if (isFinite(v)) { S[key] = v; if (then) then(); render(); }
+  });
+}
+function sync() {
+  document.getElementById("d-layer").value = S.layer;
+  document.getElementById("d-tokens").value = S.tokens;
+  document.getElementById("d-sources").value = S.sources;
+  document.getElementById("d-cadence").value = S.cadence;
+  document.getElementById("d-month").value = S.month;
+  document.getElementById("d-month-v").textContent = "— month " + S.month;
+  document.getElementById("d-gas").value = S.gas;
+  document.getElementById("d-tip").value = S.tip;
+  document.getElementById("d-eth").value = S.eth;
+  document.getElementById("d-maxsilence").value = S.maxSilence;
+  document.getElementById("d-margin").value = S.margin;
+  document.getElementById("d-hbpolicy").value = S.hbPolicy;
+  document.getElementById("d-attrs").value = S.attrs;
+  document.getElementById("d-moved").value = S.moved;
+  document.getElementById("d-urgent").value = S.urgent;
+  document.getElementById("d-urgentmult").value = S.urgentMult;
+  document.getElementById("d-defer").value = S.defer;
+  document.getElementById("d-reg").checked = S.reg;
+  for (const [id, key] of [["d-tokens-seg", "tokens"], ["d-cadence-seg", "cadence"], ["d-batch-seg", "batch"]])
+    for (const b of document.getElementById(id).querySelectorAll("button[data-v]"))
+      b.setAttribute("aria-pressed", String(parseFloat(b.dataset.v) === S[key]));
+  for (const b of document.getElementById("d-gas-seg").querySelectorAll("button[data-k]"))
+    b.setAttribute("aria-pressed", String(b.dataset.k === S.gasKey));
+
+  // Clock the ring on writes actually SENT, not on the cadence: a skipped write does not
+  // advance the ring any more than it costs anything.
+  const mv = S.moved / 100;
+  const w = (MONTH_DAYS / S.cadence) * mv, before = (S.month - 1) * w, after = before + w;
+  const rn = n => n < 1 ? "write 1" : n < 2 ? "write 2" : n < HISTORY_DEPTH ? "writes 3–48" : "write 49+";
+  const monthsToWrap = w > 0 ? Math.max(1, Math.ceil(HISTORY_DEPTH / w)) : null;
+  document.getElementById("regime-hint").innerHTML = w <= 0
+    ? `No writes are sent at 0% movers, so no row ever advances through the ring.`
+    : `Writes ${fmt(before + 1, 1)}–${fmt(after, 1)} of each row's life, i.e. ${rn(before)} → ${rn(after - 0.001)}.
+       The ring is ${HISTORY_DEPTH} deep, so a row reaches its cheapest state on write 49 —
+       month ${monthsToWrap} at this cadence${S.moved < 100
+         ? ` and ${S.moved}% movers (the skip policy pushes that out by ${fmt(100 / S.moved, 1)}x)` : ""}.`;
+  document.getElementById("hb-hint").textContent =
+    `Cycle close every ${fmt(S.maxSilence * (1 - S.margin / 100), 2)} days — ${S.maxSilence} days ` +
+    `of tolerated silence less ${S.margin}%. The gate itself trips at ${S.maxSilence} days.`;
+  document.getElementById("hbpolicy-hint").innerHTML =
+    S.hbPolicy === "whenSilent"
+      ? `Round 1, as deployed: <code>_writePrice</code> calls <code>_touchHeartbeat</code>, so a
+         price write already refreshes the clock and a bare close is only needed when the window
+         would otherwise lapse.`
+      : S.hbPolicy === "everyCycle"
+      ? `Round 1, charging a close every window regardless — what it costs if a plain write does
+         not count as “book confirmed”.`
+      : `Round 2 (Tim, 3 Sep 18:21Z): one close per writer per day, carrying the cycle number.
+         Fully measured — the same contract call as the round-1 close, made unconditionally.
+         The Merkle root came out of round 2 at 18:47Z and is a round-3 candidate; when it lands
+         it adds a write nobody has measured yet.`;
+  document.getElementById("layer-hint").innerHTML = S.layer === "eas"
+    ? `<span class="pending">pending measurement</span> — ENG-3922 owns these numbers and this page
+       will not estimate them.`
+    : `The custom fact store as deployed for round 1, measured on <code>main</code>.`;
+  const a = CHAIN.gasAnchors.find(x => x.label === S.gasKey);
+  document.getElementById("gas-hint").innerHTML = S.gasKey === "custom"
+    ? "Your own figure."
+    : S.gasKey === "average"
+      ? `Median of ${CHAIN.dailyYear.samples} daily samples, ${CHAIN.dailyYear.windowFromUtc} → ${CHAIN.dailyYear.windowToUtc}.`
+      : a ? `Block ${fmt(a.block)}, ${a.timeUtc}. ${a.why}` : "";
+  document.getElementById("eth-hint").innerHTML =
+    `Default ${usd(CHAIN.ethUsd.price)} from Chainlink ETH/USD on mainnet, updated ${CHAIN.ethUsd.updatedAtUtc}.`;
+  document.getElementById("batch-hint").innerHTML =
+    `Drives registration only today. A batched <code>writePrice</code> does not exist to measure;
+     it and EAS <code>multiAttest</code> are <span class="pending">pending</span> on ENG-3922.`;
+  document.getElementById("reg-hint").innerHTML =
+    `A one-time cost at launch, counted in month 1 only. Round 2 deletes the per-token gate
+     (<a href="https://linear.app/fabrica/issue/ENG-3924">ENG-3924</a>, “there is no registry of
+     tokens”), so the round-2 model carries no registration term at all.`;
+  render();
+}
+
+function init() {
+  const gseg = document.getElementById("d-gas-seg");
+  gseg.innerHTML = CHAIN.gasAnchors.map(a =>
+    `<button data-k="${a.label}">${a.label}</button>`).join("")
+    + `<button data-k="average">average</button><button data-k="custom">custom</button>`;
+  gseg.addEventListener("click", e => {
+    const b = e.target.closest("button[data-k]");
+    if (!b) return;
+    S.gasKey = b.dataset.k;
+    if (S.gasKey === "average") S.gas = CHAIN.dailyYear.baseFeeGweiMedian;
+    else if (S.gasKey !== "custom") S.gas = CHAIN.gasAnchors.find(a => a.label === S.gasKey).baseFeeGwei;
+    sync();
+  });
+  seg("d-tokens-seg", "tokens");
+  seg("d-cadence-seg", "cadence");
+  seg("d-batch-seg", "batch");
+  num("d-tokens", "tokens"); num("d-sources", "sources"); num("d-eth", "eth");
+  num("d-cadence", "cadence");
+  num("d-maxsilence", "maxSilence"); num("d-margin", "margin"); num("d-attrs", "attrs");
+  num("d-urgent", "urgent"); num("d-urgentmult", "urgentMult"); num("d-defer", "defer");
+  num("d-moved", "moved");
+  num("d-gas", "gas", () => { S.gasKey = "custom"; });
+  num("d-tip", "tip");
+  document.getElementById("d-month").addEventListener("input", e => { S.month = +e.target.value; sync(); });
+  document.getElementById("d-layer").addEventListener("change", e => { S.layer = e.target.value; sync(); });
+  document.getElementById("d-hbpolicy").addEventListener("change", e => { S.hbPolicy = e.target.value; sync(); });
+  document.getElementById("d-reg").addEventListener("change", e => { S.reg = e.target.checked; render(); });
+  document.getElementById("d-reset").addEventListener("click", () => { S = Object.assign({}, DEFAULTS); sync(); });
+  sync();
+}
+init();
+</script>
+</body>
+</html>
