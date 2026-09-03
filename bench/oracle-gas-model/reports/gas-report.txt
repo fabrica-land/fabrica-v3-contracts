@@ -1,0 +1,133 @@
+# ENG-3913 — forge test --gas-report, literal output
+#
+# repo:    fabrica-v3-contracts
+# base:    origin/main @ 10aafd66aeee847dd381ab857a983de8067f3e45
+# command: forge test --match-path test/Eng3913OracleGasBench.t.sol --gas-report
+# forge:   forge Version: 1.7.1 (Commit SHA: 4072e48705af9d93e3c0f6e29e93b5e9a40caed8)
+# profile: optimizer=true, optimizer_runs=1, via_ir=false (foundry.toml [profile.default])
+# knobs:   FabricaAttributeOracle.defaultKnobs() — the config
+#          script/FabricaAttributeOracleDeploy.s.sol deploys with.
+
+No files changed, compilation skipped
+
+Ran 20 tests for test/Eng3913OracleGasBench.t.sol:Eng3913OracleGasBench
+[PASS] test_gas_heartbeat_first() (gas: 167696)
+Logs:
+  ENG3913ROW,heartbeat:first,76338,22332,54006,68,344,75350
+
+[PASS] test_gas_heartbeat_repeat() (gas: 134367)
+Logs:
+  ENG3913ROW,heartbeat:repeat,42185,22332,19853,68,344,41197
+
+[PASS] test_gas_registerBatch_1() (gas: 192135)
+Logs:
+  ENG3913ROW,registerBatch:1,83272,23098,60174,132,648,81822
+
+[PASS] test_gas_registerBatch_10() (gas: 717260)
+Logs:
+  ENG3913ROW,registerBatch:10,535909,26815,509094,420,2124,532218
+
+[PASS] test_gas_registerBatch_100() (gas: 5973666)
+Logs:
+  ENG3913ROW,registerBatch:100,5062279,63985,4998294,3300,16884,5036178
+
+[PASS] test_gas_registerBatch_1000() (gas: 58551658)
+Logs:
+  ENG3913ROW,registerBatch:1000,50325943,435595,49890348,32100,164448,50075796
+
+[PASS] test_gas_register_firstUnderValidator() (gas: 191180)
+Logs:
+  ENG3913ROW,register:first under validator,99612,22392,77220,68,368,98588
+
+[PASS] test_gas_register_subsequent() (gas: 174369)
+Logs:
+  ENG3913ROW,register:subsequent,82512,22392,60120,68,368,81488
+
+[PASS] test_gas_writeAttribute_first() (gas: 304058)
+Logs:
+  ENG3913ROW,writeAttribute:first,149264,28223,121041,292,2692,144733
+
+[PASS] test_gas_writeAttribute_repeatChanged() (gas: 215370)
+Logs:
+  ENG3913ROW,writeAttribute:repeat, value changed,61087,28163,32924,292,2668,56592
+
+[PASS] test_gas_writeAttribute_repeatUnchanged() (gas: 212922)
+Logs:
+  ENG3913ROW,writeAttribute:repeat, value unchanged,58287,28163,30124,292,2668,53792
+
+[PASS] test_gas_writePriceRelayed_first() (gas: 471617)
+Logs:
+  ENG3913ROW,writePriceRelayed:first,203118,32630,170488,580,4444,195932
+
+[PASS] test_gas_writePriceRelayed_midRing() (gas: 423052)
+Logs:
+  ENG3913ROW,writePriceRelayed:writes 3-48 (ring slot fresh, counter warm),153590,32660,120930,580,4456,146386
+
+[PASS] test_gas_writePriceRelayed_second() (gas: 439784)
+Logs:
+  ENG3913ROW,writePriceRelayed:second (ring slot cold),170666,32600,138066,580,4432,163498
+
+[PASS] test_gas_writePriceRelayed_wrapped() (gas: 388874)
+Logs:
+  ENG3913ROW,writePriceRelayed:write 49+ (ring wrapped), price moved,119390,32660,86730,580,4456,112186
+
+[PASS] test_gas_writePrice_first() (gas: 341481)
+Logs:
+  ENG3913ROW,writePrice:first,172736,28209,144527,356,2684,168211
+
+[PASS] test_gas_writePrice_midRing() (gas: 309945)
+Logs:
+  ENG3913ROW,writePrice:writes 3-48 (ring slot fresh, counter warm),140307,28239,112068,356,2696,135764
+
+[PASS] test_gas_writePrice_second() (gas: 326330)
+Logs:
+  ENG3913ROW,writePrice:second (ring slot cold),157371,28149,129222,356,2660,152882
+
+[PASS] test_gas_writePrice_wrappedMoved() (gas: 275748)
+Logs:
+  ENG3913ROW,writePrice:write 49+ (ring wrapped), price moved,106095,28209,77886,356,2684,101570
+
+[PASS] test_gas_writePrice_wrappedUnchanged() (gas: 275553)
+Logs:
+  ENG3913ROW,writePrice:write 49+ (ring wrapped), price unchanged,106095,28209,77886,356,2684,101570
+
+Suite result: ok. 20 passed; 0 failed; 0 skipped; finished in 28.42ms (27.32ms CPU time)
+
+╭----------------------------------------------------------------+-----------------+----------+---------+----------+---------╮
+| src/FabricaAttributeOracle.sol:FabricaAttributeOracle Contract |                 |          |         |          |         |
++============================================================================================================================+
+| Deployment Cost                                                | Deployment Size |          |         |          |         |
+|----------------------------------------------------------------+-----------------+----------+---------+----------+---------|
+|                                                        3173843 |           16041 |          |         |          |         |
+|----------------------------------------------------------------+-----------------+----------+---------+----------+---------|
+|                                                                |                 |          |         |          |         |
+|----------------------------------------------------------------+-----------------+----------+---------+----------+---------|
+| Function Name                                                  | Min             | Avg      | Median  | Max      | # Calls |
+|----------------------------------------------------------------+-----------------+----------+---------+----------+---------|
+| defaultKnobs                                                   |            1165 |     1165 |    1165 |     1165 |      20 |
+|----------------------------------------------------------------+-----------------+----------+---------+----------+---------|
+| hashPriceWrite                                                 |            3517 |     3517 |    3517 |     3517 |     160 |
+|----------------------------------------------------------------+-----------------+----------+---------+----------+---------|
+| heartbeat                                                      |           39328 |    73293 |   73481 |    73481 |     182 |
+|----------------------------------------------------------------+-----------------+----------+---------+----------+---------|
+| historyDepth                                                   |            1415 |     1415 |    1415 |     1415 |      60 |
+|----------------------------------------------------------------+-----------------+----------+---------+----------+---------|
+| nonces                                                         |            3148 |     3148 |    3148 |     3148 |     160 |
+|----------------------------------------------------------------+-----------------+----------+---------+----------+---------|
+| register                                                       |           79655 |    96675 |   96755 |    96755 |     222 |
+|----------------------------------------------------------------+-----------------+----------+---------+----------+---------|
+| registerBatch                                                  |           80409 | 13998157 | 2796069 | 50320083 |       4 |
+|----------------------------------------------------------------+-----------------+----------+---------+----------+---------|
+| setPricePublisher                                              |           49323 |    49330 |   49335 |    49335 |    1400 |
+|----------------------------------------------------------------+-----------------+----------+---------+----------+---------|
+| setSourceEnabled                                               |           28479 |    28479 |   28479 |    28479 |      20 |
+|----------------------------------------------------------------+-----------------+----------+---------+----------+---------|
+| writeAttribute                                                 |           55409 |   138596 |  146386 |   146386 |      23 |
+|----------------------------------------------------------------+-----------------+----------+---------+----------+---------|
+| writePrice                                                     |          103211 |   138444 |  137423 |   169864 |    2065 |
+|----------------------------------------------------------------+-----------------+----------+---------+----------+---------|
+| writePriceRelayed                                              |          116485 |   174629 |  167743 |   200213 |      84 |
+╰----------------------------------------------------------------+-----------------+----------+---------+----------+---------╯
+
+
+Ran 1 test suite in 40.41ms (28.42ms CPU time): 20 tests passed, 0 failed, 0 skipped (20 total tests)

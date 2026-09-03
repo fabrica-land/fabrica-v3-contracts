@@ -1,0 +1,2279 @@
+{
+ "generatedAtUtc": "2026-09-03T18:25:42Z",
+ "chain": "ethereum mainnet",
+ "method": {
+  "dailySample": "one block per calendar day for 365 days, stepping back in exact 7200-block strides (12s slots) from the latest block; the base fee of that single block, not a daily average",
+  "peakRefinement": "every block inspected across a +/-150 block window around a coarse hit, so the reported peak is the true maximum of that ~1 hour window",
+  "ethPrice": "Chainlink ETH/USD aggregator 0x5f4eC3Df9cbd43714FE2740f5E3616155c5b8419 latestRoundData() on mainnet, 8 decimals"
+ },
+ "now": {
+  "block": 25898556,
+  "timeUtc": "2026-09-03T18:24:47Z",
+  "baseFeeGwei": 0.118036368,
+  "gasLimit": 60000000,
+  "gasUsed": 52512223
+ },
+ "priorityFee": {
+  "blocksSampled": 20,
+  "fromBlock": 25898537,
+  "toBlock": 25898556,
+  "medianPriorityFeeWei": 135148415.0,
+  "medianPriorityFeeGwei": 0.135148415
+ },
+ "ethUsd": {
+  "price": 2506.16956849,
+  "updatedAtUtc": "2026-09-03T18:07:11Z",
+  "source": "Chainlink ETH/USD 0x5f4eC3Df9cbd43714FE2740f5E3616155c5b8419"
+ },
+ "dailyYear": {
+  "windowFromUtc": "2025-09-02T20:18:11Z",
+  "windowToUtc": "2026-09-03T18:24:47Z",
+  "samples": 365,
+  "baseFeeGweiMedian": 0.118402032,
+  "baseFeeGweiMean": 0.32932291469315067,
+  "baseFeeGweiMin": 0.023774284,
+  "baseFeeGweiMax": 22.366771198,
+  "gasLimitMin": 44824225,
+  "gasLimitMax": 60058592,
+  "gasLimitMedian": 60000000,
+  "series": [
+   {
+    "block": 25898556,
+    "timeUtc": "2026-09-03T18:24:47Z",
+    "baseFeeGwei": 0.118036368,
+    "gasLimit": 60000000
+   },
+   {
+    "block": 25891356,
+    "timeUtc": "2026-09-02T18:19:11Z",
+    "baseFeeGwei": 0.153369388,
+    "gasLimit": 60000000
+   },
+   {
+    "block": 25884156,
+    "timeUtc": "2026-09-01T18:14:11Z",
+    "baseFeeGwei": 0.236275324,
+    "gasLimit": 60000000
+   },
+   {
+    "block": 25876956,
+    "timeUtc": "2026-08-31T18:08:47Z",
+    "baseFeeGwei": 0.156248633,
+    "gasLimit": 59999943
+   },
+   {
+    "block": 25869756,
+    "timeUtc": "2026-08-30T18:03:11Z",
+    "baseFeeGwei": 0.114249877,
+    "gasLimit": 60000000
+   },
+   {
+    "block": 25862556,
+    "timeUtc": "2026-08-29T17:58:47Z",
+    "baseFeeGwei": 0.045036474,
+    "gasLimit": 60000000
+   },
+   {
+    "block": 25855356,
+    "timeUtc": "2026-08-28T17:53:23Z",
+    "baseFeeGwei": 0.229588511,
+    "gasLimit": 60000000
+   },
+   {
+    "block": 25848156,
+    "timeUtc": "2026-08-27T17:48:11Z",
+    "baseFeeGwei": 0.451192347,
+    "gasLimit": 60000000
+   },
+   {
+    "block": 25840956,
+    "timeUtc": "2026-08-26T17:43:23Z",
+    "baseFeeGwei": 0.182693221,
+    "gasLimit": 60000000
+   },
+   {
+    "block": 25833756,
+    "timeUtc": "2026-08-25T17:38:59Z",
+    "baseFeeGwei": 0.127218593,
+    "gasLimit": 60000000
+   },
+   {
+    "block": 25826556,
+    "timeUtc": "2026-08-24T17:32:35Z",
+    "baseFeeGwei": 8.254775356,
+    "gasLimit": 60000000
+   },
+   {
+    "block": 25819356,
+    "timeUtc": "2026-08-23T17:28:59Z",
+    "baseFeeGwei": 0.140029247,
+    "gasLimit": 60000000
+   },
+   {
+    "block": 25812156,
+    "timeUtc": "2026-08-22T17:23:35Z",
+    "baseFeeGwei": 0.091586612,
+    "gasLimit": 59941408
+   },
+   {
+    "block": 25804956,
+    "timeUtc": "2026-08-21T17:18:23Z",
+    "baseFeeGwei": 0.418321431,
+    "gasLimit": 60000000
+   },
+   {
+    "block": 25797756,
+    "timeUtc": "2026-08-20T17:14:11Z",
+    "baseFeeGwei": 0.569357972,
+    "gasLimit": 60000000
+   },
+   {
+    "block": 25790556,
+    "timeUtc": "2026-08-19T17:09:47Z",
+    "baseFeeGwei": 1.29470596,
+    "gasLimit": 59999943
+   },
+   {
+    "block": 25783356,
+    "timeUtc": "2026-08-18T17:05:47Z",
+    "baseFeeGwei": 0.13980137,
+    "gasLimit": 60000000
+   },
+   {
+    "block": 25776156,
+    "timeUtc": "2026-08-17T16:59:59Z",
+    "baseFeeGwei": 0.139076184,
+    "gasLimit": 60000000
+   },
+   {
+    "block": 25768956,
+    "timeUtc": "2026-08-16T16:55:35Z",
+    "baseFeeGwei": 0.04284867,
+    "gasLimit": 60000000
+   },
+   {
+    "block": 25761756,
+    "timeUtc": "2026-08-15T16:51:35Z",
+    "baseFeeGwei": 0.058772619,
+    "gasLimit": 60000000
+   },
+   {
+    "block": 25754556,
+    "timeUtc": "2026-08-14T16:45:23Z",
+    "baseFeeGwei": 0.096145248,
+    "gasLimit": 59999943
+   },
+   {
+    "block": 25747356,
+    "timeUtc": "2026-08-13T16:40:23Z",
+    "baseFeeGwei": 0.154159066,
+    "gasLimit": 60000000
+   },
+   {
+    "block": 25740156,
+    "timeUtc": "2026-08-12T16:37:11Z",
+    "baseFeeGwei": 0.106901935,
+    "gasLimit": 60000000
+   },
+   {
+    "block": 25732956,
+    "timeUtc": "2026-08-11T16:29:59Z",
+    "baseFeeGwei": 0.120001185,
+    "gasLimit": 60000000
+   },
+   {
+    "block": 25725756,
+    "timeUtc": "2026-08-10T16:21:23Z",
+    "baseFeeGwei": 0.14443502,
+    "gasLimit": 60000000
+   },
+   {
+    "block": 25718556,
+    "timeUtc": "2026-08-09T16:15:59Z",
+    "baseFeeGwei": 0.085074521,
+    "gasLimit": 60058592
+   },
+   {
+    "block": 25711356,
+    "timeUtc": "2026-08-08T16:11:47Z",
+    "baseFeeGwei": 0.063870683,
+    "gasLimit": 60000000
+   },
+   {
+    "block": 25704156,
+    "timeUtc": "2026-08-07T16:02:59Z",
+    "baseFeeGwei": 0.317140507,
+    "gasLimit": 60000000
+   },
+   {
+    "block": 25696956,
+    "timeUtc": "2026-08-06T15:57:47Z",
+    "baseFeeGwei": 0.249583398,
+    "gasLimit": 60000000
+   },
+   {
+    "block": 25689756,
+    "timeUtc": "2026-08-05T15:55:23Z",
+    "baseFeeGwei": 0.185273918,
+    "gasLimit": 60000000
+   },
+   {
+    "block": 25682556,
+    "timeUtc": "2026-08-04T15:49:47Z",
+    "baseFeeGwei": 0.203509801,
+    "gasLimit": 60000000
+   },
+   {
+    "block": 25675356,
+    "timeUtc": "2026-08-03T15:46:23Z",
+    "baseFeeGwei": 0.20868791,
+    "gasLimit": 60000000
+   },
+   {
+    "block": 25668156,
+    "timeUtc": "2026-08-02T15:40:47Z",
+    "baseFeeGwei": 0.125895421,
+    "gasLimit": 60000000
+   },
+   {
+    "block": 25660956,
+    "timeUtc": "2026-08-01T15:34:59Z",
+    "baseFeeGwei": 0.087159683,
+    "gasLimit": 60000000
+   },
+   {
+    "block": 25653756,
+    "timeUtc": "2026-07-31T15:31:35Z",
+    "baseFeeGwei": 1.584361492,
+    "gasLimit": 60000000
+   },
+   {
+    "block": 25646556,
+    "timeUtc": "2026-07-30T15:25:23Z",
+    "baseFeeGwei": 3.958932607,
+    "gasLimit": 60000000
+   },
+   {
+    "block": 25639356,
+    "timeUtc": "2026-07-29T15:21:59Z",
+    "baseFeeGwei": 1.051180136,
+    "gasLimit": 59999943
+   },
+   {
+    "block": 25632156,
+    "timeUtc": "2026-07-28T15:16:11Z",
+    "baseFeeGwei": 0.414489687,
+    "gasLimit": 60000000
+   },
+   {
+    "block": 25624956,
+    "timeUtc": "2026-07-27T15:11:23Z",
+    "baseFeeGwei": 0.922729802,
+    "gasLimit": 60000000
+   },
+   {
+    "block": 25617756,
+    "timeUtc": "2026-07-26T15:06:47Z",
+    "baseFeeGwei": 0.095287815,
+    "gasLimit": 60000000
+   },
+   {
+    "block": 25610556,
+    "timeUtc": "2026-07-25T15:03:23Z",
+    "baseFeeGwei": 0.104220422,
+    "gasLimit": 60000000
+   },
+   {
+    "block": 25603356,
+    "timeUtc": "2026-07-24T14:59:47Z",
+    "baseFeeGwei": 0.160497685,
+    "gasLimit": 60000000
+   },
+   {
+    "block": 25596156,
+    "timeUtc": "2026-07-23T14:54:47Z",
+    "baseFeeGwei": 0.519359544,
+    "gasLimit": 60000000
+   },
+   {
+    "block": 25588956,
+    "timeUtc": "2026-07-22T14:46:23Z",
+    "baseFeeGwei": 0.159385889,
+    "gasLimit": 60000000
+   },
+   {
+    "block": 25581756,
+    "timeUtc": "2026-07-21T14:40:11Z",
+    "baseFeeGwei": 0.190033577,
+    "gasLimit": 60000000
+   },
+   {
+    "block": 25574556,
+    "timeUtc": "2026-07-20T14:35:11Z",
+    "baseFeeGwei": 0.142860114,
+    "gasLimit": 59941408
+   },
+   {
+    "block": 25567356,
+    "timeUtc": "2026-07-19T14:28:59Z",
+    "baseFeeGwei": 0.041745723,
+    "gasLimit": 60000000
+   },
+   {
+    "block": 25560156,
+    "timeUtc": "2026-07-18T14:22:23Z",
+    "baseFeeGwei": 0.068824593,
+    "gasLimit": 60000000
+   },
+   {
+    "block": 25552956,
+    "timeUtc": "2026-07-17T14:18:35Z",
+    "baseFeeGwei": 0.319755803,
+    "gasLimit": 60000000
+   },
+   {
+    "block": 25545756,
+    "timeUtc": "2026-07-16T14:14:11Z",
+    "baseFeeGwei": 0.291429287,
+    "gasLimit": 60000000
+   },
+   {
+    "block": 25538556,
+    "timeUtc": "2026-07-15T14:08:59Z",
+    "baseFeeGwei": 0.283621759,
+    "gasLimit": 60000000
+   },
+   {
+    "block": 25531356,
+    "timeUtc": "2026-07-14T14:03:11Z",
+    "baseFeeGwei": 0.381774466,
+    "gasLimit": 60000000
+   },
+   {
+    "block": 25524156,
+    "timeUtc": "2026-07-13T13:58:47Z",
+    "baseFeeGwei": 0.213077032,
+    "gasLimit": 60000000
+   },
+   {
+    "block": 25516956,
+    "timeUtc": "2026-07-12T13:51:47Z",
+    "baseFeeGwei": 0.088838347,
+    "gasLimit": 60000000
+   },
+   {
+    "block": 25509756,
+    "timeUtc": "2026-07-11T13:45:47Z",
+    "baseFeeGwei": 0.18235881,
+    "gasLimit": 59999943
+   },
+   {
+    "block": 25502556,
+    "timeUtc": "2026-07-10T13:41:59Z",
+    "baseFeeGwei": 0.215803755,
+    "gasLimit": 60000000
+   },
+   {
+    "block": 25495356,
+    "timeUtc": "2026-07-09T13:34:59Z",
+    "baseFeeGwei": 0.087694067,
+    "gasLimit": 60000000
+   },
+   {
+    "block": 25488156,
+    "timeUtc": "2026-07-08T13:29:59Z",
+    "baseFeeGwei": 0.13756924,
+    "gasLimit": 60000000
+   },
+   {
+    "block": 25480956,
+    "timeUtc": "2026-07-07T13:25:35Z",
+    "baseFeeGwei": 0.327381706,
+    "gasLimit": 60000000
+   },
+   {
+    "block": 25473756,
+    "timeUtc": "2026-07-06T13:20:47Z",
+    "baseFeeGwei": 0.178262715,
+    "gasLimit": 60000000
+   },
+   {
+    "block": 25466556,
+    "timeUtc": "2026-07-05T13:15:23Z",
+    "baseFeeGwei": 0.069705885,
+    "gasLimit": 59999943
+   },
+   {
+    "block": 25459356,
+    "timeUtc": "2026-07-04T13:07:35Z",
+    "baseFeeGwei": 0.070635255,
+    "gasLimit": 60000000
+   },
+   {
+    "block": 25452156,
+    "timeUtc": "2026-07-03T13:02:23Z",
+    "baseFeeGwei": 0.108139981,
+    "gasLimit": 60000000
+   },
+   {
+    "block": 25444956,
+    "timeUtc": "2026-07-02T12:54:11Z",
+    "baseFeeGwei": 0.322047426,
+    "gasLimit": 60000000
+   },
+   {
+    "block": 25437756,
+    "timeUtc": "2026-07-01T12:46:47Z",
+    "baseFeeGwei": 0.274816888,
+    "gasLimit": 60000000
+   },
+   {
+    "block": 25430556,
+    "timeUtc": "2026-06-30T12:40:47Z",
+    "baseFeeGwei": 0.212619559,
+    "gasLimit": 60000000
+   },
+   {
+    "block": 25423356,
+    "timeUtc": "2026-06-29T12:34:59Z",
+    "baseFeeGwei": 0.21086129,
+    "gasLimit": 60000000
+   },
+   {
+    "block": 25416156,
+    "timeUtc": "2026-06-28T12:27:59Z",
+    "baseFeeGwei": 0.077872005,
+    "gasLimit": 60000000
+   },
+   {
+    "block": 25408956,
+    "timeUtc": "2026-06-27T12:23:59Z",
+    "baseFeeGwei": 0.085151726,
+    "gasLimit": 60000000
+   },
+   {
+    "block": 25401756,
+    "timeUtc": "2026-06-26T12:18:23Z",
+    "baseFeeGwei": 0.378646171,
+    "gasLimit": 60000000
+   },
+   {
+    "block": 25394556,
+    "timeUtc": "2026-06-25T12:11:23Z",
+    "baseFeeGwei": 0.411996951,
+    "gasLimit": 60000000
+   },
+   {
+    "block": 25387356,
+    "timeUtc": "2026-06-24T12:04:35Z",
+    "baseFeeGwei": 0.153721945,
+    "gasLimit": 60000000
+   },
+   {
+    "block": 25380156,
+    "timeUtc": "2026-06-23T11:56:47Z",
+    "baseFeeGwei": 0.139554145,
+    "gasLimit": 60000000
+   },
+   {
+    "block": 25372956,
+    "timeUtc": "2026-06-22T11:51:11Z",
+    "baseFeeGwei": 0.213877507,
+    "gasLimit": 60000000
+   },
+   {
+    "block": 25365756,
+    "timeUtc": "2026-06-21T11:45:47Z",
+    "baseFeeGwei": 0.123496659,
+    "gasLimit": 60000000
+   },
+   {
+    "block": 25358556,
+    "timeUtc": "2026-06-20T11:39:35Z",
+    "baseFeeGwei": 0.235203688,
+    "gasLimit": 59941408
+   },
+   {
+    "block": 25351356,
+    "timeUtc": "2026-06-19T11:34:23Z",
+    "baseFeeGwei": 0.093095895,
+    "gasLimit": 60000000
+   },
+   {
+    "block": 25344156,
+    "timeUtc": "2026-06-18T11:29:35Z",
+    "baseFeeGwei": 0.153435203,
+    "gasLimit": 60000000
+   },
+   {
+    "block": 25336956,
+    "timeUtc": "2026-06-17T11:25:59Z",
+    "baseFeeGwei": 0.164301481,
+    "gasLimit": 59999886
+   },
+   {
+    "block": 25329756,
+    "timeUtc": "2026-06-16T11:22:59Z",
+    "baseFeeGwei": 0.089583253,
+    "gasLimit": 60000000
+   },
+   {
+    "block": 25322556,
+    "timeUtc": "2026-06-15T11:19:11Z",
+    "baseFeeGwei": 0.142482645,
+    "gasLimit": 60000000
+   },
+   {
+    "block": 25315356,
+    "timeUtc": "2026-06-14T11:13:47Z",
+    "baseFeeGwei": 0.113686986,
+    "gasLimit": 60000000
+   },
+   {
+    "block": 25308156,
+    "timeUtc": "2026-06-13T11:07:59Z",
+    "baseFeeGwei": 0.137478192,
+    "gasLimit": 60058592
+   },
+   {
+    "block": 25300956,
+    "timeUtc": "2026-06-12T11:01:47Z",
+    "baseFeeGwei": 0.145731559,
+    "gasLimit": 60000000
+   },
+   {
+    "block": 25293756,
+    "timeUtc": "2026-06-11T10:55:59Z",
+    "baseFeeGwei": 0.253045767,
+    "gasLimit": 60000000
+   },
+   {
+    "block": 25286556,
+    "timeUtc": "2026-06-10T10:49:35Z",
+    "baseFeeGwei": 0.123490001,
+    "gasLimit": 60000000
+   },
+   {
+    "block": 25279356,
+    "timeUtc": "2026-06-09T10:45:35Z",
+    "baseFeeGwei": 0.202574768,
+    "gasLimit": 59941408
+   },
+   {
+    "block": 25272156,
+    "timeUtc": "2026-06-08T10:39:59Z",
+    "baseFeeGwei": 0.12071953,
+    "gasLimit": 60000000
+   },
+   {
+    "block": 25264956,
+    "timeUtc": "2026-06-07T10:35:47Z",
+    "baseFeeGwei": 0.056436592,
+    "gasLimit": 60000000
+   },
+   {
+    "block": 25257756,
+    "timeUtc": "2026-06-06T10:30:11Z",
+    "baseFeeGwei": 0.135915757,
+    "gasLimit": 60000000
+   },
+   {
+    "block": 25250556,
+    "timeUtc": "2026-06-05T10:23:23Z",
+    "baseFeeGwei": 0.313220504,
+    "gasLimit": 60000000
+   },
+   {
+    "block": 25243356,
+    "timeUtc": "2026-06-04T10:13:59Z",
+    "baseFeeGwei": 0.324704224,
+    "gasLimit": 60000000
+   },
+   {
+    "block": 25236156,
+    "timeUtc": "2026-06-03T10:06:35Z",
+    "baseFeeGwei": 0.172483862,
+    "gasLimit": 60000000
+   },
+   {
+    "block": 25228956,
+    "timeUtc": "2026-06-02T09:59:23Z",
+    "baseFeeGwei": 0.302060043,
+    "gasLimit": 60000000
+   },
+   {
+    "block": 25221756,
+    "timeUtc": "2026-06-01T09:54:23Z",
+    "baseFeeGwei": 0.343206416,
+    "gasLimit": 60000000
+   },
+   {
+    "block": 25214556,
+    "timeUtc": "2026-05-31T09:49:11Z",
+    "baseFeeGwei": 0.151261968,
+    "gasLimit": 60000000
+   },
+   {
+    "block": 25207356,
+    "timeUtc": "2026-05-30T09:40:59Z",
+    "baseFeeGwei": 0.168261526,
+    "gasLimit": 60000000
+   },
+   {
+    "block": 25200156,
+    "timeUtc": "2026-05-29T09:34:23Z",
+    "baseFeeGwei": 0.284600024,
+    "gasLimit": 60000000
+   },
+   {
+    "block": 25192956,
+    "timeUtc": "2026-05-28T09:30:23Z",
+    "baseFeeGwei": 0.136276181,
+    "gasLimit": 60000000
+   },
+   {
+    "block": 25185756,
+    "timeUtc": "2026-05-27T09:25:11Z",
+    "baseFeeGwei": 0.165279909,
+    "gasLimit": 59941408
+   },
+   {
+    "block": 25178556,
+    "timeUtc": "2026-05-26T09:20:35Z",
+    "baseFeeGwei": 0.065121228,
+    "gasLimit": 59941408
+   },
+   {
+    "block": 25171356,
+    "timeUtc": "2026-05-25T09:14:59Z",
+    "baseFeeGwei": 0.09684208,
+    "gasLimit": 59941408
+   },
+   {
+    "block": 25164156,
+    "timeUtc": "2026-05-24T09:08:59Z",
+    "baseFeeGwei": 0.095185443,
+    "gasLimit": 60000000
+   },
+   {
+    "block": 25156956,
+    "timeUtc": "2026-05-23T09:04:11Z",
+    "baseFeeGwei": 0.10855727,
+    "gasLimit": 60000000
+   },
+   {
+    "block": 25149756,
+    "timeUtc": "2026-05-22T08:59:23Z",
+    "baseFeeGwei": 0.09766194,
+    "gasLimit": 59765974
+   },
+   {
+    "block": 25142556,
+    "timeUtc": "2026-05-21T08:54:59Z",
+    "baseFeeGwei": 0.105710395,
+    "gasLimit": 60000000
+   },
+   {
+    "block": 25135356,
+    "timeUtc": "2026-05-20T08:49:11Z",
+    "baseFeeGwei": 0.11965939,
+    "gasLimit": 60000000
+   },
+   {
+    "block": 25128156,
+    "timeUtc": "2026-05-19T08:45:47Z",
+    "baseFeeGwei": 0.117726775,
+    "gasLimit": 60000000
+   },
+   {
+    "block": 25120956,
+    "timeUtc": "2026-05-18T08:40:59Z",
+    "baseFeeGwei": 0.224086866,
+    "gasLimit": 60000000
+   },
+   {
+    "block": 25113756,
+    "timeUtc": "2026-05-17T08:37:35Z",
+    "baseFeeGwei": 0.114187942,
+    "gasLimit": 60000000
+   },
+   {
+    "block": 25106556,
+    "timeUtc": "2026-05-16T08:32:35Z",
+    "baseFeeGwei": 0.13971563,
+    "gasLimit": 60000000
+   },
+   {
+    "block": 25099356,
+    "timeUtc": "2026-05-15T08:29:35Z",
+    "baseFeeGwei": 0.187866933,
+    "gasLimit": 60000000
+   },
+   {
+    "block": 25092156,
+    "timeUtc": "2026-05-14T08:24:23Z",
+    "baseFeeGwei": 0.185913986,
+    "gasLimit": 60000000
+   },
+   {
+    "block": 25084956,
+    "timeUtc": "2026-05-13T08:15:11Z",
+    "baseFeeGwei": 0.096746188,
+    "gasLimit": 60000000
+   },
+   {
+    "block": 25077756,
+    "timeUtc": "2026-05-12T08:11:23Z",
+    "baseFeeGwei": 9.57388568,
+    "gasLimit": 60000000
+   },
+   {
+    "block": 25070556,
+    "timeUtc": "2026-05-11T08:05:47Z",
+    "baseFeeGwei": 0.364901678,
+    "gasLimit": 60000000
+   },
+   {
+    "block": 25063356,
+    "timeUtc": "2026-05-10T07:59:35Z",
+    "baseFeeGwei": 0.171199583,
+    "gasLimit": 60000000
+   },
+   {
+    "block": 25056156,
+    "timeUtc": "2026-05-09T07:53:47Z",
+    "baseFeeGwei": 0.147529114,
+    "gasLimit": 60000000
+   },
+   {
+    "block": 25048956,
+    "timeUtc": "2026-05-08T07:50:59Z",
+    "baseFeeGwei": 0.509066444,
+    "gasLimit": 59941408
+   },
+   {
+    "block": 25041756,
+    "timeUtc": "2026-05-07T07:46:47Z",
+    "baseFeeGwei": 0.193773672,
+    "gasLimit": 59999943
+   },
+   {
+    "block": 25034556,
+    "timeUtc": "2026-05-06T07:41:35Z",
+    "baseFeeGwei": 0.115483642,
+    "gasLimit": 60000000
+   },
+   {
+    "block": 25027356,
+    "timeUtc": "2026-05-05T07:38:11Z",
+    "baseFeeGwei": 0.198031312,
+    "gasLimit": 60000000
+   },
+   {
+    "block": 25020156,
+    "timeUtc": "2026-05-04T07:31:23Z",
+    "baseFeeGwei": 0.21333145,
+    "gasLimit": 60000000
+   },
+   {
+    "block": 25012956,
+    "timeUtc": "2026-05-03T07:26:11Z",
+    "baseFeeGwei": 0.142164329,
+    "gasLimit": 60000000
+   },
+   {
+    "block": 25005756,
+    "timeUtc": "2026-05-02T07:22:35Z",
+    "baseFeeGwei": 0.261952083,
+    "gasLimit": 60000000
+   },
+   {
+    "block": 24998556,
+    "timeUtc": "2026-05-01T07:19:47Z",
+    "baseFeeGwei": 0.260035746,
+    "gasLimit": 59999943
+   },
+   {
+    "block": 24991356,
+    "timeUtc": "2026-04-30T07:13:59Z",
+    "baseFeeGwei": 0.320935244,
+    "gasLimit": 59941408
+   },
+   {
+    "block": 24984156,
+    "timeUtc": "2026-04-29T07:09:47Z",
+    "baseFeeGwei": 0.886750298,
+    "gasLimit": 60000000
+   },
+   {
+    "block": 24976956,
+    "timeUtc": "2026-04-28T07:05:59Z",
+    "baseFeeGwei": 0.508321655,
+    "gasLimit": 60000000
+   },
+   {
+    "block": 24969756,
+    "timeUtc": "2026-04-27T07:03:11Z",
+    "baseFeeGwei": 0.68726272,
+    "gasLimit": 60000000
+   },
+   {
+    "block": 24962556,
+    "timeUtc": "2026-04-26T06:59:59Z",
+    "baseFeeGwei": 0.313442186,
+    "gasLimit": 60000000
+   },
+   {
+    "block": 24955356,
+    "timeUtc": "2026-04-25T06:56:59Z",
+    "baseFeeGwei": 0.098055471,
+    "gasLimit": 60000000
+   },
+   {
+    "block": 24948156,
+    "timeUtc": "2026-04-24T06:53:35Z",
+    "baseFeeGwei": 0.270503845,
+    "gasLimit": 60000000
+   },
+   {
+    "block": 24940956,
+    "timeUtc": "2026-04-23T06:49:47Z",
+    "baseFeeGwei": 0.465359027,
+    "gasLimit": 60000000
+   },
+   {
+    "block": 24933756,
+    "timeUtc": "2026-04-22T06:44:47Z",
+    "baseFeeGwei": 1.815264828,
+    "gasLimit": 60000000
+   },
+   {
+    "block": 24926556,
+    "timeUtc": "2026-04-21T06:39:59Z",
+    "baseFeeGwei": 0.571131976,
+    "gasLimit": 60000000
+   },
+   {
+    "block": 24919356,
+    "timeUtc": "2026-04-20T06:36:35Z",
+    "baseFeeGwei": 0.346781055,
+    "gasLimit": 60000000
+   },
+   {
+    "block": 24912156,
+    "timeUtc": "2026-04-19T06:31:47Z",
+    "baseFeeGwei": 0.583293156,
+    "gasLimit": 60000000
+   },
+   {
+    "block": 24904956,
+    "timeUtc": "2026-04-18T06:27:59Z",
+    "baseFeeGwei": 0.141773473,
+    "gasLimit": 60000000
+   },
+   {
+    "block": 24897756,
+    "timeUtc": "2026-04-17T06:24:35Z",
+    "baseFeeGwei": 2.535510535,
+    "gasLimit": 59882873
+   },
+   {
+    "block": 24890556,
+    "timeUtc": "2026-04-16T06:20:59Z",
+    "baseFeeGwei": 0.115488229,
+    "gasLimit": 60000000
+   },
+   {
+    "block": 24883356,
+    "timeUtc": "2026-04-15T06:16:11Z",
+    "baseFeeGwei": 0.053994203,
+    "gasLimit": 59941408
+   },
+   {
+    "block": 24876156,
+    "timeUtc": "2026-04-14T06:11:47Z",
+    "baseFeeGwei": 0.033205949,
+    "gasLimit": 59999943
+   },
+   {
+    "block": 24868956,
+    "timeUtc": "2026-04-13T06:07:47Z",
+    "baseFeeGwei": 0.244600744,
+    "gasLimit": 59941408
+   },
+   {
+    "block": 24861756,
+    "timeUtc": "2026-04-12T06:03:59Z",
+    "baseFeeGwei": 0.049471242,
+    "gasLimit": 60000000
+   },
+   {
+    "block": 24854556,
+    "timeUtc": "2026-04-11T05:58:47Z",
+    "baseFeeGwei": 0.040597326,
+    "gasLimit": 59941408
+   },
+   {
+    "block": 24847356,
+    "timeUtc": "2026-04-10T05:52:47Z",
+    "baseFeeGwei": 0.035369715,
+    "gasLimit": 59941408
+   },
+   {
+    "block": 24840156,
+    "timeUtc": "2026-04-09T05:46:11Z",
+    "baseFeeGwei": 0.0565141,
+    "gasLimit": 60000000
+   },
+   {
+    "block": 24832956,
+    "timeUtc": "2026-04-08T05:40:59Z",
+    "baseFeeGwei": 0.129936096,
+    "gasLimit": 60000000
+   },
+   {
+    "block": 24825756,
+    "timeUtc": "2026-04-07T05:36:23Z",
+    "baseFeeGwei": 0.046836561,
+    "gasLimit": 60000000
+   },
+   {
+    "block": 24818556,
+    "timeUtc": "2026-04-06T05:31:35Z",
+    "baseFeeGwei": 0.05355021,
+    "gasLimit": 59999943
+   },
+   {
+    "block": 24811356,
+    "timeUtc": "2026-04-05T05:26:11Z",
+    "baseFeeGwei": 0.090892626,
+    "gasLimit": 59941408
+   },
+   {
+    "block": 24804156,
+    "timeUtc": "2026-04-04T05:21:47Z",
+    "baseFeeGwei": 0.1067302,
+    "gasLimit": 60000000
+   },
+   {
+    "block": 24796956,
+    "timeUtc": "2026-04-03T05:17:47Z",
+    "baseFeeGwei": 0.134462334,
+    "gasLimit": 59999943
+   },
+   {
+    "block": 24789756,
+    "timeUtc": "2026-04-02T05:13:47Z",
+    "baseFeeGwei": 0.096607973,
+    "gasLimit": 60000000
+   },
+   {
+    "block": 24782556,
+    "timeUtc": "2026-04-01T05:07:23Z",
+    "baseFeeGwei": 0.106001585,
+    "gasLimit": 60000000
+   },
+   {
+    "block": 24775356,
+    "timeUtc": "2026-03-31T05:00:23Z",
+    "baseFeeGwei": 0.113276133,
+    "gasLimit": 60000000
+   },
+   {
+    "block": 24768156,
+    "timeUtc": "2026-03-30T04:53:59Z",
+    "baseFeeGwei": 0.122826373,
+    "gasLimit": 60000000
+   },
+   {
+    "block": 24760956,
+    "timeUtc": "2026-03-29T04:48:47Z",
+    "baseFeeGwei": 0.113917836,
+    "gasLimit": 60000000
+   },
+   {
+    "block": 24753756,
+    "timeUtc": "2026-03-28T04:44:47Z",
+    "baseFeeGwei": 0.071807402,
+    "gasLimit": 59999943
+   },
+   {
+    "block": 24746556,
+    "timeUtc": "2026-03-27T04:37:35Z",
+    "baseFeeGwei": 0.034386843,
+    "gasLimit": 60000000
+   },
+   {
+    "block": 24739356,
+    "timeUtc": "2026-03-26T04:30:11Z",
+    "baseFeeGwei": 0.031032052,
+    "gasLimit": 60000000
+   },
+   {
+    "block": 24732156,
+    "timeUtc": "2026-03-25T04:24:11Z",
+    "baseFeeGwei": 0.033642195,
+    "gasLimit": 59941408
+   },
+   {
+    "block": 24724956,
+    "timeUtc": "2026-03-24T04:20:11Z",
+    "baseFeeGwei": 0.048784408,
+    "gasLimit": 60000000
+   },
+   {
+    "block": 24717756,
+    "timeUtc": "2026-03-23T04:13:35Z",
+    "baseFeeGwei": 0.038981318,
+    "gasLimit": 60000000
+   },
+   {
+    "block": 24710556,
+    "timeUtc": "2026-03-22T04:07:23Z",
+    "baseFeeGwei": 22.366771198,
+    "gasLimit": 60000000
+   },
+   {
+    "block": 24703356,
+    "timeUtc": "2026-03-21T04:01:35Z",
+    "baseFeeGwei": 0.039483276,
+    "gasLimit": 60000000
+   },
+   {
+    "block": 24696156,
+    "timeUtc": "2026-03-20T03:55:47Z",
+    "baseFeeGwei": 0.05415431,
+    "gasLimit": 60000000
+   },
+   {
+    "block": 24688956,
+    "timeUtc": "2026-03-19T03:51:11Z",
+    "baseFeeGwei": 0.10659333,
+    "gasLimit": 60000000
+   },
+   {
+    "block": 24681756,
+    "timeUtc": "2026-03-18T03:43:23Z",
+    "baseFeeGwei": 0.056172328,
+    "gasLimit": 60000000
+   },
+   {
+    "block": 24674556,
+    "timeUtc": "2026-03-17T03:32:59Z",
+    "baseFeeGwei": 0.106537423,
+    "gasLimit": 60000000
+   },
+   {
+    "block": 24667356,
+    "timeUtc": "2026-03-16T03:23:59Z",
+    "baseFeeGwei": 0.053119614,
+    "gasLimit": 60000000
+   },
+   {
+    "block": 24660156,
+    "timeUtc": "2026-03-15T03:19:35Z",
+    "baseFeeGwei": 0.023774284,
+    "gasLimit": 60000000
+   },
+   {
+    "block": 24652956,
+    "timeUtc": "2026-03-14T03:13:23Z",
+    "baseFeeGwei": 0.032887098,
+    "gasLimit": 60000000
+   },
+   {
+    "block": 24645756,
+    "timeUtc": "2026-03-13T03:08:23Z",
+    "baseFeeGwei": 0.035670099,
+    "gasLimit": 60000000
+   },
+   {
+    "block": 24638556,
+    "timeUtc": "2026-03-12T02:59:47Z",
+    "baseFeeGwei": 0.046533405,
+    "gasLimit": 60000000
+   },
+   {
+    "block": 24631356,
+    "timeUtc": "2026-03-11T02:50:35Z",
+    "baseFeeGwei": 0.034075239,
+    "gasLimit": 60000000
+   },
+   {
+    "block": 24624156,
+    "timeUtc": "2026-03-10T02:41:59Z",
+    "baseFeeGwei": 0.082105451,
+    "gasLimit": 60000000
+   },
+   {
+    "block": 24616956,
+    "timeUtc": "2026-03-09T02:34:23Z",
+    "baseFeeGwei": 0.032198051,
+    "gasLimit": 60000000
+   },
+   {
+    "block": 24609756,
+    "timeUtc": "2026-03-08T02:28:23Z",
+    "baseFeeGwei": 0.035783803,
+    "gasLimit": 60000000
+   },
+   {
+    "block": 24602556,
+    "timeUtc": "2026-03-07T02:20:59Z",
+    "baseFeeGwei": 0.033258205,
+    "gasLimit": 59999943
+   },
+   {
+    "block": 24595356,
+    "timeUtc": "2026-03-06T02:10:47Z",
+    "baseFeeGwei": 0.046275319,
+    "gasLimit": 60000000
+   },
+   {
+    "block": 24588156,
+    "timeUtc": "2026-03-05T02:03:59Z",
+    "baseFeeGwei": 0.082979607,
+    "gasLimit": 60000000
+   },
+   {
+    "block": 24580956,
+    "timeUtc": "2026-03-04T01:57:59Z",
+    "baseFeeGwei": 0.083661926,
+    "gasLimit": 59999943
+   },
+   {
+    "block": 24573756,
+    "timeUtc": "2026-03-03T01:50:35Z",
+    "baseFeeGwei": 0.033388254,
+    "gasLimit": 60000000
+   },
+   {
+    "block": 24566556,
+    "timeUtc": "2026-03-02T01:43:11Z",
+    "baseFeeGwei": 0.035565867,
+    "gasLimit": 59999943
+   },
+   {
+    "block": 24559356,
+    "timeUtc": "2026-03-01T01:38:11Z",
+    "baseFeeGwei": 0.032434683,
+    "gasLimit": 60000000
+   },
+   {
+    "block": 24552156,
+    "timeUtc": "2026-02-28T01:29:23Z",
+    "baseFeeGwei": 0.089016946,
+    "gasLimit": 60000000
+   },
+   {
+    "block": 24544956,
+    "timeUtc": "2026-02-27T01:23:47Z",
+    "baseFeeGwei": 0.05126855,
+    "gasLimit": 60000000
+   },
+   {
+    "block": 24537756,
+    "timeUtc": "2026-02-26T01:18:35Z",
+    "baseFeeGwei": 0.063367468,
+    "gasLimit": 60000000
+   },
+   {
+    "block": 24530556,
+    "timeUtc": "2026-02-25T01:10:59Z",
+    "baseFeeGwei": 0.047075736,
+    "gasLimit": 59999772
+   },
+   {
+    "block": 24523356,
+    "timeUtc": "2026-02-24T01:05:35Z",
+    "baseFeeGwei": 0.050304779,
+    "gasLimit": 60000000
+   },
+   {
+    "block": 24516156,
+    "timeUtc": "2026-02-23T00:59:35Z",
+    "baseFeeGwei": 0.03362946,
+    "gasLimit": 60000000
+   },
+   {
+    "block": 24508956,
+    "timeUtc": "2026-02-22T00:54:59Z",
+    "baseFeeGwei": 0.032382635,
+    "gasLimit": 60000000
+   },
+   {
+    "block": 24501756,
+    "timeUtc": "2026-02-21T00:49:23Z",
+    "baseFeeGwei": 0.042223093,
+    "gasLimit": 59941408
+   },
+   {
+    "block": 24494556,
+    "timeUtc": "2026-02-20T00:44:23Z",
+    "baseFeeGwei": 0.030482476,
+    "gasLimit": 59999943
+   },
+   {
+    "block": 24487356,
+    "timeUtc": "2026-02-19T00:38:11Z",
+    "baseFeeGwei": 0.05220624,
+    "gasLimit": 60000000
+   },
+   {
+    "block": 24480156,
+    "timeUtc": "2026-02-18T00:32:35Z",
+    "baseFeeGwei": 0.033237146,
+    "gasLimit": 60000000
+   },
+   {
+    "block": 24472956,
+    "timeUtc": "2026-02-17T00:26:11Z",
+    "baseFeeGwei": 0.033894589,
+    "gasLimit": 60000000
+   },
+   {
+    "block": 24465756,
+    "timeUtc": "2026-02-16T00:20:35Z",
+    "baseFeeGwei": 0.029472977,
+    "gasLimit": 59941408
+   },
+   {
+    "block": 24458556,
+    "timeUtc": "2026-02-15T00:16:11Z",
+    "baseFeeGwei": 0.02947768,
+    "gasLimit": 59941408
+   },
+   {
+    "block": 24451356,
+    "timeUtc": "2026-02-14T00:10:59Z",
+    "baseFeeGwei": 0.032071198,
+    "gasLimit": 59999943
+   },
+   {
+    "block": 24444156,
+    "timeUtc": "2026-02-13T00:03:35Z",
+    "baseFeeGwei": 0.060422412,
+    "gasLimit": 60000000
+   },
+   {
+    "block": 24436956,
+    "timeUtc": "2026-02-11T23:56:59Z",
+    "baseFeeGwei": 0.036239214,
+    "gasLimit": 60000000
+   },
+   {
+    "block": 24429756,
+    "timeUtc": "2026-02-10T23:49:23Z",
+    "baseFeeGwei": 0.046176585,
+    "gasLimit": 59941408
+   },
+   {
+    "block": 24422556,
+    "timeUtc": "2026-02-09T23:40:35Z",
+    "baseFeeGwei": 0.044845235,
+    "gasLimit": 59999943
+   },
+   {
+    "block": 24415356,
+    "timeUtc": "2026-02-08T23:32:23Z",
+    "baseFeeGwei": 0.061506704,
+    "gasLimit": 60000000
+   },
+   {
+    "block": 24408156,
+    "timeUtc": "2026-02-07T23:13:35Z",
+    "baseFeeGwei": 0.082626794,
+    "gasLimit": 60000000
+   },
+   {
+    "block": 24400956,
+    "timeUtc": "2026-02-06T23:06:23Z",
+    "baseFeeGwei": 0.224689793,
+    "gasLimit": 59941408
+   },
+   {
+    "block": 24393756,
+    "timeUtc": "2026-02-05T22:57:59Z",
+    "baseFeeGwei": 1.749095756,
+    "gasLimit": 60000000
+   },
+   {
+    "block": 24386556,
+    "timeUtc": "2026-02-04T22:47:59Z",
+    "baseFeeGwei": 0.332868005,
+    "gasLimit": 60000000
+   },
+   {
+    "block": 24379356,
+    "timeUtc": "2026-02-03T22:38:11Z",
+    "baseFeeGwei": 0.151035027,
+    "gasLimit": 60000000
+   },
+   {
+    "block": 24372156,
+    "timeUtc": "2026-02-02T22:28:23Z",
+    "baseFeeGwei": 0.124835208,
+    "gasLimit": 60000000
+   },
+   {
+    "block": 24364956,
+    "timeUtc": "2026-02-01T22:20:11Z",
+    "baseFeeGwei": 0.146602276,
+    "gasLimit": 60000000
+   },
+   {
+    "block": 24357756,
+    "timeUtc": "2026-01-31T22:11:59Z",
+    "baseFeeGwei": 0.31875393,
+    "gasLimit": 60000000
+   },
+   {
+    "block": 24350556,
+    "timeUtc": "2026-01-30T22:05:11Z",
+    "baseFeeGwei": 0.192998172,
+    "gasLimit": 60000000
+   },
+   {
+    "block": 24343356,
+    "timeUtc": "2026-01-29T21:59:47Z",
+    "baseFeeGwei": 0.103615686,
+    "gasLimit": 60000000
+   },
+   {
+    "block": 24336156,
+    "timeUtc": "2026-01-28T21:53:23Z",
+    "baseFeeGwei": 0.052980632,
+    "gasLimit": 60000000
+   },
+   {
+    "block": 24328956,
+    "timeUtc": "2026-01-27T21:48:35Z",
+    "baseFeeGwei": 0.100328514,
+    "gasLimit": 60000000
+   },
+   {
+    "block": 24321756,
+    "timeUtc": "2026-01-26T21:42:11Z",
+    "baseFeeGwei": 0.076654572,
+    "gasLimit": 59999829
+   },
+   {
+    "block": 24314556,
+    "timeUtc": "2026-01-25T21:36:11Z",
+    "baseFeeGwei": 0.154696492,
+    "gasLimit": 60000000
+   },
+   {
+    "block": 24307356,
+    "timeUtc": "2026-01-24T21:30:47Z",
+    "baseFeeGwei": 0.034999867,
+    "gasLimit": 59941180
+   },
+   {
+    "block": 24300156,
+    "timeUtc": "2026-01-23T21:24:59Z",
+    "baseFeeGwei": 0.085360135,
+    "gasLimit": 60000000
+   },
+   {
+    "block": 24292956,
+    "timeUtc": "2026-01-22T21:16:47Z",
+    "baseFeeGwei": 0.049223965,
+    "gasLimit": 60000000
+   },
+   {
+    "block": 24285756,
+    "timeUtc": "2026-01-21T21:08:59Z",
+    "baseFeeGwei": 0.155280337,
+    "gasLimit": 60000000
+   },
+   {
+    "block": 24278556,
+    "timeUtc": "2026-01-20T21:03:35Z",
+    "baseFeeGwei": 0.062679015,
+    "gasLimit": 59999943
+   },
+   {
+    "block": 24271356,
+    "timeUtc": "2026-01-19T20:57:47Z",
+    "baseFeeGwei": 0.067499977,
+    "gasLimit": 59824395
+   },
+   {
+    "block": 24264156,
+    "timeUtc": "2026-01-18T20:52:59Z",
+    "baseFeeGwei": 0.035677142,
+    "gasLimit": 60000000
+   },
+   {
+    "block": 24256956,
+    "timeUtc": "2026-01-17T20:48:23Z",
+    "baseFeeGwei": 0.033375889,
+    "gasLimit": 60000000
+   },
+   {
+    "block": 24249756,
+    "timeUtc": "2026-01-16T20:42:59Z",
+    "baseFeeGwei": 0.045543704,
+    "gasLimit": 59999943
+   },
+   {
+    "block": 24242556,
+    "timeUtc": "2026-01-15T20:38:59Z",
+    "baseFeeGwei": 0.073474863,
+    "gasLimit": 60000000
+   },
+   {
+    "block": 24235356,
+    "timeUtc": "2026-01-14T20:32:59Z",
+    "baseFeeGwei": 0.129294949,
+    "gasLimit": 60000000
+   },
+   {
+    "block": 24228156,
+    "timeUtc": "2026-01-13T20:26:47Z",
+    "baseFeeGwei": 0.053265088,
+    "gasLimit": 60000000
+   },
+   {
+    "block": 24220956,
+    "timeUtc": "2026-01-12T20:15:47Z",
+    "baseFeeGwei": 0.036332738,
+    "gasLimit": 60000000
+   },
+   {
+    "block": 24213756,
+    "timeUtc": "2026-01-11T20:06:47Z",
+    "baseFeeGwei": 0.048423181,
+    "gasLimit": 60000000
+   },
+   {
+    "block": 24206556,
+    "timeUtc": "2026-01-10T20:01:59Z",
+    "baseFeeGwei": 0.031986744,
+    "gasLimit": 60000000
+   },
+   {
+    "block": 24199356,
+    "timeUtc": "2026-01-09T19:56:23Z",
+    "baseFeeGwei": 0.045981155,
+    "gasLimit": 59941409
+   },
+   {
+    "block": 24192156,
+    "timeUtc": "2026-01-08T19:50:35Z",
+    "baseFeeGwei": 0.046617346,
+    "gasLimit": 59999943
+   },
+   {
+    "block": 24184956,
+    "timeUtc": "2026-01-07T19:40:47Z",
+    "baseFeeGwei": 0.121008656,
+    "gasLimit": 59941408
+   },
+   {
+    "block": 24177756,
+    "timeUtc": "2026-01-06T19:34:47Z",
+    "baseFeeGwei": 0.043265813,
+    "gasLimit": 60000000
+   },
+   {
+    "block": 24170556,
+    "timeUtc": "2026-01-05T19:28:47Z",
+    "baseFeeGwei": 0.0992255,
+    "gasLimit": 59999943
+   },
+   {
+    "block": 24163356,
+    "timeUtc": "2026-01-04T19:21:23Z",
+    "baseFeeGwei": 0.077850181,
+    "gasLimit": 59941408
+   },
+   {
+    "block": 24156156,
+    "timeUtc": "2026-01-03T19:16:47Z",
+    "baseFeeGwei": 0.145148805,
+    "gasLimit": 60000000
+   },
+   {
+    "block": 24148956,
+    "timeUtc": "2026-01-02T19:11:11Z",
+    "baseFeeGwei": 0.110984307,
+    "gasLimit": 60000000
+   },
+   {
+    "block": 24141756,
+    "timeUtc": "2026-01-01T19:04:47Z",
+    "baseFeeGwei": 0.068626373,
+    "gasLimit": 59999943
+   },
+   {
+    "block": 24134556,
+    "timeUtc": "2025-12-31T18:59:35Z",
+    "baseFeeGwei": 0.05828617,
+    "gasLimit": 60000000
+   },
+   {
+    "block": 24127356,
+    "timeUtc": "2025-12-30T18:51:59Z",
+    "baseFeeGwei": 0.049410871,
+    "gasLimit": 60000000
+   },
+   {
+    "block": 24120156,
+    "timeUtc": "2025-12-29T18:41:35Z",
+    "baseFeeGwei": 0.076695407,
+    "gasLimit": 60000000
+   },
+   {
+    "block": 24112956,
+    "timeUtc": "2025-12-28T18:34:47Z",
+    "baseFeeGwei": 0.032931126,
+    "gasLimit": 60000000
+   },
+   {
+    "block": 24105756,
+    "timeUtc": "2025-12-27T18:27:59Z",
+    "baseFeeGwei": 0.030942233,
+    "gasLimit": 60000000
+   },
+   {
+    "block": 24098556,
+    "timeUtc": "2025-12-26T18:20:35Z",
+    "baseFeeGwei": 0.030170516,
+    "gasLimit": 60000000
+   },
+   {
+    "block": 24091356,
+    "timeUtc": "2025-12-25T18:13:11Z",
+    "baseFeeGwei": 0.037418275,
+    "gasLimit": 60000000
+   },
+   {
+    "block": 24084156,
+    "timeUtc": "2025-12-24T18:04:59Z",
+    "baseFeeGwei": 0.027948827,
+    "gasLimit": 60000000
+   },
+   {
+    "block": 24076956,
+    "timeUtc": "2025-12-23T17:58:47Z",
+    "baseFeeGwei": 0.048957327,
+    "gasLimit": 60000000
+   },
+   {
+    "block": 24069756,
+    "timeUtc": "2025-12-22T17:51:11Z",
+    "baseFeeGwei": 0.031968907,
+    "gasLimit": 59999943
+   },
+   {
+    "block": 24062556,
+    "timeUtc": "2025-12-21T17:43:47Z",
+    "baseFeeGwei": 0.028126942,
+    "gasLimit": 59999943
+   },
+   {
+    "block": 24055356,
+    "timeUtc": "2025-12-20T17:38:11Z",
+    "baseFeeGwei": 0.030486389,
+    "gasLimit": 60000000
+   },
+   {
+    "block": 24048156,
+    "timeUtc": "2025-12-19T17:32:35Z",
+    "baseFeeGwei": 0.138912566,
+    "gasLimit": 60000000
+   },
+   {
+    "block": 24040956,
+    "timeUtc": "2025-12-18T17:23:35Z",
+    "baseFeeGwei": 1.011724365,
+    "gasLimit": 60000000
+   },
+   {
+    "block": 24033756,
+    "timeUtc": "2025-12-17T17:14:47Z",
+    "baseFeeGwei": 0.145487264,
+    "gasLimit": 59999943
+   },
+   {
+    "block": 24026556,
+    "timeUtc": "2025-12-16T17:06:59Z",
+    "baseFeeGwei": 0.038008965,
+    "gasLimit": 59882816
+   },
+   {
+    "block": 24019356,
+    "timeUtc": "2025-12-15T17:00:35Z",
+    "baseFeeGwei": 0.242062164,
+    "gasLimit": 59941408
+   },
+   {
+    "block": 24012156,
+    "timeUtc": "2025-12-14T16:52:11Z",
+    "baseFeeGwei": 0.046795959,
+    "gasLimit": 59882873
+   },
+   {
+    "block": 24004956,
+    "timeUtc": "2025-12-13T16:44:35Z",
+    "baseFeeGwei": 0.043032733,
+    "gasLimit": 60000000
+   },
+   {
+    "block": 23997756,
+    "timeUtc": "2025-12-12T16:33:23Z",
+    "baseFeeGwei": 0.248983625,
+    "gasLimit": 60000000
+   },
+   {
+    "block": 23990556,
+    "timeUtc": "2025-12-11T16:12:59Z",
+    "baseFeeGwei": 0.131246907,
+    "gasLimit": 60000000
+   },
+   {
+    "block": 23983356,
+    "timeUtc": "2025-12-10T15:59:11Z",
+    "baseFeeGwei": 0.159908312,
+    "gasLimit": 59999943
+   },
+   {
+    "block": 23976156,
+    "timeUtc": "2025-12-09T15:38:11Z",
+    "baseFeeGwei": 0.220445653,
+    "gasLimit": 60000000
+   },
+   {
+    "block": 23968956,
+    "timeUtc": "2025-12-08T15:24:11Z",
+    "baseFeeGwei": 0.34275809,
+    "gasLimit": 60000000
+   },
+   {
+    "block": 23961756,
+    "timeUtc": "2025-12-07T15:09:23Z",
+    "baseFeeGwei": 0.297509575,
+    "gasLimit": 60000000
+   },
+   {
+    "block": 23954556,
+    "timeUtc": "2025-12-06T14:53:59Z",
+    "baseFeeGwei": 0.025275738,
+    "gasLimit": 59999943
+   },
+   {
+    "block": 23947356,
+    "timeUtc": "2025-12-05T14:31:47Z",
+    "baseFeeGwei": 0.042238188,
+    "gasLimit": 59999197
+   },
+   {
+    "block": 23940156,
+    "timeUtc": "2025-12-04T14:03:59Z",
+    "baseFeeGwei": 0.063088055,
+    "gasLimit": 59941408
+   },
+   {
+    "block": 23932956,
+    "timeUtc": "2025-12-03T12:35:47Z",
+    "baseFeeGwei": 0.03998148,
+    "gasLimit": 59999886
+   },
+   {
+    "block": 23925756,
+    "timeUtc": "2025-12-02T12:23:35Z",
+    "baseFeeGwei": 0.055838659,
+    "gasLimit": 60000000
+   },
+   {
+    "block": 23918556,
+    "timeUtc": "2025-12-01T12:13:35Z",
+    "baseFeeGwei": 0.044347908,
+    "gasLimit": 60000000
+   },
+   {
+    "block": 23911356,
+    "timeUtc": "2025-11-30T12:03:47Z",
+    "baseFeeGwei": 0.046431507,
+    "gasLimit": 59941408
+   },
+   {
+    "block": 23904156,
+    "timeUtc": "2025-11-29T11:55:11Z",
+    "baseFeeGwei": 0.045230603,
+    "gasLimit": 59941294
+   },
+   {
+    "block": 23896956,
+    "timeUtc": "2025-11-28T11:44:23Z",
+    "baseFeeGwei": 0.055220062,
+    "gasLimit": 59941408
+   },
+   {
+    "block": 23889756,
+    "timeUtc": "2025-11-27T11:29:23Z",
+    "baseFeeGwei": 0.053772152,
+    "gasLimit": 59941408
+   },
+   {
+    "block": 23882556,
+    "timeUtc": "2025-11-26T11:15:11Z",
+    "baseFeeGwei": 0.053668102,
+    "gasLimit": 59765803
+   },
+   {
+    "block": 23875356,
+    "timeUtc": "2025-11-25T10:55:59Z",
+    "baseFeeGwei": 0.094552442,
+    "gasLimit": 48997020
+   },
+   {
+    "block": 23868156,
+    "timeUtc": "2025-11-24T10:34:47Z",
+    "baseFeeGwei": 0.085777242,
+    "gasLimit": 45131961
+   },
+   {
+    "block": 23860956,
+    "timeUtc": "2025-11-23T10:20:59Z",
+    "baseFeeGwei": 0.087218129,
+    "gasLimit": 44956013
+   },
+   {
+    "block": 23853756,
+    "timeUtc": "2025-11-22T10:00:35Z",
+    "baseFeeGwei": 0.063121843,
+    "gasLimit": 45087328
+   },
+   {
+    "block": 23846556,
+    "timeUtc": "2025-11-21T09:40:23Z",
+    "baseFeeGwei": 1.950111258,
+    "gasLimit": 45438169
+   },
+   {
+    "block": 23839356,
+    "timeUtc": "2025-11-20T09:27:47Z",
+    "baseFeeGwei": 0.124654302,
+    "gasLimit": 45043944
+   },
+   {
+    "block": 23832156,
+    "timeUtc": "2025-11-19T09:11:59Z",
+    "baseFeeGwei": 0.183327764,
+    "gasLimit": 45043944
+   },
+   {
+    "block": 23824956,
+    "timeUtc": "2025-11-18T08:56:59Z",
+    "baseFeeGwei": 0.399411152,
+    "gasLimit": 45043815
+   },
+   {
+    "block": 23817756,
+    "timeUtc": "2025-11-17T08:39:11Z",
+    "baseFeeGwei": 0.081798279,
+    "gasLimit": 45000000
+   },
+   {
+    "block": 23810556,
+    "timeUtc": "2025-11-16T08:28:59Z",
+    "baseFeeGwei": 0.064640451,
+    "gasLimit": 45043944
+   },
+   {
+    "block": 23803356,
+    "timeUtc": "2025-11-15T08:19:47Z",
+    "baseFeeGwei": 0.072327819,
+    "gasLimit": 45043944
+   },
+   {
+    "block": 23796156,
+    "timeUtc": "2025-11-14T08:12:23Z",
+    "baseFeeGwei": 0.443489642,
+    "gasLimit": 45087802
+   },
+   {
+    "block": 23788956,
+    "timeUtc": "2025-11-13T08:00:47Z",
+    "baseFeeGwei": 0.086082061,
+    "gasLimit": 45043858
+   },
+   {
+    "block": 23781756,
+    "timeUtc": "2025-11-12T07:48:23Z",
+    "baseFeeGwei": 0.078406099,
+    "gasLimit": 45087845
+   },
+   {
+    "block": 23774556,
+    "timeUtc": "2025-11-11T07:37:59Z",
+    "baseFeeGwei": 0.118402032,
+    "gasLimit": 44999957
+   },
+   {
+    "block": 23767356,
+    "timeUtc": "2025-11-10T07:25:35Z",
+    "baseFeeGwei": 0.092621485,
+    "gasLimit": 45043901
+   },
+   {
+    "block": 23760156,
+    "timeUtc": "2025-11-09T07:16:59Z",
+    "baseFeeGwei": 0.069569646,
+    "gasLimit": 45000000
+   },
+   {
+    "block": 23752956,
+    "timeUtc": "2025-11-08T07:09:11Z",
+    "baseFeeGwei": 0.123746308,
+    "gasLimit": 45000000
+   },
+   {
+    "block": 23745756,
+    "timeUtc": "2025-11-07T06:58:47Z",
+    "baseFeeGwei": 0.27771529,
+    "gasLimit": 44999957
+   },
+   {
+    "block": 23738556,
+    "timeUtc": "2025-11-06T06:48:59Z",
+    "baseFeeGwei": 0.368775622,
+    "gasLimit": 44956013
+   },
+   {
+    "block": 23731356,
+    "timeUtc": "2025-11-05T06:37:47Z",
+    "baseFeeGwei": 0.474012546,
+    "gasLimit": 44999957
+   },
+   {
+    "block": 23724156,
+    "timeUtc": "2025-11-04T06:25:59Z",
+    "baseFeeGwei": 1.952029023,
+    "gasLimit": 44956056
+   },
+   {
+    "block": 23716956,
+    "timeUtc": "2025-11-03T06:18:23Z",
+    "baseFeeGwei": 0.078862929,
+    "gasLimit": 45000000
+   },
+   {
+    "block": 23709756,
+    "timeUtc": "2025-11-02T06:09:11Z",
+    "baseFeeGwei": 0.072640114,
+    "gasLimit": 44868168
+   },
+   {
+    "block": 23702556,
+    "timeUtc": "2025-11-01T05:59:35Z",
+    "baseFeeGwei": 0.0771145,
+    "gasLimit": 45000000
+   },
+   {
+    "block": 23695356,
+    "timeUtc": "2025-10-31T05:48:47Z",
+    "baseFeeGwei": 0.092512269,
+    "gasLimit": 45087931
+   },
+   {
+    "block": 23688156,
+    "timeUtc": "2025-10-30T05:36:35Z",
+    "baseFeeGwei": 0.140650463,
+    "gasLimit": 45000000
+   },
+   {
+    "block": 23680956,
+    "timeUtc": "2025-10-29T05:26:11Z",
+    "baseFeeGwei": 0.094282364,
+    "gasLimit": 45043944
+   },
+   {
+    "block": 23673756,
+    "timeUtc": "2025-10-28T05:11:11Z",
+    "baseFeeGwei": 0.087992106,
+    "gasLimit": 45043944
+   },
+   {
+    "block": 23666556,
+    "timeUtc": "2025-10-27T04:59:59Z",
+    "baseFeeGwei": 0.108723382,
+    "gasLimit": 44911897
+   },
+   {
+    "block": 23659356,
+    "timeUtc": "2025-10-26T04:49:47Z",
+    "baseFeeGwei": 0.0854483,
+    "gasLimit": 44956056
+   },
+   {
+    "block": 23652156,
+    "timeUtc": "2025-10-25T04:41:35Z",
+    "baseFeeGwei": 0.07741228,
+    "gasLimit": 45000000
+   },
+   {
+    "block": 23644956,
+    "timeUtc": "2025-10-24T04:30:35Z",
+    "baseFeeGwei": 0.115297754,
+    "gasLimit": 44912112
+   },
+   {
+    "block": 23637756,
+    "timeUtc": "2025-10-23T04:14:35Z",
+    "baseFeeGwei": 0.077332847,
+    "gasLimit": 44999914
+   },
+   {
+    "block": 23630556,
+    "timeUtc": "2025-10-22T04:01:47Z",
+    "baseFeeGwei": 0.105531126,
+    "gasLimit": 45087931
+   },
+   {
+    "block": 23623356,
+    "timeUtc": "2025-10-21T03:44:59Z",
+    "baseFeeGwei": 0.11786853,
+    "gasLimit": 45000000
+   },
+   {
+    "block": 23616156,
+    "timeUtc": "2025-10-20T03:30:11Z",
+    "baseFeeGwei": 0.109663849,
+    "gasLimit": 44999871
+   },
+   {
+    "block": 23608956,
+    "timeUtc": "2025-10-19T03:19:59Z",
+    "baseFeeGwei": 0.09512655,
+    "gasLimit": 45000000
+   },
+   {
+    "block": 23601756,
+    "timeUtc": "2025-10-18T03:09:23Z",
+    "baseFeeGwei": 0.145102729,
+    "gasLimit": 45000000
+   },
+   {
+    "block": 23594556,
+    "timeUtc": "2025-10-17T02:59:59Z",
+    "baseFeeGwei": 0.109599208,
+    "gasLimit": 44912155
+   },
+   {
+    "block": 23587356,
+    "timeUtc": "2025-10-16T02:48:47Z",
+    "baseFeeGwei": 0.189263344,
+    "gasLimit": 44956013
+   },
+   {
+    "block": 23580156,
+    "timeUtc": "2025-10-15T02:36:23Z",
+    "baseFeeGwei": 0.12657423,
+    "gasLimit": 45000000
+   },
+   {
+    "block": 23572956,
+    "timeUtc": "2025-10-14T02:26:47Z",
+    "baseFeeGwei": 0.145868301,
+    "gasLimit": 45000000
+   },
+   {
+    "block": 23565756,
+    "timeUtc": "2025-10-13T02:15:59Z",
+    "baseFeeGwei": 0.150483476,
+    "gasLimit": 44956056
+   },
+   {
+    "block": 23558556,
+    "timeUtc": "2025-10-12T02:07:47Z",
+    "baseFeeGwei": 0.198018198,
+    "gasLimit": 45000000
+   },
+   {
+    "block": 23551356,
+    "timeUtc": "2025-10-11T01:59:11Z",
+    "baseFeeGwei": 7.875456411,
+    "gasLimit": 45000000
+   },
+   {
+    "block": 23544156,
+    "timeUtc": "2025-10-10T01:49:35Z",
+    "baseFeeGwei": 0.111250539,
+    "gasLimit": 45000000
+   },
+   {
+    "block": 23536956,
+    "timeUtc": "2025-10-09T01:39:11Z",
+    "baseFeeGwei": 0.120069659,
+    "gasLimit": 45043729
+   },
+   {
+    "block": 23529756,
+    "timeUtc": "2025-10-08T01:27:47Z",
+    "baseFeeGwei": 0.157204502,
+    "gasLimit": 44955970
+   },
+   {
+    "block": 23522556,
+    "timeUtc": "2025-10-07T01:19:23Z",
+    "baseFeeGwei": 0.170259086,
+    "gasLimit": 44824225
+   },
+   {
+    "block": 23515356,
+    "timeUtc": "2025-10-06T01:09:11Z",
+    "baseFeeGwei": 0.142290716,
+    "gasLimit": 44999785
+   },
+   {
+    "block": 23508156,
+    "timeUtc": "2025-10-05T01:01:59Z",
+    "baseFeeGwei": 0.118463231,
+    "gasLimit": 45043858
+   },
+   {
+    "block": 23500956,
+    "timeUtc": "2025-10-04T00:52:23Z",
+    "baseFeeGwei": 0.120899612,
+    "gasLimit": 45000000
+   },
+   {
+    "block": 23493756,
+    "timeUtc": "2025-10-03T00:45:23Z",
+    "baseFeeGwei": 0.176303597,
+    "gasLimit": 45000000
+   },
+   {
+    "block": 23486556,
+    "timeUtc": "2025-10-02T00:34:35Z",
+    "baseFeeGwei": 0.548072916,
+    "gasLimit": 44999957
+   },
+   {
+    "block": 23479356,
+    "timeUtc": "2025-10-01T00:22:47Z",
+    "baseFeeGwei": 0.170440704,
+    "gasLimit": 45000000
+   },
+   {
+    "block": 23472156,
+    "timeUtc": "2025-09-30T00:13:35Z",
+    "baseFeeGwei": 0.302398131,
+    "gasLimit": 45000000
+   },
+   {
+    "block": 23464956,
+    "timeUtc": "2025-09-29T00:05:23Z",
+    "baseFeeGwei": 0.258107712,
+    "gasLimit": 45000000
+   },
+   {
+    "block": 23457756,
+    "timeUtc": "2025-09-27T23:55:23Z",
+    "baseFeeGwei": 0.115645443,
+    "gasLimit": 44999914
+   },
+   {
+    "block": 23450556,
+    "timeUtc": "2025-09-26T23:46:11Z",
+    "baseFeeGwei": 0.10763081,
+    "gasLimit": 45043944
+   },
+   {
+    "block": 23443356,
+    "timeUtc": "2025-09-25T23:34:23Z",
+    "baseFeeGwei": 0.249154429,
+    "gasLimit": 45000000
+   },
+   {
+    "block": 23436156,
+    "timeUtc": "2025-09-24T23:24:11Z",
+    "baseFeeGwei": 0.168344814,
+    "gasLimit": 44956056
+   },
+   {
+    "block": 23428956,
+    "timeUtc": "2025-09-23T23:16:35Z",
+    "baseFeeGwei": 0.104515779,
+    "gasLimit": 45000000
+   },
+   {
+    "block": 23421756,
+    "timeUtc": "2025-09-22T23:09:23Z",
+    "baseFeeGwei": 0.150896335,
+    "gasLimit": 44956056
+   },
+   {
+    "block": 23414556,
+    "timeUtc": "2025-09-21T22:59:47Z",
+    "baseFeeGwei": 0.106007068,
+    "gasLimit": 45000000
+   },
+   {
+    "block": 23407356,
+    "timeUtc": "2025-09-20T22:47:59Z",
+    "baseFeeGwei": 0.121646998,
+    "gasLimit": 44868297
+   },
+   {
+    "block": 23400156,
+    "timeUtc": "2025-09-19T22:38:23Z",
+    "baseFeeGwei": 0.149548211,
+    "gasLimit": 45043944
+   },
+   {
+    "block": 23392956,
+    "timeUtc": "2025-09-18T22:30:11Z",
+    "baseFeeGwei": 0.305544178,
+    "gasLimit": 44999957
+   },
+   {
+    "block": 23385756,
+    "timeUtc": "2025-09-17T22:22:35Z",
+    "baseFeeGwei": 0.270430755,
+    "gasLimit": 44999871
+   },
+   {
+    "block": 23378556,
+    "timeUtc": "2025-09-16T22:15:59Z",
+    "baseFeeGwei": 0.233162063,
+    "gasLimit": 44999828
+   },
+   {
+    "block": 23371356,
+    "timeUtc": "2025-09-15T22:07:35Z",
+    "baseFeeGwei": 0.433489076,
+    "gasLimit": 45000000
+   },
+   {
+    "block": 23364156,
+    "timeUtc": "2025-09-14T21:57:59Z",
+    "baseFeeGwei": 0.127269358,
+    "gasLimit": 45000000
+   },
+   {
+    "block": 23356956,
+    "timeUtc": "2025-09-13T21:52:47Z",
+    "baseFeeGwei": 0.11901677,
+    "gasLimit": 44999914
+   },
+   {
+    "block": 23349756,
+    "timeUtc": "2025-09-12T21:45:23Z",
+    "baseFeeGwei": 0.322522831,
+    "gasLimit": 44912027
+   },
+   {
+    "block": 23342556,
+    "timeUtc": "2025-09-11T21:38:59Z",
+    "baseFeeGwei": 0.174228783,
+    "gasLimit": 45000000
+   },
+   {
+    "block": 23335356,
+    "timeUtc": "2025-09-10T21:29:59Z",
+    "baseFeeGwei": 0.213938709,
+    "gasLimit": 44999871
+   },
+   {
+    "block": 23328156,
+    "timeUtc": "2025-09-09T21:13:23Z",
+    "baseFeeGwei": 0.321528135,
+    "gasLimit": 45000000
+   },
+   {
+    "block": 23320956,
+    "timeUtc": "2025-09-08T21:08:23Z",
+    "baseFeeGwei": 0.243558198,
+    "gasLimit": 45087888
+   },
+   {
+    "block": 23313756,
+    "timeUtc": "2025-09-07T20:59:11Z",
+    "baseFeeGwei": 0.18867771,
+    "gasLimit": 44867953
+   },
+   {
+    "block": 23306556,
+    "timeUtc": "2025-09-06T20:52:11Z",
+    "baseFeeGwei": 0.193714963,
+    "gasLimit": 44956056
+   },
+   {
+    "block": 23299356,
+    "timeUtc": "2025-09-05T20:41:23Z",
+    "baseFeeGwei": 0.24440257,
+    "gasLimit": 44999957
+   },
+   {
+    "block": 23292156,
+    "timeUtc": "2025-09-04T20:32:47Z",
+    "baseFeeGwei": 0.326429951,
+    "gasLimit": 45000000
+   },
+   {
+    "block": 23284956,
+    "timeUtc": "2025-09-03T20:24:59Z",
+    "baseFeeGwei": 0.710570108,
+    "gasLimit": 44999957
+   },
+   {
+    "block": 23277756,
+    "timeUtc": "2025-09-02T20:18:11Z",
+    "baseFeeGwei": 0.327857802,
+    "gasLimit": 44956056
+   }
+  ]
+ },
+ "gasAnchors": [
+  {
+   "label": "now",
+   "why": "the latest block at generation time, so the page can say what gas costs right now rather than only what it has cost",
+   "block": 25898556,
+   "timeUtc": "2026-09-03T18:24:47Z",
+   "baseFeeWei": 118036368,
+   "baseFeeGwei": 0.118036368,
+   "gasLimit": 60000000,
+   "gasUsed": 52512223
+  },
+  {
+   "label": "high",
+   "why": "the busiest moment of the dearest day in the trailing year's daily sample (2026-03-22); a bad day on a normal network, not a crisis",
+   "block": 24710557,
+   "timeUtc": "2026-03-22T04:07:35Z",
+   "baseFeeWei": 23504056370,
+   "baseFeeGwei": 23.50405637,
+   "gasLimit": 60000000,
+   "gasUsed": 7316264
+  },
+  {
+   "label": "extremely high",
+   "why": "the worst moment of the trailing year, during the 2025-10-10 market-wide liquidation event; the network still works, but every write is ~4,500x the median",
+   "block": 23550029,
+   "timeUtc": "2025-10-10T21:32:23Z",
+   "baseFeeWei": 547228205708,
+   "baseFeeGwei": 547.228205708,
+   "gasLimit": 45000000,
+   "gasUsed": 12443664
+  },
+  {
+   "label": "historical peak",
+   "why": "the highest base fee since EIP-1559 went live: the Otherdeed land mint, 2022-05-01. Kept because the ticket asks for a real historical peak and because it is the honest ceiling, even though a 30M-gas-limit chain in 2022 is not the 60M chain of today",
+   "block": 14688911,
+   "timeUtc": "2022-05-01T01:09:03Z",
+   "baseFeeWei": 8629051173688,
+   "baseFeeGwei": 8629.051173688,
+   "gasLimit": 30000000,
+   "gasUsed": 4339812
+  }
+ ],
+ "notes": {
+  "medianIsTheAverageDial": "Tim's 'average' dial uses the MEDIAN of the daily sample, not the mean. The mean (0.3293 gwei) is dragged up by a handful of spike days and is not what a normal day costs; the median (0.1184 gwei) is.",
+  "baseFeeOnly": "Every gas figure here is the BASE FEE only. A real transaction also pays a priority fee to be included. The model exposes the priority fee as its own dial rather than baking a guess into these anchors.",
+  "preLondon": "No anchor predates block 12965000 (EIP-1559). Before that there is no base fee in the header, only per-transaction gas prices, which are not comparable."
+ }
+}
