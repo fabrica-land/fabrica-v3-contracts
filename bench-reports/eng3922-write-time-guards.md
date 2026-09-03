@@ -7,25 +7,50 @@ explicit list ENG-3924 consumes.
 
 Read against the deployed store (commit `062f049`, live at
 `0xFfA7535eF090C9193f44399843a05b60808ffC0D`), not against `main` — the two have diverged since the
-round-1 deploy.
+round-1 deploy. Every line number below is from `git show 062f049:src/FabricaAttributeOracle.sol`
+(719 lines). Note that at `062f049` there is no `_validatePriceWrite` and no `_storeCurrentPrice`:
+the whole write path is inline in `_writePrice` (line 566). Both helpers were introduced by the
+ENG-3523 refactor that landed AFTER the round-1 deploy, which is the divergence this preamble
+warns about — and citing them here in round 1 of review was exactly the mistake the preamble exists
+to prevent. Corrected.
 
 ## The guards, and where each one lands
 
 | # | Guard today | Where in the deployed store | On EAS | Where it has to go |
 | -- | -- | -- | -- | -- |
-| 1 | Provenance signer must equal `msg.sender` | `writePrice`, `ProvenanceSignerMismatch` | **Free.** `attester` IS `msg.sender`, set by EAS core | Nowhere — EAS is strictly better here |
-| 2 | Write time is trusted wall-clock, not publisher-controlled | `_storeCurrentPrice` sets `lastWrittenAt` | **Free.** `Attestation.time` is block time | Nowhere |
-| 3 | `valuedAt` may not be in the future | `_validatePriceWrite`, `InvalidValuedAt` | **Gone.** A `valuedAt` inside schema data is unchecked bytes | Aggregator, read time — or drop it and use `Attestation.time` only |
-| 4 | Price may not be zero | `InvalidPrice` | **Gone** | Aggregator (the harness already treats zero as absent) |
-| 5 | Cycle must be at or above the writer's minimum valid cycle | `_requireValidCycle` | **Gone.** EAS has no cycle concept at all | Requires a `uint64 cycle` added to the price schema — see below |
-| 6 | Cycle monotonicity per row | `CycleNotMonotonic` | **Gone** | Only checkable at read time by walking `refUID`, which costs a hop per comparison. Realistically dropped |
-| 7 | Minimum write interval | `minWriteInterval`, `WriteTooSoon` | **Gone** | **Not rebuildable at read time.** A rate limit is a property of writes, and a reader cannot un-write. Dropped |
-| 8 | First-price cap | `maxFirstPriceUsdc6`, `FirstPriceTooHigh` | **Gone** | Aggregator, read time, as a sanity bound. Not in the aggregator today |
-| 9 | Global value ceiling | `valueCeilingUsdc6`, `AboveValueCeiling` | **Gone** | Aggregator, read time. Not in the aggregator today |
-| 10 | Price band, +15% / −50% | `_enforceBand`, `BandExceeded` | **Gone** | Partly covered by the aggregator's existing `maxJumpBps` breaker — but see the semantic change below |
-| 11 | Per-token `register` gate | `_requireRegistered` | Gone | **Retired by decision**, not lost: round-2 Part A item 2, "there is no registry of tokens" |
-| 12 | Owner's source enable | `sourceEnabled` | Gone | **Retired by decision**: round-2 position 2, no privileged roles |
-| 13 | History ring for the seasoning walk | `_pushHistory`, 48 slots | Replaced by `refUID` chaining | Works, at roughly 46,700 gas per hop per oracle source against 23,500 on a custom store |
+| 1 | Provenance signer must equal `msg.sender` | `writePrice` L373, revert L376 | **Free.** `attester` IS `msg.sender`, set by EAS core | Nowhere — EAS is strictly better here |
+| 2 | Write time is trusted wall-clock, not publisher-controlled | `_writePrice` L610 sets `lastWrittenAt = nowTs` | **Free.** `Attestation.time` is block time | Nowhere |
+| 3 | `valuedAt` may not be in the future | `_writePrice` L573, `InvalidValuedAt` | **Gone.** A `valuedAt` inside schema data is unchecked bytes | Aggregator, read time — or drop it and use `Attestation.time` only |
+| 4 | Price may not be zero | `_writePrice` L569, `InvalidPrice` | **Gone** | Aggregator (the harness already treats zero as absent) |
+| 5 | Cycle must be at or above the writer's minimum valid cycle | `_writePrice` L570 -> `_requireValidCycle` L663 | **Gone.** EAS has no cycle concept at all | Requires a `uint64 cycle` added to the price schema — see below |
+| 6 | Cycle monotonicity per row | `_writePrice` L582, `CycleNotMonotonic` | **Gone** | Only checkable at read time by walking `refUID`, which costs a hop per comparison. Realistically dropped |
+| 7 | Minimum write interval | `_writePrice` L584-586, `WriteTooSoon` | **Gone** | **Not rebuildable at read time.** A rate limit is a property of writes, and a reader cannot un-write. Dropped |
+| 8 | First-price cap | `_writePrice` L578, `FirstPriceTooHigh` | **Gone** | Aggregator, read time, as a sanity bound. Not in the aggregator today |
+| 9 | Global value ceiling | `_writePrice` L592, `AboveValueCeiling` | **Gone** | Aggregator, read time. Not in the aggregator today |
+| 10 | Price band, +15% / −50% | `_writePrice` L589 -> `_enforceBand` L685, `BandExceeded` L690 | **Gone** | Partly covered by the aggregator's existing `maxJumpBps` breaker — but see the semantic change below |
+| 11 | Per-token `register` gate | `_writePrice` L568 -> `_requireRegistered` L657 | Gone | **Retired by decision**, not lost: round-2 Part A item 2, "there is no registry of tokens" |
+| 12 | Owner's source enable | `_writePrice` L567, mapping L220 | Gone | **Retired by decision**: round-2 position 2, no privileged roles |
+| 13 | History ring for the seasoning walk | `_pushHistory` L678, 48 slots | Replaced by `refUID` chaining | Works, but see the per-hop costs below |
+
+### Seasoning walk cost per hop, from the arms report
+
+Guard 13's replacement is not a single figure and the first hop is not priced like the rest, so
+here it is differenced off the rows in `bench-reports/eng3922-arms.txt` rather than asserted. Each
+row is a three-oracle-source read, so a per-hop figure is the row delta divided by three times the
+hops added.
+
+| Arm | depth 0 | depth 1 | depth 3 | depth 7 | per hop 0->1 | 1->3 | 3->7 |
+| -- | -- | -- | -- | -- | -- | -- | -- |
+| arm 3 ownerless custom store | 149,308 | 200,163 | 238,362 | 314,781 | 16,951 | 6,366 | 6,368 |
+| calibration round-1 store | 163,430 | 226,829 | 280,955 | 389,239 | 21,133 | 9,021 | 9,023 |
+| arm 1C all-EAS `oracleContext` | 315,254 | 465,232 | 669,002 | 1,077,321 | 49,992 | 33,961 | 34,026 |
+| arm 2 EAS plus pointer | 354,812 | 504,796 | 708,568 | 1,116,894 | 49,994 | 33,962 | 34,027 |
+| arm 1 all-EAS `Indexer` | 407,276 | 565,723 | 786,189 | 1,227,899 | 52,815 | 36,744 | 36,809 |
+
+So the honest statement is a range, not a point: **6,366 to 21,133 gas per hop on a custom store
+and 33,961 to 52,815 on the EAS arms**, with the first hop dearer on every arm because it is the one
+that pays cold access to the history slot or the referenced attestation. A single "~46,700" figure
+appeared in an earlier draft of this document; it did not trace to any row, and it is withdrawn.
 
 ## The three that actually matter
 

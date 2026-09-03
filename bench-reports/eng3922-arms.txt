@@ -1,159 +1,375 @@
-# ENG-3922 harness — plain run (no tracing). Gas figures in the log lines are measured
-# with gasleft() around the call; --gas-report inflates those by ~5k, so the published
-# per-arm numbers come from THIS run and the gas-report table is the cross-check.
-
-Ran 10 tests for test/bench/Eng3922Harness.t.sol:Eng3922HarnessTest
-[PASS] test_coverageModeCostByArm() (gas: 100295051)
+# ENG-3922 arms: five fact-layer arms, coverage rules, and the write side
+#
+# PROVENANCE
+#   forge          : forge Version: 1.7.1
+#   forge commit   : 4072e48705af9d93e3c0f6e29e93b5e9a40caed8
+#   profile        : default (foundry.toml: optimizer=true, optimizer_runs=1, via_ir=false)
+#   command        : forge test --match-path "test/bench/Eng3922*.t.sol" --no-match-path "test/bench/Eng3922Baseline.t.sol" -vv
+#   fork           : Sepolia, pinned FORK_BLOCK = 11_628_000
+#   live fact store: 0xFfA7535eF090C9193f44399843a05b60808ffC0D (round-1, read as deployed)
+#   code           : the test sources committed alongside this report
+#   branch         : sebadas/eng-3922-fact-layer-bench
+#
+# NOTE ON --gas-report: do NOT regenerate this file with --gas-report. The gas-report
+# inspector perturbs in-test gasleft() deltas by a constant +2,500 (one account access)
+# on every read row and +21,344 to +24,056 on the write rows. Generating this file under
+# --gas-report is exactly the defect bruttiboni caught in round 1. The command above is
+# the one that reproduces it.
+#
+Ran 2 tests for test/bench/Eng3922Read.t.sol:Eng3922HeartbeatCostTest
+[PASS] test_arm2WithRebuiltHeartbeat() (gas: 2303927)
 Logs:
-  arm3 ownerless store    coverage=none        gas: 149337
-  arm2 EAS+pointer        coverage=none        gas: 354841
-  arm1C EAS oracleContext coverage=none        gas: 315283
-  arm1 all-EAS indexer    coverage=none        gas: 407305
-  cal. round-1 store      coverage=none        gas: 163459
-  arm3 ownerless store    coverage=closedCycle gas: 149979
-  arm2 EAS+pointer        coverage=closedCycle gas: 355483
-  arm1C EAS oracleContext coverage=closedCycle gas: 315925
-  arm1 all-EAS indexer    coverage=closedCycle gas: 407947
-  cal. round-1 store      coverage=closedCycle gas: 164101
-  arm3 ownerless store    coverage=proofAtRead gas: 170953
-  arm2 EAS+pointer        coverage=proofAtRead gas: 376979
-  arm1C EAS oracleContext coverage=proofAtRead gas: 337405
-  arm1 all-EAS indexer    coverage=proofAtRead gas: 429506
-  cal. round-1 store      coverage=proofAtRead: not eligible under this rule
-  arm3 ownerless store    coverage=coverStamp  gas: 164774
-  arm2 EAS+pointer        coverage=coverStamp  gas: 369526
-  arm1C EAS oracleContext coverage=coverStamp  gas: 405789
-  arm1 all-EAS indexer    coverage=coverStamp  gas: 529168
-  cal. round-1 store      coverage=coverStamp : not eligible under this rule
+  arm2 price() WITH rebuilt per-writer heartbeat: 359812
 
-[PASS] test_keyingGapClosed() (gas: 53322018)
+[PASS] test_arm2WithoutHeartbeat() (gas: 2303227)
+Logs:
+  arm2 price() WITHOUT heartbeat (freshness from attestation time only): 358996
+
+Suite result: ok. 2 passed; 0 failed; 0 skipped; finished in 94.45ms (1.10ms CPU time)
+
+Ran 5 tests for test/bench/Eng3922Read.t.sol:Eng3922ReadDepth0Test
+[PASS] test_readArm1EasIndexer() (gas: 2877655)
+Logs:
+  arm1 all-EAS indexer    depth/source=0 price() execution gas: 407276
+
+[PASS] test_readArm1cEasContext() (gas: 2531623)
+Logs:
+  arm1C EAS oracleContext depth/source=0 price() execution gas: 315254
+
+[PASS] test_readArm2EasPointer() (gas: 2657316)
+Logs:
+  arm2 EAS+pointer        depth/source=0 price() execution gas: 354812
+
+[PASS] test_readArm3OwnerlessStore() (gas: 2229559)
+Logs:
+  arm3 ownerless store    depth/source=0 price() execution gas: 149308
+
+[PASS] test_readCalibrationRound1Store() (gas: 2241762)
+Logs:
+  cal. round-1 store      depth/source=0 price() execution gas: 163430
+
+Suite result: ok. 5 passed; 0 failed; 0 skipped; finished in 98.59ms (5.18ms CPU time)
+
+Ran 5 tests for test/bench/Eng3922Coverage.t.sol:Eng3922CoverageNoneTest
+[PASS] test_coverageArm1EasIndexer() (gas: 2877711)
+Logs:
+  arm1 all-EAS indexer    coverage=none depth/source=0 price() execution gas: 407276
+
+[PASS] test_coverageArm1cEasContext() (gas: 2531613)
+Logs:
+  arm1C EAS oracleContext coverage=none depth/source=0 price() execution gas: 315254
+
+[PASS] test_coverageArm2EasPointer() (gas: 2657790)
+Logs:
+  arm2 EAS+pointer        coverage=none depth/source=0 price() execution gas: 354812
+
+[PASS] test_coverageArm3OwnerlessStore() (gas: 2229929)
+Logs:
+  arm3 ownerless store    coverage=none depth/source=0 price() execution gas: 149308
+
+[PASS] test_coverageCalibrationRound1Store() (gas: 2242060)
+Logs:
+  cal. round-1 store      coverage=none depth/source=0 price() execution gas: 163430
+
+Suite result: ok. 5 passed; 0 failed; 0 skipped; finished in 99.72ms (5.88ms CPU time)
+
+Ran 5 tests for test/bench/Eng3922Coverage.t.sol:Eng3922CoverageStampTest
+[PASS] test_coverageArm1EasIndexer() (gas: 3121441)
+Logs:
+  arm1 all-EAS indexer    coverage=coverageStamp depth/source=0 price() execution gas: 529139
+
+[PASS] test_coverageArm1cEasContext() (gas: 2712626)
+Logs:
+  arm1C EAS oracleContext coverage=coverageStamp depth/source=0 price() execution gas: 405760
+
+[PASS] test_coverageArm2EasPointer() (gas: 2687166)
+Logs:
+  arm2 EAS+pointer        coverage=coverageStamp depth/source=0 price() execution gas: 369497
+
+[PASS] test_coverageArm3OwnerlessStore() (gas: 2260804)
+Logs:
+  arm3 ownerless store    coverage=coverageStamp depth/source=0 price() execution gas: 164745
+
+[PASS] test_coverageCalibrationRound1Store() (gas: 1999802)
+Logs:
+  cal. round-1 store      coverage=coverageStamp: not eligible on this fact layer under this rule
+
+Suite result: ok. 5 passed; 0 failed; 0 skipped; finished in 102.82ms (4.74ms CPU time)
+
+Ran 5 tests for test/bench/Eng3922Coverage.t.sol:Eng3922CoverageProofAtReadTest
+[PASS] test_coverageArm1EasIndexer() (gas: 2921877)
+Logs:
+  arm1 all-EAS indexer    coverage=proofAtRead depth/source=0 price() execution gas: 429357
+
+[PASS] test_coverageArm1cEasContext() (gas: 2575617)
+Logs:
+  arm1C EAS oracleContext coverage=proofAtRead depth/source=0 price() execution gas: 337256
+
+[PASS] test_coverageArm2EasPointer() (gas: 2701831)
+Logs:
+  arm2 EAS+pointer        coverage=proofAtRead depth/source=0 price() execution gas: 376830
+
+[PASS] test_coverageArm3OwnerlessStore() (gas: 2272921)
+Logs:
+  arm3 ownerless store    coverage=proofAtRead depth/source=0 price() execution gas: 170804
+
+[PASS] test_coverageCalibrationRound1Store() (gas: 1938895)
+Logs:
+  cal. round-1 store      coverage=proofAtRead: not eligible on this fact layer under this rule
+
+Suite result: ok. 5 passed; 0 failed; 0 skipped; finished in 104.07ms (4.09ms CPU time)
+
+Ran 2 tests for test/bench/Eng3922Behaviour.t.sol:Eng3922BehaviourTest
+[PASS] test_keyingGapClosed() (gas: 53321014)
 Logs:
   keying gap closed on all arms: pointer rows, store facts and EAS revocation are all msg.sender-bound
 
-[PASS] test_lockEndToEnd() (gas: 60067014)
+[PASS] test_lockEndToEnd() (gas: 60065889)
 Logs:
   arm3 ownerless store: writer lock drops liveCount and price() reverts CHECK_MIN_SOURCES
   arm2 EAS+pointer: writer revocation drops liveCount and price() reverts CHECK_MIN_SOURCES
   arm1C oracleContext: a caller-supplied revoked uid is rejected by validation
 
-[PASS] test_readGasByArm() (gas: 155919403)
+Suite result: ok. 2 passed; 0 failed; 0 skipped; finished in 108.12ms (19.47ms CPU time)
+
+Ran 5 tests for test/bench/Eng3922Read.t.sol:Eng3922ReadDepth7Test
+[PASS] test_readArm1EasIndexer() (gas: 4518897)
 Logs:
-  arm2 EAS+pointer       seed=0 depth/source=0 gas: 354841
-  arm1 all-EAS indexer   seed=0 depth/source=0 gas: 407305
-  arm1C EAS oracleContext seed=0 depth/source=0 gas: 315283
-  arm3 ownerless store   seed=0 depth/source=0 gas: 149337
-  cal. round-1 store     seed=0 depth/source=0 gas: 163459
-  arm2 EAS+pointer       seed=1 depth/source=1 gas: 504825
-  arm1 all-EAS indexer   seed=1 depth/source=1 gas: 572676
-  arm1C EAS oracleContext seed=1 depth/source=1 gas: 465261
-  arm3 ownerless store   seed=1 depth/source=1 gas: 200192
-  cal. round-1 store     seed=1 depth/source=1 gas: 226858
-  arm2 EAS+pointer       seed=3 depth/source=3 gas: 708597
-  arm1 all-EAS indexer   seed=3 depth/source=3 gas: 800060
-  arm1C EAS oracleContext seed=3 depth/source=3 gas: 669031
-  arm3 ownerless store   seed=3 depth/source=3 gas: 238391
-  cal. round-1 store     seed=3 depth/source=3 gas: 280984
-  arm2 EAS+pointer       seed=7 depth/source=7 gas: 1116923
-  arm1 all-EAS indexer   seed=7 depth/source=7 gas: 1248688
-  arm1C EAS oracleContext seed=7 depth/source=7 gas: 1077350
-  arm3 ownerless store   seed=7 depth/source=7 gas: 314810
-  cal. round-1 store     seed=7 depth/source=7 gas: 389268
+  arm1 all-EAS indexer    depth/source=7 price() execution gas: 1227899
 
-[PASS] test_readGasHeartbeatCost() (gas: 58069138)
+[PASS] test_readArm1cEasContext() (gas: 4055753)
 Logs:
-  arm2 price() WITH rebuilt per-writer heartbeat: 354841
-  arm2 price() WITHOUT heartbeat (freshness from attestation time only): 354025
-  cost of rebuilding EAS's missing heartbeat, 3 oracle sources: 816
+  arm1C EAS oracleContext depth/source=7 price() execution gas: 1077321
 
-[PASS] test_writeGasCoverageStamp() (gas: 60821810)
+[PASS] test_readArm2EasPointer() (gas: 4181475)
 Logs:
-  ownerless store stampCoverage per token (batch 100): 24503
-  pointer stampCoverage per token (batch 100): 24474
-  EAS coverage attestation per token (multiAttest 100): 187273
-  ownerless store full writePrice per token (batch 100): 71660
-  EAS full price attestation per token (multiAttest 100): 256957
-  cycle gas, 1000 tokens, 20% movers - arm3 ownerless store: 101803200
-  cycle gas, 1000 tokens, 20% movers - arm2 EAS+pointer: 228090000
-  cycle gas, 1000 tokens, 20% movers - arm1 all-EAS: 603629400
-  cycle gas, 1000 tokens, 50% movers - arm3 ownerless store: 144244500
-  cycle gas, 1000 tokens, 50% movers - arm2 EAS+pointer: 430266000
-  cycle gas, 1000 tokens, 50% movers - arm1 all-EAS: 666345000
-  cycle gas, 1000 tokens, 100% movers - arm3 ownerless store: 214980000
-  cycle gas, 1000 tokens, 100% movers - arm2 EAS+pointer: 787158000
-  cycle gas, 1000 tokens, 100% movers - arm1 all-EAS: 770871000
+  arm2 EAS+pointer        depth/source=7 price() execution gas: 1116894
 
-[PASS] test_writeGasCycleClose() (gas: 563169)
+[PASS] test_readArm3OwnerlessStore() (gas: 2560499)
 Logs:
-  arm3 ownerless store, cycle close WITHOUT root: 52358
-  arm3 ownerless store, cycle close WITH root (round-3 item 13): 57314
-  EAS arms, cycle close attestation WITHOUT root (zero root word): 215184
-  EAS arms, cycle close attestation WITH root (round-3 item 13): 216088
+  arm3 ownerless store    depth/source=7 price() execution gas: 314781
 
-[PASS] test_writeGasEas() (gas: 99507566)
+[PASS] test_readCalibrationRound1Store() (gas: 2693374)
 Logs:
-  EAS multiAttest n=1 total: 287504
-  EAS multiAttest n=1 per item: 287504
-  EAS multiRevoke n=1 total: 43441
-  EAS multiRevoke n=1 per item: 43441
-  EAS indexAttestations n=1 total: 213589
-  EAS indexAttestations n=1 per item: 213589
-  EAS multiAttest n=10 total: 2577730
-  EAS multiAttest n=10 per item: 257773
-  EAS multiRevoke n=10 total: 367064
-  EAS multiRevoke n=10 per item: 36706
-  EAS indexAttestations n=10 total: 1652743
-  EAS indexAttestations n=10 per item: 165274
-  EAS multiAttest n=100 total: 25754993
-  EAS multiAttest n=100 per item: 257549
-  EAS multiRevoke n=100 total: 3625683
-  EAS multiRevoke n=100 per item: 36256
-  EAS indexAttestations n=100 total: 16452601
-  EAS indexAttestations n=100 per item: 164526
+  cal. round-1 store      depth/source=7 price() execution gas: 389239
 
-[PASS] test_writeGasOwnerlessStore() (gas: 8310535)
+Suite result: ok. 5 passed; 0 failed; 0 skipped; finished in 109.88ms (7.95ms CPU time)
+
+Ran 5 tests for test/bench/Eng3922Coverage.t.sol:Eng3922CoverageClosedCycleTest
+[PASS] test_coverageArm1EasIndexer() (gas: 2879000)
 Logs:
-  ownerless writePriceBatch n=1 total: 169142
-  ownerless writePriceBatch n=1 per item: 169142
-  ownerless writePriceBatch n=10 total: 722548
-  ownerless writePriceBatch n=10 per item: 72254
-  ownerless writePriceBatch n=100 total: 7082655
-  ownerless writePriceBatch n=100 per item: 70826
-  ownerless writePrice, first write: 79506
-  ownerless writePrice, repeat write: 79704
-  ownerless heartbeat WITH Merkle root: 40185
-  ownerless heartbeat without root: 12855
+  arm1 all-EAS indexer    coverage=closedCycle depth/source=0 price() execution gas: 407918
 
-[PASS] test_writeGasPointer() (gas: 2931570)
+[PASS] test_coverageArm1cEasContext() (gas: 2532898)
 Logs:
-  pointer pointBatch n=1 total: 29738
-  pointer pointBatch n=1 per item: 29738
-  pointer pointBatch n=10 total: 253895
-  pointer pointBatch n=10 per item: 25389
-  pointer pointBatch n=100 total: 2522375
-  pointer pointBatch n=100 per item: 25223
+  arm1C EAS oracleContext coverage=closedCycle depth/source=0 price() execution gas: 315896
 
-Suite result: ok. 10 passed; 0 failed; 0 skipped; finished in 140.61ms (171.83ms CPU time)
+[PASS] test_coverageArm2EasPointer() (gas: 2659080)
+Logs:
+  arm2 EAS+pointer        coverage=closedCycle depth/source=0 price() execution gas: 355454
 
-Ran 1 test suite in 144.87ms (140.61ms CPU time): 10 tests passed, 0 failed, 0 skipped (10 total tests)
+[PASS] test_coverageArm3OwnerlessStore() (gas: 2231214)
+Logs:
+  arm3 ownerless store    coverage=closedCycle depth/source=0 price() execution gas: 149950
 
-# ---- forge --gas-report cross-check ----
-  EAS full price attestation per token (multiAttest 100): 260145
-  cycle gas, 1000 tokens, 20% movers - arm3 ownerless store: 104291400
-  cycle gas, 1000 tokens, 20% movers - arm2 EAS+pointer: 232795800
-  cycle gas, 1000 tokens, 20% movers - arm1 all-EAS: 610810200
-  cycle gas, 1000 tokens, 50% movers - arm3 ownerless store: 147198000
-  cycle gas, 1000 tokens, 50% movers - arm2 EAS+pointer: 438763500
-  cycle gas, 1000 tokens, 50% movers - arm1 all-EAS: 674419500
-  cycle gas, 1000 tokens, 100% movers - arm3 ownerless store: 218709000
-  cycle gas, 1000 tokens, 100% movers - arm2 EAS+pointer: 801975000
-  cycle gas, 1000 tokens, 100% movers - arm1 all-EAS: 780435000
+[PASS] test_coverageCalibrationRound1Store() (gas: 2243345)
+Logs:
+  cal. round-1 store      coverage=closedCycle depth/source=0 price() execution gas: 164072
 
-| price                                                      |          164686 | 232581 | 196706 | 390495 |       6 |
-╰------------------------------------------------------------+-----------------+--------+--------+--------+---------╯
+Suite result: ok. 5 passed; 0 failed; 0 skipped; finished in 118.40ms (4.44ms CPU time)
 
-| price                                                    |          316510 | 488892 | 372824 | 1078577 |       8 |
-╰----------------------------------------------------------+-----------------+--------+--------+---------+---------╯
+Ran 5 tests for test/bench/Eng3922Read.t.sol:Eng3922ReadDepth3Test
+[PASS] test_readArm1EasIndexer() (gas: 3635478)
+Logs:
+  arm1 all-EAS indexer    depth/source=3 price() execution gas: 786189
 
-| price                                                    |          411032 | 604058 | 483064 | 1252415 |       8 |
-╰----------------------------------------------------------+-----------------+--------+--------+---------+---------╯
+[PASS] test_readArm1cEasContext() (gas: 3239117)
+Logs:
+  arm1C EAS oracleContext depth/source=3 price() execution gas: 669002
 
+[PASS] test_readArm2EasPointer() (gas: 3364826)
+Logs:
+  arm2 EAS+pointer        depth/source=3 price() execution gas: 708568
+
+[PASS] test_readArm3OwnerlessStore() (gas: 2407662)
+Logs:
+  arm3 ownerless store    depth/source=3 price() execution gas: 238362
+
+[PASS] test_readCalibrationRound1Store() (gas: 2476806)
+Logs:
+  cal. round-1 store      depth/source=3 price() execution gas: 280955
+
+Suite result: ok. 5 passed; 0 failed; 0 skipped; finished in 130.36ms (6.97ms CPU time)
+
+Ran 22 tests for test/bench/Eng3922Write.t.sol:Eng3922WriteTest
+[PASS] test_easCoverageAttestation100() (gas: 26042464)
+Logs:
+  arm1 all-EAS, coverage attestation batch 100 -- execution gas: 18732902
+  arm1 all-EAS, coverage attestation batch 100 -- intrinsic + calldata: 219408
+  arm1 all-EAS, coverage attestation batch 100 -- WHOLE TRANSACTION: 18952310
+  arm1 all-EAS, coverage attestation batch 100 -- WHOLE TRANSACTION per item: 189523
+
+[PASS] test_easCycleCloseWithRoot() (gas: 345000)
+Logs:
+  EAS arms, cycle close attestation WITH root (round-3 item 13) -- execution gas: 232229
+  EAS arms, cycle close attestation WITH root (round-3 item 13) -- intrinsic + calldata: 24036
+  EAS arms, cycle close attestation WITH root (round-3 item 13) -- WHOLE TRANSACTION: 256265
+
+[PASS] test_easCycleCloseWithoutRoot() (gas: 324603)
+Logs:
+  EAS arms, cycle close attestation WITHOUT root (round 2) -- execution gas: 212329
+  EAS arms, cycle close attestation WITHOUT root (round 2) -- intrinsic + calldata: 23664
+  EAS arms, cycle close attestation WITHOUT root (round 2) -- WHOLE TRANSACTION: 235993
+
+[PASS] test_easIndexAttestations1() (gas: 544619)
+Logs:
+  EAS indexAttestations n=1 -- execution gas: 214554
+  EAS indexAttestations n=1 -- intrinsic + calldata: 21856
+  EAS indexAttestations n=1 -- WHOLE TRANSACTION: 236410
+
+[PASS] test_easIndexAttestations10() (gas: 4410713)
+Logs:
+  EAS indexAttestations n=10 -- execution gas: 1692408
+  EAS indexAttestations n=10 -- intrinsic + calldata: 26452
+  EAS indexAttestations n=10 -- WHOLE TRANSACTION: 1718860
+  EAS indexAttestations n=10 -- WHOLE TRANSACTION per item: 171886
+
+[PASS] test_easIndexAttestations100() (gas: 43153590)
+Logs:
+  EAS indexAttestations n=100 -- execution gas: 16492266
+  EAS indexAttestations n=100 -- intrinsic + calldata: 72412
+  EAS indexAttestations n=100 -- WHOLE TRANSACTION: 16564678
+  EAS indexAttestations n=100 -- WHOLE TRANSACTION per item: 165646
+
+[PASS] test_easMultiAttest1() (gas: 450941)
+Logs:
+  EAS multiAttest n=1 -- execution gas: 287232
+  EAS multiAttest n=1 -- intrinsic + calldata: 25184
+  EAS multiAttest n=1 -- WHOLE TRANSACTION: 312416
+
+[PASS] test_easMultiAttest10() (gas: 3665872)
+Logs:
+  EAS multiAttest n=10 -- execution gas: 2590632
+  EAS multiAttest n=10 -- intrinsic + calldata: 51668
+  EAS multiAttest n=10 -- WHOLE TRANSACTION: 2642300
+  EAS multiAttest n=10 -- WHOLE TRANSACTION per item: 264230
+
+[PASS] test_easMultiAttest100() (gas: 35902953)
+Logs:
+  EAS multiAttest n=100 -- execution gas: 25696023
+  EAS multiAttest n=100 -- intrinsic + calldata: 316280
+  EAS multiAttest n=100 -- WHOLE TRANSACTION: 26012303
+  EAS multiAttest n=100 -- WHOLE TRANSACTION per item: 260123
+
+[PASS] test_easMultiRevoke1() (gas: 410005)
+Logs:
+  EAS multiRevoke n=1 -- execution gas: 43972
+  EAS multiRevoke n=1 -- intrinsic + calldata: 22916
+  EAS multiRevoke n=1 -- WHOLE TRANSACTION: 66888
+
+[PASS] test_easMultiRevoke10() (gas: 3188207)
+Logs:
+  EAS multiRevoke n=10 -- execution gas: 367899
+  EAS multiRevoke n=10 -- intrinsic + calldata: 28664
+  EAS multiRevoke n=10 -- WHOLE TRANSACTION: 396563
+  EAS multiRevoke n=10 -- WHOLE TRANSACTION per item: 39656
+
+[PASS] test_easMultiRevoke100() (gas: 31047839)
+Logs:
+  EAS multiRevoke n=100 -- execution gas: 3625348
+  EAS multiRevoke n=100 -- intrinsic + calldata: 86168
+  EAS multiRevoke n=100 -- WHOLE TRANSACTION: 3711516
+  EAS multiRevoke n=100 -- WHOLE TRANSACTION per item: 37115
+
+[PASS] test_ownerlessCycleCloseWithRoot() (gas: 131369)
+Logs:
+  arm3 ownerless store, cycle close WITH root (round-3 item 13) -- execution gas: 96848
+  arm3 ownerless store, cycle close WITH root (round-3 item 13) -- intrinsic + calldata: 21704
+  arm3 ownerless store, cycle close WITH root (round-3 item 13) -- WHOLE TRANSACTION: 118552
+
+[PASS] test_ownerlessCycleCloseWithoutRoot() (gas: 86549)
+Logs:
+  arm3 ownerless store, cycle close WITHOUT root (round 2) -- execution gas: 52386
+  arm3 ownerless store, cycle close WITHOUT root (round 2) -- intrinsic + calldata: 21332
+  arm3 ownerless store, cycle close WITHOUT root (round 2) -- WHOLE TRANSACTION: 73718
+
+[PASS] test_ownerlessStampCoverage100() (gas: 3293257)
+Logs:
+  arm3 ownerless store, stampCoverage batch 100 -- execution gas: 2450591
+  arm3 ownerless store, stampCoverage batch 100 -- intrinsic + calldata: 72564
+  arm3 ownerless store, stampCoverage batch 100 -- WHOLE TRANSACTION: 2523155
+  arm3 ownerless store, stampCoverage batch 100 -- WHOLE TRANSACTION per item: 25231
+
+[PASS] test_ownerlessWritePriceBatch1() (gas: 245793)
+Logs:
+  ownerless writePriceBatch n=1 -- execution gas: 125635
+  ownerless writePriceBatch n=1 -- intrinsic + calldata: 23492
+  ownerless writePriceBatch n=1 -- WHOLE TRANSACTION: 149127
+
+[PASS] test_ownerlessWritePriceBatch10() (gas: 1150853)
+Logs:
+  ownerless writePriceBatch n=10 -- execution gas: 761471
+  ownerless writePriceBatch n=10 -- intrinsic + calldata: 32624
+  ownerless writePriceBatch n=10 -- WHOLE TRANSACTION: 794095
+  ownerless writePriceBatch n=10 -- WHOLE TRANSACTION per item: 79409
+
+[PASS] test_ownerlessWritePriceBatch100() (gas: 10184942)
+Logs:
+  ownerless writePriceBatch n=100 -- execution gas: 7122468
+  ownerless writePriceBatch n=100 -- intrinsic + calldata: 123932
+  ownerless writePriceBatch n=100 -- WHOLE TRANSACTION: 7246400
+  ownerless writePriceBatch n=100 -- WHOLE TRANSACTION per item: 72464
+
+[PASS] test_pointerPointBatch1() (gas: 115928)
+Logs:
+  pointer pointBatch n=1 -- execution gas: 30702
+  pointer pointBatch n=1 -- intrinsic + calldata: 23440
+  pointer pointBatch n=1 -- WHOLE TRANSACTION: 54142
+
+[PASS] test_pointerPointBatch10() (gas: 553872)
+Logs:
+  pointer pointBatch n=10 -- execution gas: 257363
+  pointer pointBatch n=10 -- intrinsic + calldata: 37240
+  pointer pointBatch n=10 -- WHOLE TRANSACTION: 294603
+  pointer pointBatch n=10 -- WHOLE TRANSACTION per item: 29460
+
+[PASS] test_pointerPointBatch100() (gas: 4916241)
+Logs:
+  pointer pointBatch n=100 -- execution gas: 2526324
+  pointer pointBatch n=100 -- intrinsic + calldata: 175252
+  pointer pointBatch n=100 -- WHOLE TRANSACTION: 2701576
+  pointer pointBatch n=100 -- WHOLE TRANSACTION per item: 27015
+
+[PASS] test_pointerStampCoverage100() (gas: 3290197)
+Logs:
+  arm2 pointer, stampCoverage batch 100 -- execution gas: 2448225
+  arm2 pointer, stampCoverage batch 100 -- intrinsic + calldata: 72564
+  arm2 pointer, stampCoverage batch 100 -- WHOLE TRANSACTION: 2520789
+  arm2 pointer, stampCoverage batch 100 -- WHOLE TRANSACTION per item: 25207
+
+Suite result: ok. 22 passed; 0 failed; 0 skipped; finished in 130.37ms (121.91ms CPU time)
+
+Ran 5 tests for test/bench/Eng3922Read.t.sol:Eng3922ReadDepth1Test
+[PASS] test_readArm1EasIndexer() (gas: 3194548)
+Logs:
+  arm1 all-EAS indexer    depth/source=1 price() execution gas: 565723
+
+[PASS] test_readArm1cEasContext() (gas: 2831578)
+Logs:
+  arm1C EAS oracleContext depth/source=1 price() execution gas: 465232
+
+[PASS] test_readArm2EasPointer() (gas: 2957282)
+Logs:
+  arm2 EAS+pointer        depth/source=1 price() execution gas: 504796
+
+[PASS] test_readArm3OwnerlessStore() (gas: 2331264)
+Logs:
+  arm3 ownerless store    depth/source=1 price() execution gas: 200163
+
+[PASS] test_readCalibrationRound1Store() (gas: 2368556)
+Logs:
+  cal. round-1 store      depth/source=1 price() execution gas: 226829
+
+Suite result: ok. 5 passed; 0 failed; 0 skipped; finished in 101.92ms (4.80ms CPU time)
+
+Ran 11 test suites in 206.99ms (1.20s CPU time): 66 tests passed, 0 failed, 0 skipped (66 total tests)

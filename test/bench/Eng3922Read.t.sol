@@ -1,0 +1,103 @@
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.24;
+
+import {Eng3922HarnessBase} from "./Eng3922HarnessBase.sol";
+import {BenchAggregatorBase} from "./BenchAggregatorBase.sol";
+
+/// @notice ENG-3922 — the go/no-go: gas inside `price()` for a three-source read, per arm.
+/// @dev One measurement per test function, seeding done in `setUp`, per the CLAUDE.md gas guard.
+///      One contract per seasoning walk depth so the five arms read identical data at that depth;
+///      the depth each arm actually walked is reported alongside the gas rather than assumed from
+///      the fixture.
+abstract contract Eng3922ReadBase is Eng3922HarnessBase {
+    uint256 internal tokenId;
+    bytes internal ctx;
+
+    function _walkDepth() internal pure virtual returns (uint256);
+
+    function setUp() public virtual override {
+        super.setUp();
+        if (!forked) return;
+        tokenId = uint256(keccak256(abi.encode("eng3922-read", _walkDepth())));
+        _seed(tokenId, _walkDepth());
+        ctx = _contextFor(tokenId);
+    }
+
+    function test_readArm3OwnerlessStore() public {
+        if (!forked) vm.skip(true);
+        _row("arm3 ownerless store   ", _armOwnerless(), tokenId, ctx);
+    }
+
+    function test_readArm2EasPointer() public {
+        if (!forked) vm.skip(true);
+        _row("arm2 EAS+pointer       ", _armPointer(true), tokenId, ctx);
+    }
+
+    function test_readArm1cEasContext() public {
+        if (!forked) vm.skip(true);
+        _row("arm1C EAS oracleContext", _armContext(true), tokenId, ctx);
+    }
+
+    function test_readArm1EasIndexer() public {
+        if (!forked) vm.skip(true);
+        _row("arm1 all-EAS indexer   ", _armIndexer(true), tokenId, ctx);
+    }
+
+    function test_readCalibrationRound1Store() public {
+        if (!forked) vm.skip(true);
+        _row("cal. round-1 store     ", _armCustom(), tokenId, ctx);
+    }
+}
+
+/// @notice Walk depth 0 — the weekly-cycle operating point and the depth the mark is judged at.
+contract Eng3922ReadDepth0Test is Eng3922ReadBase {
+    function _walkDepth() internal pure override returns (uint256) {
+        return 0;
+    }
+}
+
+contract Eng3922ReadDepth1Test is Eng3922ReadBase {
+    function _walkDepth() internal pure override returns (uint256) {
+        return 1;
+    }
+}
+
+contract Eng3922ReadDepth3Test is Eng3922ReadBase {
+    function _walkDepth() internal pure override returns (uint256) {
+        return 3;
+    }
+}
+
+contract Eng3922ReadDepth7Test is Eng3922ReadBase {
+    function _walkDepth() internal pure override returns (uint256) {
+        return 7;
+    }
+}
+
+/// @notice What rebuilding EAS's missing per-writer heartbeat costs, isolated.
+/// @dev EAS has no dead-man switch on the attester. Two test functions, one measurement each.
+contract Eng3922HeartbeatCostTest is Eng3922HarnessBase {
+    uint256 internal tokenId;
+    bytes internal ctx;
+
+    function setUp() public virtual override {
+        super.setUp();
+        if (!forked) return;
+        tokenId = uint256(keccak256("eng3922-heartbeat-cost"));
+        _seed(tokenId, 0);
+        ctx = _contextFor(tokenId);
+    }
+
+    function test_arm2WithRebuiltHeartbeat() public {
+        if (!forked) vm.skip(true);
+        emit log_named_uint("arm2 price() WITH rebuilt per-writer heartbeat", _measure(_armPointer(true), tokenId, ctx));
+    }
+
+    function test_arm2WithoutHeartbeat() public {
+        if (!forked) vm.skip(true);
+        emit log_named_uint(
+            "arm2 price() WITHOUT heartbeat (freshness from attestation time only)",
+            _measure(_armPointer(false), tokenId, ctx)
+        );
+    }
+}

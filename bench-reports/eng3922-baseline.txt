@@ -1,40 +1,76 @@
-Ran 4 tests for test/bench/Eng3922Baseline.t.sol:Eng3922BaselineTest
-[PASS] test_baselineThreeSourcePriceGas() (gas: 19642772)
+# ENG-3922 baseline: three-source price() on the live Sepolia round-1 fact store
+#
+# PROVENANCE
+#   forge          : forge Version: 1.7.1
+#   forge commit   : 4072e48705af9d93e3c0f6e29e93b5e9a40caed8
+#   profile        : default (foundry.toml: optimizer=true, optimizer_runs=1, via_ir=false)
+#   command        : forge test --match-path "test/bench/Eng3922Baseline.t.sol" -vv
+#   fork           : Sepolia, pinned FORK_BLOCK = 11_628_000
+#   live fact store: 0xFfA7535eF090C9193f44399843a05b60808ffC0D (round-1, read as deployed)
+#   code           : the test sources committed alongside this report
+#   branch         : sebadas/eng-3922-fact-layer-bench
+#
+# CORRECTION, round 1 of review: an earlier version of this report was generated WITH
+# --gas-report and its nine rows were all wrong. Separately, the walk-depth labels were
+# off by one: the old fixture wrote one MORE in-window price than the depth parameter
+# named, so the row labelled "depth 0" was a depth-1 read. Both are fixed. The true
+# depth-0 read (the weekly-cycle operating point) is 134,804; the 197,573 figure that was
+# pre-registered as the baseline is the depth-1 number.
+#
+# NOTE ON --gas-report: do NOT regenerate this file with --gas-report. The gas-report
+# inspector perturbs in-test gasleft() deltas by a constant +2,500 (one account access)
+# on every read row and +21,344 to +24,056 on the write rows. Generating this file under
+# --gas-report is exactly the defect bruttiboni caught in round 1. The command above is
+# the one that reproduces it.
+#
+Ran 10 tests for test/bench/Eng3922Baseline.t.sol:Eng3922BaselineTest
+[PASS] test_liveTwoSourceAggregatorConfig() (gas: 21553)
+[PASS] test_readGasWalkDepth0() (gas: 2753050)
 Logs:
-  baseline price() gas, 3 sources, seasoning walk depth 0: 200073
-  baseline price() gas, 3 sources, seasoning walk depth 1: 227105
-  baseline price() gas, 3 sources, seasoning walk depth 3: 281176
-  baseline price() gas, 3 sources, seasoning walk depth 7: 389354
+  price() execution gas, 3 oracle sources, seasoning walk depth 0: 134804
 
-[PASS] test_baselineWriteGas() (gas: 615364)
+[PASS] test_readGasWalkDepth1() (gas: 3078421)
 Logs:
-  baseline writePrice gas, first write (no history push): 177961
-  baseline writePrice gas, repeat write (history push): 156992
-  baseline writePrice gas, repeat write 2 (warm ring slot): 139894
-  baseline heartbeat gas: 37697
+  price() execution gas, 3 oracle sources, seasoning walk depth 1: 197573
 
-[PASS] test_baselineWriteGasWrappedRing() (gas: 7480873)
+[PASS] test_readGasWalkDepth3() (gas: 3526327)
 Logs:
-  baseline writePrice gas, wrapped ring (overwrites a non-zero slot): 115127
+  price() execution gas, 3 oracle sources, seasoning walk depth 3: 251639
 
-[PASS] test_liveTwoSourceAggregatorConfig() (gas: 29087)
-Suite result: ok. 4 passed; 0 failed; 0 skipped; finished in 185.83ms (12.66ms CPU time)
+[PASS] test_readGasWalkDepth7() (gas: 4422452)
+Logs:
+  price() execution gas, 3 oracle sources, seasoning walk depth 7: 359805
 
-╭------------------------------------------------------------------+-----------------+--------+--------+--------+---------╮
-| src/FabricaOracleAggregator.sol:FabricaOracleAggregator Contract |                 |        |        |        |         |
-+=========================================================================================================================+
-| Deployment Cost                                                  | Deployment Size |        |        |        |         |
-|------------------------------------------------------------------+-----------------+--------+--------+--------+---------|
-|                                                          2321477 |           11804 |        |        |        |         |
-|------------------------------------------------------------------+-----------------+--------+--------+--------+---------|
-|                                                                  |                 |        |        |        |         |
-|------------------------------------------------------------------+-----------------+--------+--------+--------+---------|
-| Function Name                                                    | Min             | Avg    | Median | Max    | # Calls |
-|------------------------------------------------------------------+-----------------+--------+--------+--------+---------|
-| price                                                            |          199097 | 273451 | 253164 | 388378 |       4 |
-|------------------------------------------------------------------+-----------------+--------+--------+--------+---------|
-| renounceAggregator                                               |           63340 |  63340 |  63340 |  63340 |       4 |
-╰------------------------------------------------------------------+-----------------+--------+--------+--------+---------╯
+[PASS] test_writeGasFirstWrite() (gas: 314947)
+Logs:
+  writePrice, write 1 of a row (no history push) -- execution gas: 149310
+  writePrice, write 1 of a row (no history push) -- intrinsic + calldata: 24044
+  writePrice, write 1 of a row (no history push) -- WHOLE TRANSACTION: 173354
 
+[PASS] test_writeGasHeartbeat() (gas: 54937)
+Logs:
+  heartbeat -- execution gas: 23040
+  heartbeat -- intrinsic + calldata: 21344
+  heartbeat -- WHOLE TRANSACTION: 44384
 
-Ran 1 test suite in 198.09ms (185.83ms CPU time): 4 tests passed, 0 failed, 0 skipped (4 total tests)
+[PASS] test_writeGasSecondWrite() (gas: 447410)
+Logs:
+  writePrice, write 2 of a row (ring slot and counter both cold) -- execution gas: 133166
+  writePrice, write 2 of a row (ring slot and counter both cold) -- intrinsic + calldata: 24056
+  writePrice, write 2 of a row (ring slot and counter both cold) -- WHOLE TRANSACTION: 157222
+
+[PASS] test_writeGasThirdWrite() (gas: 518544)
+Logs:
+  writePrice, writes 3-48 of a row (ring slot fresh, counter warm) -- execution gas: 116079
+  writePrice, writes 3-48 of a row (ring slot fresh, counter warm) -- intrinsic + calldata: 24044
+  writePrice, writes 3-48 of a row (ring slot fresh, counter warm) -- WHOLE TRANSACTION: 140123
+
+[PASS] test_writeGasWrappedRing() (gas: 3704968)
+Logs:
+  writePrice, write 49+ of a row (ring wrapped, slot overwritten) -- execution gas: 82509
+  writePrice, write 49+ of a row (ring wrapped, slot overwritten) -- intrinsic + calldata: 24056
+  writePrice, write 49+ of a row (ring wrapped, slot overwritten) -- WHOLE TRANSACTION: 106565
+
+Suite result: ok. 10 passed; 0 failed; 0 skipped; finished in 122.48ms (16.15ms CPU time)
+
+Ran 1 test suite in 130.29ms (122.48ms CPU time): 10 tests passed, 0 failed, 0 skipped (10 total tests)

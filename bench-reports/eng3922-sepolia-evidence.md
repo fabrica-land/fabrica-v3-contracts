@@ -48,10 +48,13 @@ facts live.
 
 | Arm | Fork | Sepolia | Difference |
 | -- | -- | -- | -- |
-| arm 3 ownerless store | 149,337 | 148,230 | −0.7% |
-| arm 1C `oracleContext` | 315,283 | 315,566 | +0.1% |
-| arm 2 EAS plus pointer | 354,841 | 355,594 | +0.2% |
-| arm 1 all-EAS Indexer | 407,305 | 408,043 | +0.2% |
+| arm 3 ownerless store | 149,308 | 148,230 | −0.7% |
+| arm 1C `oracleContext` | 315,254 | 315,566 | +0.1% |
+| arm 2 EAS plus pointer | 354,812 | 355,594 | +0.2% |
+| arm 1 all-EAS Indexer | 407,276 | 408,043 | +0.2% |
+
+(Fork figures are from the isolated one-measurement-per-test suites; they differ from the earlier
+looping versions by at most 29 gas, which is one `eligibilityReport` call's worth of warming.)
 
 ## The write — one real cycle, 20 tokens x 3 oracle sources
 
@@ -119,6 +122,14 @@ writer0 row before: 0x429d4dbcc5f2db05e7afce482274edb88929f34e1c05c8d3ad9e9a7cde
 writer0 row after:  0x429d4dbcc5f2db05e7afce482274edb88929f34e1c05c8d3ad9e9a7cde49e32f
 writer1 row after:  0x1111111111111111111111111111111111111111111111111111111111111111
 ```
+
+## Why the `broadcast/` artifacts are not committed
+
+`forge script` wrote five run JSON files (two of them `run-latest.json` duplicates of a timestamped
+sibling) totalling about 6,400 lines. They are deliberately NOT part of this branch. Everything they
+would prove is already here in a more useful form: every transaction is cited by hash above, and a
+hash resolves against the chain, which a committed JSON blob does not. `.worktree-init.state` is
+likewise excluded, and is now in `.gitignore` so no branch picks it up again.
 
 ## Two facts about EAS's `Indexer` that the numbers depend on
 
