@@ -7,13 +7,21 @@ import {DeployedRound1FactStore} from "../bench/oracle-gas-model/deployed-round1
 
 /// @notice ENG-3913: the same four `writePrice` regimes measured against BOTH the code on
 ///         `main` and the code actually deployed on Sepolia, under one harness.
-/// @dev Why this exists. ENG-3922 measured the live round-1 fact store on a Sepolia fork
-///      and got execution figures about 7,900 gas above the ones this bench gets from
-///      `main`. That is not a methodology disagreement: `main` is not what is deployed.
-///      Commit `10aafd6` (ENG-3523, 2026-09-01) refactored `_writePrice` after the
-///      round-1 deploy, and at `optimizer_runs = 1` that moved runtime gas materially.
-///      Measuring both here, with identical priming and identical instrumentation, turns
-///      "our numbers disagree" into a measured delta with a named cause.
+/// @dev Why this exists, and what it actually found. `main` is NOT the code deployed for
+///      round 1: the deployed store is commit `062f049`, and `main` moved afterwards at
+///      `10aafd6` (ENG-3523, 2026-09-01), which refactored `_writePrice`. The hypothesis
+///      under test was that this explained a gap against ENG-3922's fork measurements of
+///      the live contract.
+///
+///      IT DID NOT. Measured here with identical priming and instrumentation, the deployed
+///      code is 311-657 gas CHEAPER than `main` (0.4-0.9%), which is both small and in the
+///      opposite direction to the gap. The real cause of that gap was a defect in this
+///      bench's own provenance handling, fixed separately: constant `rawPayloadHash` /
+///      `inputsHash` made two storage words no-op writes. After that fix three of the four
+///      regimes agree with ENG-3922 to 0.2%; the write-1 residual remains unresolved.
+///
+///      This test is kept because the deployed-versus-`main` delta is worth knowing on its
+///      own, and because a killed hypothesis should leave an artifact rather than a memory.
 ///
 ///      Method is the same as `Eng3913OracleGasBench`: one scenario per test, priming in
 ///      `setUp`, a codeless control for the CALL overhead, `vm.cool` before each

@@ -103,8 +103,8 @@ footer{border-top:1px solid var(--line);padding:18px 20px 40px;color:var(--muted
   </div>
 
   <div class="dial">
-    <label>Token count</label>
-    <div class="seg" id="d-tokens-seg">
+    <label for="d-tokens">Token count</label>
+    <div class="seg" id="d-tokens-seg" role="group" aria-label="Token count presets">
       <button data-v="100">100</button><button data-v="1000">1,000</button><button data-v="100000">100,000</button>
     </div>
     <input type="number" id="d-tokens" min="1" step="1" style="margin-top:6px">
@@ -119,8 +119,8 @@ footer{border-top:1px solid var(--line);padding:18px 20px 40px;color:var(--muted
   </div>
 
   <div class="dial">
-    <label>Write cadence, per token per source</label>
-    <div class="seg" id="d-cadence-seg">
+    <label for="d-cadence">Write cadence, per token per source</label>
+    <div class="seg" id="d-cadence-seg" role="group" aria-label="Write cadence presets">
       <button data-v="0.25">6 h</button><button data-v="0.5">12 h</button>
       <button data-v="1">1 day</button><button data-v="3">3 days</button>
     </div>
@@ -137,10 +137,10 @@ footer{border-top:1px solid var(--line);padding:18px 20px 40px;color:var(--muted
 
   <div class="dial">
     <label>Gas level</label>
-    <div class="seg" id="d-gas-seg"></div>
+    <div class="seg" id="d-gas-seg" role="group" aria-label="Gas level presets"></div>
     <div class="row2" style="margin-top:6px">
-      <div><input type="number" id="d-gas" min="0" step="0.0001"><div class="hint">base fee, gwei</div></div>
-      <div><input type="number" id="d-tip" min="0" step="0.0001"><div class="hint">priority fee, gwei</div></div>
+      <div><input type="number" id="d-gas" min="0" step="0.0001" aria-label="Gas base fee, gwei"><div class="hint">base fee, gwei</div></div>
+      <div><input type="number" id="d-tip" min="0" step="0.0001" aria-label="Priority fee (tip), gwei"><div class="hint">priority fee, gwei</div></div>
     </div>
     <div class="hint" id="gas-hint"></div>
   </div>
@@ -190,8 +190,8 @@ footer{border-top:1px solid var(--line);padding:18px 20px 40px;color:var(--muted
   </div>
 
   <div class="dial">
-    <label>Batch size</label>
-    <div class="seg" id="d-batch-seg">
+    <label id="d-batch-label">Batch size</label>
+    <div class="seg" id="d-batch-seg" role="group" aria-labelledby="d-batch-label">
       <button data-v="1">1</button><button data-v="10">10</button>
       <button data-v="100">100</button><button data-v="1000">1000</button>
     </div>
@@ -348,16 +348,25 @@ function attrCostForMonth(writesBefore, writesThis) {
 
 function model() {
   // Tim's 18:21Z ruling: an unchanged valuation need not be rewritten, and the token is
-  // still covered by the cycle. A skipped write costs nothing at all -- no transaction --
-  // so the mover share scales the price-write arm directly.
+  // still covered by the cycle. A skipped write costs nothing at all -- no transaction is
+  // sent -- so the mover share scales the number of writes actually SENT.
+  //
+  // That number, not the cadence, is what drives the history ring. A row that is rewritten
+  // on 20% of cycles reaches write 49 five times more slowly than one rewritten every
+  // cycle, so it stays in the dearer regimes far longer. Scaling only the cost while
+  // clocking the ring at the full cadence understated every month after the first --
+  // by 25% at 3-day cadence, month 12, 20% movers. Scale the write COUNT and the cost
+  // follows from it; never multiply by moverShare a second time.
   const moverShare = S.moved / 100;
   const rows = S.tokens * S.sources;
-  const writesPerRowPerMonth = MONTH_DAYS / S.cadence;
+  // What the cadence alone would send, kept only to show the effect of the skip policy.
+  const cadenceWritesPerRowPerMonth = MONTH_DAYS / S.cadence;
+  const writesPerRowPerMonth = cadenceWritesPerRowPerMonth * moverShare;
   const before = (S.month - 1) * writesPerRowPerMonth;
   const c = priceRegimes(false);
   const perRow = costOfFirstNWrites(before + writesPerRowPerMonth, c) - costOfFirstNWrites(before, c);
-  const priceGas = rows * perRow * moverShare;
-  const priceWrites = rows * writesPerRowPerMonth * moverShare;
+  const priceGas = rows * perRow;
+  const priceWrites = rows * writesPerRowPerMonth;
 
   // Heartbeat. Its deadline is the max-silence window less the safety margin.
   const hbInterval = S.maxSilence * (1 - S.margin / 100);
@@ -370,8 +379,16 @@ function model() {
   else if (S.hbPolicy === "everyCycle") hbCount = S.sources * hbPerWriterPerMonth;
   else hbCount = coveredByWrites ? 0 : S.sources * (hbPerWriterPerMonth - MONTH_DAYS / S.cadence);
   hbCount = Math.max(0, hbCount);
-  let hbGas = hbCount * G("heartbeat:repeat");
-  if (S.month === 1) hbGas += S.sources * (G("heartbeat:first") - G("heartbeat:repeat"));
+  // The first close under a writer bootstraps two cold storage words and costs more. It is
+  // a separate transaction only when no repeat close is already being charged; otherwise it
+  // upgrades one of them. Kept as its own term so the printed equation balances and so the
+  // twelve-month figure can pick it up too -- folding it into hbGas hid it from both.
+  const bootstrapCount = S.month === 1 ? S.sources : 0;
+  const bootstrapGas = S.month !== 1 ? 0
+    : hbCount > 0 ? S.sources * (G("heartbeat:first") - G("heartbeat:repeat"))
+                  : S.sources * G("heartbeat:first");
+  const hbTxns = hbCount + (hbCount > 0 ? 0 : bootstrapCount);
+  const hbGas = hbCount * G("heartbeat:repeat") + bootstrapGas;
   // Round 2's close carries the cycle number only. The Merkle root came out of round 2 on
   // 2026-09-03 (Tim, 18:47Z) and is a round-3 candidate, so this row is fully measured --
   // it is the same contract call the round-1 close is, just made unconditionally.
@@ -385,6 +402,7 @@ function model() {
   // Registration: a one-time, round-1-only cost, so it lands in month 1 or nowhere.
   const perItemReg = batchPerItem(S.batch);
   const regGas = (S.reg && S.month === 1) ? S.tokens * perItemReg : 0;
+  const regTxns = regGas > 0 ? Math.ceil(S.tokens / S.batch) : 0;
 
   const totalGas = priceGas + hbGas + attrGas + regGas;
   const price = (S.gas + S.tip) * 1e-9;              // ETH per gas
@@ -425,21 +443,27 @@ function model() {
   // At what token count does the cycle close stop being the dominant cost? The close is
   // a per-writer, per-window cost and does not grow with the book, so the crossover is the
   // token count at which the price writes overtake it.
-  const crossoverTokens = (hbCount > 0 && perRow > 0) ? hbGas / (S.sources * perRow) : null;
+  // `perRow` is already the cost of the writes actually sent this month, so the price cost
+  // per token is `sources * perRow` with no further mover factor. Multiplying again here
+  // understated the crossover by 1/moverShare.
+  const crossoverTokens = (hbTxns > 0 && perRow > 0) ? hbGas / (S.sources * perRow) : null;
 
   // Twelve months from the selected one, each priced in its own regime rather than this
   // month's multiplied by twelve -- the ring makes later months genuinely cheaper.
   let yearGas = 0;
   for (let k = 0; k < 12; k++) {
     const b = (S.month - 1 + k) * writesPerRowPerMonth;
-    yearGas += rows * (costOfFirstNWrites(b + writesPerRowPerMonth, c) - costOfFirstNWrites(b, c)) * moverShare;
+    yearGas += rows * (costOfFirstNWrites(b + writesPerRowPerMonth, c) - costOfFirstNWrites(b, c));
     yearGas += Math.max(0, hbCount) * G("heartbeat:repeat");
     if (S.attrs > 0) yearGas += S.tokens * attrCostForMonth(S.attrs * b, attrWritesPerTokenPerMonth);
   }
-  yearGas += regGas;
+  // Both one-time costs belong to the first month of the window and are charged once, not
+  // twelve times. The month figure charges them the same way.
+  yearGas += regGas + bootstrapGas;
 
-  return {rows, writesPerRowPerMonth, perRow, priceGas, priceWrites, hbInterval, hbCount, hbGas,
-          coveredByWrites, attrGas, attrWrites, regGas, perItemReg, totalGas, toEth, toUsd,
+  return {rows, writesPerRowPerMonth, cadenceWritesPerRowPerMonth, perRow, priceGas, priceWrites,
+          hbInterval, hbCount, hbGas, hbTxns, bootstrapCount, bootstrapGas,
+          coveredByWrites, attrGas, attrWrites, regGas, regTxns, perItemReg, totalGas, toEth, toUsd,
           moverShare, hbPerWriterPerMonth,
           urgentCount, urgentGas, urgentUsd, urgentPerWrite, deferrableGas, deferrableAtNow,
           deferrableDeferred, saving, crossoverTokens, price, urgentPrice, yearGas,
@@ -454,12 +478,16 @@ function render() {
   const m = model();
   const pending = S.layer === "eas";
   document.getElementById("prov").innerHTML =
-    `Measured against <code>fabrica-v3-contracts</code> <code>${META.commitShort}</code>
-     (<code>${META.branch}</code>). Mainnet figures read from the chain at
-     ${CHAIN.now.timeUtc}, block <span class="num">${fmt(CHAIN.now.block)}</span>.
+    `Branch <code>${META.branch}</code>, built from <code>${META.commitShort}</code>
+     — the commit this page's inputs were taken from, which is the <em>parent</em> of the commit
+     that carries the page (a committed file cannot name its own SHA). The check that actually
+     matters does not depend on a SHA: <code>build-model-page.py --check</code> regenerates the
+     page from the committed template, reports and chain data and fails if it differs.
+     Input digest <code>${META.inputDigest}</code>.
+     Mainnet figures read from the chain at ${CHAIN.now.timeUtc}, block
+     <span class="num">${fmt(CHAIN.now.block)}</span>.
      Ticket <a href="https://linear.app/fabrica/issue/ENG-3913">ENG-3913</a>.
-     This page is generated from the committed reports by <code>build-model-page.py</code>;
-     do not hand-edit it.`;
+     Generated — do not hand-edit.`;
 
   document.getElementById("eas-banner").innerHTML = pending ? `
     <div class="note warn"><p><strong>The EAS arm is <span class="pending">pending measurement</span>.</strong>
@@ -489,7 +517,8 @@ function render() {
   const cards = [];
   const perTokenMonth = m.totalGas / S.tokens;
   if (!pending) {
-    cards.push(["Gas per month", fmt(m.totalGas), `${fmt(m.priceWrites + m.hbCount + m.attrWrites, 0)} transactions`]);
+    cards.push(["Gas per month", fmt(m.totalGas),
+                `${fmt(m.priceWrites + m.hbTxns + m.attrWrites + m.regTxns, 0)} transactions`]);
     cards.push(["ETH per month", eth(m.toEth(m.totalGas)), `at ${gwei(S.gas)} + ${gwei(S.tip)} gwei`]);
     cards.push(["USD per month", usd(m.toUsd(m.totalGas)), `ETH at ${usd(S.eth)}`]);
     cards.push(["USD per day", usd(m.toUsd(m.totalGas) / MONTH_DAYS), "month ÷ 30.44"]);
@@ -505,16 +534,17 @@ function render() {
     `<div class="card"><div class="k">${k}</div><div class="v">${v}</div><div class="s">${s}</div></div>`).join("");
 
   document.getElementById("headline-eq").textContent = pending ? "" :
-`price rows        = ${fmt(S.tokens)} tokens x ${S.sources} sources        = ${fmt(m.rows)}
-writes per row    = 30.44 days / ${S.cadence} day cadence            = ${fmt(m.writesPerRowPerMonth, 2)} per month
-gas per row       = regime-weighted for month ${S.month}              = ${fmt(m.perRow)}
-price writes      = ${fmt(m.rows)} rows x ${fmt(m.perRow)} gas          = ${fmt(m.priceGas)}
-heartbeats        = ${fmt(m.hbCount, 1)} x ${fmt(G("heartbeat:repeat"))} gas  = ${fmt(m.hbGas)}
-attributes        = ${fmt(m.attrWrites, 0)} writes                      = ${fmt(m.attrGas)}
-registration      = ${S.reg && S.month === 1 ? fmt(S.tokens) + " x " + fmt(m.perItemReg, 0) + " gas (one-time)" : "not counted this month"}   = ${fmt(m.regGas)}
-                                                        ------------
-total                                                   = ${fmt(m.totalGas)} gas
-                    x ${(S.gas + S.tip).toPrecision(4)} gwei x ${usd(S.eth)}/ETH   = ${usd(m.toUsd(m.totalGas))}`;
+`price rows        = ${fmt(S.tokens)} tokens x ${S.sources} sources         = ${fmt(m.rows)}
+writes per row    = 30.44 / ${S.cadence}d cadence x ${S.moved}% moved   = ${fmt(m.writesPerRowPerMonth, 2)} per month
+gas per row       = regime-weighted for month ${S.month}${S.month < 10 ? " " : ""}              = ${fmt(m.perRow)}
+price writes      = ${fmt(m.rows)} rows x ${fmt(m.perRow)} gas           = ${fmt(m.priceGas)}
+cycle closes      = ${fmt(m.hbCount, 1)} x ${fmt(G("heartbeat:repeat"))} gas       = ${fmt(m.hbCount * G("heartbeat:repeat"))}
+writer bootstrap  = ${m.bootstrapGas ? fmt(m.bootstrapCount, 0) + " writers, first close, one-time" : "not counted this month"}  = ${fmt(m.bootstrapGas)}
+attributes        = ${fmt(m.attrWrites, 0)} writes                       = ${fmt(m.attrGas)}
+registration      = ${m.regGas ? fmt(m.regTxns) + " tx x " + fmt(S.batch) + "/tx, one-time" : "not counted this month"}   = ${fmt(m.regGas)}
+                                                         ------------
+total                                                    = ${fmt(m.totalGas)} gas
+                    x ${(S.gas + S.tip).toPrecision(4)} gwei x ${usd(S.eth)}/ETH    = ${usd(m.toUsd(m.totalGas))}`;
 
   /* share */
   const parts = [
@@ -534,11 +564,12 @@ total                                                   = ${fmt(m.totalGas)} gas
       <th class="n">Gas total</th><th class="n">USD</th><th class="n">Share</th></tr></thead>
     <tbody>
       <tr><td>Price writes</td><td class="n">${fmt(m.priceWrites, 0)}</td>
-        <td class="n">${fmt(m.perRow / m.writesPerRowPerMonth, 0)}</td>
+        <td class="n">${m.writesPerRowPerMonth > 0 ? fmt(m.perRow / m.writesPerRowPerMonth, 0) : "—"}</td>
         <td class="n">${fmt(m.priceGas)}</td><td class="n">${usd(m.toUsd(m.priceGas))}</td>
         <td class="n">${(100 * m.priceGas / tot).toFixed(1)}%</td></tr>
-      <tr><td>Cycle close</td><td class="n">${fmt(m.hbCount, 1)}</td>
-        <td class="n">${fmt(G("heartbeat:repeat"))}</td>
+      <tr><td>Cycle close${m.bootstrapGas ? " <span class=\"src\">incl. one-time writer bootstrap</span>" : ""}</td>
+        <td class="n">${fmt(m.hbTxns, 1)}</td>
+        <td class="n">${m.hbCount > 0 ? fmt(G("heartbeat:repeat")) : m.bootstrapGas ? fmt(G("heartbeat:first")) : "—"}</td>
         <td class="n">${fmt(m.hbGas)}</td><td class="n">${usd(m.toUsd(m.hbGas))}</td>
         <td class="n">${(100 * m.hbGas / tot).toFixed(1)}%</td></tr>
       <tr><td>Attribute writes</td><td class="n">${fmt(m.attrWrites, 0)}</td>
@@ -546,7 +577,7 @@ total                                                   = ${fmt(m.totalGas)} gas
         <td class="n">${fmt(m.attrGas)}</td><td class="n">${usd(m.toUsd(m.attrGas))}</td>
         <td class="n">${(100 * m.attrGas / tot).toFixed(1)}%</td></tr>
       <tr><td>Registration <span class="src">round 1 only</span></td>
-        <td class="n">${m.regGas ? fmt(Math.ceil(S.tokens / S.batch)) : "—"}</td>
+        <td class="n">${m.regTxns ? fmt(m.regTxns) : "—"}</td>
         <td class="n">${m.regGas ? fmt(m.perItemReg, 0) + " /token" : "—"}</td>
         <td class="n">${fmt(m.regGas)}</td><td class="n">${usd(m.toUsd(m.regGas))}</td>
         <td class="n">${(100 * m.regGas / tot).toFixed(1)}%</td></tr>
@@ -628,9 +659,11 @@ total                                                   = ${fmt(m.totalGas)} gas
     beyond ${fmt(m.longestDeferralDays, 2)} days has to be written at whatever gas costs, or the
     feed goes stale and every pool trusting it stops lending.</p></div>`;
 
-  /* batch */
+  /* batch. Gated on the arm like every other numeric panel: leaving a populated table of
+     bespoke registerBatch gas on screen beside six "—" cards invites it being read as the
+     EAS arm's. */
   const blockLimit = CHAIN.now.gasLimit;
-  document.getElementById("batch").innerHTML = `
+  document.getElementById("batch").innerHTML = pending ? "" : `
     <thead><tr><th>Batch size</th><th class="n">Gas per transaction</th><th class="n">Gas per token</th>
       <th class="n">vs one-by-one</th><th class="n">Share of a block</th></tr></thead>
     <tbody>${[1, 10, 100, 1000].map(n => {
@@ -642,7 +675,12 @@ total                                                   = ${fmt(m.totalGas)} gas
     }).join("")}</tbody>`;
 
   const b1000 = G("registerBatch:1000");
-  document.getElementById("batch-notes").innerHTML = `
+  document.getElementById("batch-notes").innerHTML = pending ? `
+    <div class="note warn"><p>Batch figures are <span class="pending">pending measurement</span> for
+    the EAS arm: <code>multiAttest</code> grouped by schema at 1/10/100, <code>multiRevoke</code>,
+    and the pointer contract's batched write are all
+    <a href="https://linear.app/fabrica/issue/ENG-3922">ENG-3922</a>'s. Switch to the bespoke arm
+    for the measured registration figures.</p></div>` : `
     <div class="note ${b1000 > blockLimit ? "bad" : "warn"}"><p><strong>Batching removes the
     per-transaction overhead and nothing else.</strong> Per token it converges from
     ${fmt(G("registerBatch:1"))} at n=1 to ${fmt(batchPerItem(1000), 0)} at n=1,000, and it is
@@ -755,10 +793,18 @@ total                                                   = ${fmt(m.totalGas)} gas
     plus execution. Execution is the gas of the call into the fact store minus the gas of an
     identical call to a <em>codeless</em> address — so the harness's own CALL cost is measured,
     not assumed, and a control with code (which costs 133 gas to enter) does not over-subtract.</p>
-    <p class="small"><code>forge test --gas-report</code> reads a constant <strong>115 gas
-    higher</strong> than this bench on every scenario that pins a function's Min or Max — ten
-    independent pairs. That delta is shown rather than folded in: the figures above are the
-    bench's, and are therefore 115 gas conservative in the low direction.</p>
+    <p class="small"><code>forge test --gas-report</code> is the independent cross-check. The six
+    benched functions give <strong>twelve</strong> Min/Max cells; <strong>eleven are exactly 115
+    gas</strong> above this bench's whole-transaction figure. The twelfth,
+    <code>writePrice</code>'s Max, is 127 — and that is not a different constant, it is a
+    different call: the report's Max is pinned by a <code>setUp</code> priming write, not by the
+    benched <code>writePrice:first</code> scenario. The arithmetic closes exactly:
+    <code>21,000 + 2,696 + 146,053 + 115 = 169,864</code>, where 2,696 is that priming write's
+    calldata gas — twelve more than the benched first write's 2,684, being one further non-zero
+    byte in its provenance hashes. So the constant is 115 in all twelve cases; one cell simply
+    does not correspond to a scenario on this page. The delta is shown rather than folded in:
+    the figures above are the bench's, and are therefore 115 gas conservative in the low
+    direction.</p>
 
     <h3>Two rulings that change what you should read off this page</h3>
     <div class="note"><p><strong>An unchanged valuation need not be rewritten</strong>
@@ -850,11 +896,18 @@ total                                                   = ${fmt(m.totalGas)} gas
 
     <h3>Reproducing the whole page</h3>
     <div class="eq">git clone https://github.com/fabrica-land/fabrica-v3-contracts &amp;&amp; cd fabrica-v3-contracts
-git checkout ${META.commit}
+git checkout ${META.branch}     # the branch head, NOT ${META.commitShort}, which is the parent
+
+# 1. the page is exactly what its committed inputs produce (no RPC, no keys)
+python3 bench/oracle-gas-model/build-model-page.py --check
+
+# 2. those inputs are what the code on this branch actually measures (no RPC, no keys)
 forge test --match-path test/Eng3913OracleGasBench.t.sol -vv        # per-scenario gas
 forge test --match-path test/Eng3913DeployedVsMainGas.t.sol -vv     # deployed vs main
-MAINNET_RPC_URL=... python3 bench/oracle-gas-model/collect-chain-data.py &gt; bench/oracle-gas-model/chain-data.json
-python3 bench/oracle-gas-model/build-model-page.py                  # regenerates index.html</div>
+
+# 3. the mainnet readings (needs an RPC; re-running moves "now" and the ETH price,
+#    the historical anchors are immutable)
+MAINNET_RPC_URL=... python3 bench/oracle-gas-model/collect-chain-data.py &gt; bench/oracle-gas-model/chain-data.json</div>
     <p class="small">The forge runs need no RPC and no keys. Only the mainnet readings do, and
     re-running those moves the “now” figures and the ETH price; the historical anchors are
     immutable. If your gas numbers differ, check the foundry version and
@@ -864,6 +917,12 @@ python3 bench/oracle-gas-model/build-model-page.py                  # regenerate
      regime, must return the measured whole-transaction figure to the gas. */
   const oneWrite = (n, c) => costOfFirstNWrites(n, c) - costOfFirstNWrites(n - 1, c);
   const cc = priceRegimes(false), cr = priceRegimes(true);
+  // Each row must compare something the MODEL computed against something MEASURED. A row
+  // that compares a measured value to itself proves nothing; CodeRabbit caught two of those
+  // in the first draft (`heartbeat:repeat` against itself, and batchPerItem(n)*n against the
+  // batch total it was derived from). The model-side column below is therefore driven
+  // through `model()` with real dials wherever the quantity is one `model()` produces.
+  const at = over => { const save = S; S = Object.assign({}, DEFAULTS, over); const m = model(); S = save; return m; };
   const checks = [
     ["writePrice, write 1", oneWrite(1, cc), G("writePrice:first")],
     ["writePrice, write 2", oneWrite(2, cc), G("writePrice:second (ring slot cold)")],
@@ -871,13 +930,33 @@ python3 bench/oracle-gas-model/build-model-page.py                  # regenerate
     ["writePrice, write 49 (wrapped)", oneWrite(49, cc), G("writePrice:write 49+ (ring wrapped), price moved")],
     ["writePriceRelayed, write 1", oneWrite(1, cr), G("writePriceRelayed:first")],
     ["writePriceRelayed, write 49 (wrapped)", oneWrite(49, cr), G("writePriceRelayed:write 49+ (ring wrapped), price moved")],
-    ["cycle close (contract heartbeat()), repeat", G("heartbeat:repeat"), G("heartbeat:repeat")],
     ["writeAttribute, first", attrCostForMonth(0, 1), G("writeAttribute:first")],
     ["writeAttribute, repeat", attrCostForMonth(1, 1), G("writeAttribute:repeat, value changed")],
-    ["registration per token, batch 1", batchPerItem(1), G("registerBatch:1")],
-    ["registration, batch 10 x 10 items", batchPerItem(10) * 10, G("registerBatch:10")],
-    ["registration, batch 100 x 100 items", batchPerItem(100) * 100, G("registerBatch:100")],
-    ["registration, batch 1000 x 1000 items", batchPerItem(1000) * 1000, G("registerBatch:1000")],
+    // model() drives these three, so they exercise the real code path rather than an identity.
+    // One writer, one token, cadence = one month: month 1 is exactly one write, so the whole
+    // month's price gas must BE the measured first-write figure.
+    ["model: 1 token x 1 source, 1 write in month 1",
+     at({tokens: 1, sources: 1, cadence: MONTH_DAYS, month: 1, moved: 100, attrs: 0, reg: false}).priceGas,
+     G("writePrice:first")],
+    // Same, but the skip policy halves the writes: the ring must advance at the halved rate,
+    // so month 2 is still write 1 for that row -- this is the regression test for F1.
+    ["model: 50% movers, month 2 is still write 1",
+     at({tokens: 1, sources: 1, cadence: MONTH_DAYS, month: 2, moved: 50, attrs: 0, reg: false}).priceGas,
+     0.5 * G("writePrice:first")],
+    // Registration at batch size 1: one token, one transaction, the measured batch-1 total.
+    ["model: registration, 1 token at batch 1",
+     at({tokens: 1, batch: 1, month: 1, reg: true}).regGas, G("registerBatch:1")],
+    ["model: registration, 100 tokens at batch 100",
+     at({tokens: 100, batch: 100, month: 1, reg: true}).regGas, G("registerBatch:100")],
+    // A writer's first cycle close costs the measured bootstrap figure, once.
+    ["model: one writer's first cycle close",
+     at({sources: 1, month: 1, hbPolicy: "round2", moved: 0, attrs: 0, reg: false}).hbGas
+       - at({sources: 1, month: 1, hbPolicy: "round2", moved: 0, attrs: 0, reg: false}).hbCount * G("heartbeat:repeat"),
+     G("heartbeat:first") - G("heartbeat:repeat")],
+    ["model: registration, 10 tokens at batch 10",
+     at({tokens: 10, batch: 10, month: 1, reg: true}).regGas, G("registerBatch:10")],
+    ["model: registration, 1000 tokens at batch 1000",
+     at({tokens: 1000, batch: 1000, month: 1, reg: true}).regGas, G("registerBatch:1000")],
   ];
   let allPass = true;
   document.getElementById("selfcheck").innerHTML = `
@@ -951,12 +1030,18 @@ function sync() {
   for (const b of document.getElementById("d-gas-seg").querySelectorAll("button[data-k]"))
     b.setAttribute("aria-pressed", String(b.dataset.k === S.gasKey));
 
-  const w = MONTH_DAYS / S.cadence, before = (S.month - 1) * w, after = before + w;
+  // Clock the ring on writes actually SENT, not on the cadence: a skipped write does not
+  // advance the ring any more than it costs anything.
+  const mv = S.moved / 100;
+  const w = (MONTH_DAYS / S.cadence) * mv, before = (S.month - 1) * w, after = before + w;
   const rn = n => n < 1 ? "write 1" : n < 2 ? "write 2" : n < HISTORY_DEPTH ? "writes 3–48" : "write 49+";
-  document.getElementById("regime-hint").innerHTML =
-    `Writes ${fmt(before + 1, 1)}–${fmt(after, 1)} of each row's life, i.e. ${rn(before)} → ${rn(after - 0.001)}.
-     The ring is ${HISTORY_DEPTH} deep, so a row reaches its cheapest state on write 49 —
-     month ${Math.max(1, Math.ceil(HISTORY_DEPTH / w))} at this cadence.`;
+  const monthsToWrap = w > 0 ? Math.max(1, Math.ceil(HISTORY_DEPTH / w)) : null;
+  document.getElementById("regime-hint").innerHTML = w <= 0
+    ? `No writes are sent at 0% movers, so no row ever advances through the ring.`
+    : `Writes ${fmt(before + 1, 1)}–${fmt(after, 1)} of each row's life, i.e. ${rn(before)} → ${rn(after - 0.001)}.
+       The ring is ${HISTORY_DEPTH} deep, so a row reaches its cheapest state on write 49 —
+       month ${monthsToWrap} at this cadence${S.moved < 100
+         ? ` and ${S.moved}% movers (the skip policy pushes that out by ${fmt(100 / S.moved, 1)}x)` : ""}.`;
   document.getElementById("hb-hint").textContent =
     `Cycle close every ${fmt(S.maxSilence * (1 - S.margin / 100), 2)} days — ${S.maxSilence} days ` +
     `of tolerated silence less ${S.margin}%. The gate itself trips at ${S.maxSilence} days.`;

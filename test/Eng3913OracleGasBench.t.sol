@@ -242,8 +242,12 @@ contract Eng3913OracleGasBench is Test {
     }
 
     function test_gas_writePrice_wrappedUnchanged() public {
-        // A cycle in which the source republished the same valuation. Cheaper because
-        // the price word is written back with its existing value.
+        // A cycle in which the source republished the same valuation. NOT cheaper: this
+        // measures the same gas as the moved case, because `priceUsdc6` is packed with
+        // `valuedAt` in one `SourcePrice` word and with the ring entry's own `valuedAt` in
+        // one `HistoryEntry` word, and `valuedAt` moves on every write. There is no
+        // contract-side saving from an unchanged price; the only saving is not sending the
+        // transaction. Kept as its own scenario precisely to demonstrate that.
         vm.warp(block.timestamp + 2 hours);
         _record(
             "writePrice:write 49+ (ring wrapped), price unchanged",

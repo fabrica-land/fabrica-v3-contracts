@@ -10,9 +10,15 @@ Inputs
   chain-data.json               mainnet figures, produced by collect-chain-data.py
 
 Usage:  python3 build-model-page.py            # writes index.html next to this script
+        python3 build-model-page.py --check    # verify index.html matches its inputs; no write
+
+`--check` is the reproducibility guarantee and needs no RPC and no keys. It is what a
+reviewer should run: a commit SHA cannot be stamped into a file that lives inside that same
+commit, but "this page is exactly what its committed inputs produce" is checkable, and that
+is the property that actually matters.
 """
+import hashlib
 import json
-import os
 import pathlib
 import subprocess
 import sys
@@ -21,47 +27,103 @@ HERE = pathlib.Path(__file__).resolve().parent
 REPO = HERE.parents[1]
 
 
+FIELDS = ["callGas", "overheadGas", "execGas", "calldataBytes", "calldataGas", "txTotal"]
+
+
 def parse_bench_rows(path):
     """Rows are `ENG3913ROW,<name>,call,overhead,exec,cdBytes,cdGas,txTotal`.
 
-    The name may itself contain commas, so the six numeric fields are taken from the end.
+    Scenario names contain commas ("...ring wrapped), price moved"), so the six numeric
+    fields are taken from the END and everything before them is the name.
+
+    A malformed row is a hard error, never a silently truncated one: `zip` would happily
+    pair four numbers with six field names and produce a row with missing keys, which would
+    then surface as `undefined` somewhere in the page rather than as a build failure.
     """
     out = {}
-    for line in path.read_text().splitlines():
+    for lineno, line in enumerate(path.read_text().splitlines(), 1):
         line = line.strip()
         if "ENG3913ROW," not in line:
             continue
         parts = line[line.index("ENG3913ROW,") + len("ENG3913ROW,"):].split(",")
-        nums = [int(p) for p in parts[-6:]]
-        name = ",".join(parts[:-6]).strip()
-        out[name] = dict(zip(
-            ["callGas", "overheadGas", "execGas", "calldataBytes", "calldataGas", "txTotal"], nums))
+        if len(parts) < len(FIELDS) + 1:
+            sys.exit("%s:%d: row has %d fields, need at least %d:\n  %s"
+                     % (path, lineno, len(parts), len(FIELDS) + 1, line))
+        tail = parts[-len(FIELDS):]
+        try:
+            nums = [int(t.strip()) for t in tail]
+        except ValueError:
+            sys.exit("%s:%d: last %d fields are not all integers:\n  %s"
+                     % (path, lineno, len(FIELDS), line))
+        name = ",".join(parts[:-len(FIELDS)]).strip()
+        if not name:
+            sys.exit("%s:%d: row has an empty scenario name:\n  %s" % (path, lineno, line))
+        if name in out:
+            sys.exit("%s:%d: duplicate scenario %r" % (path, lineno, name))
+        out[name] = dict(zip(FIELDS, nums))
     return out
 
 
 def parse_compare(path):
+    """Rows are `ENG3913CMP,<name>,k=v,k=v,...`.
+
+    The scenario name contains commas, so the name is everything before the FIRST field
+    that looks like `key=value`, not just the first comma-separated token. Splitting on the
+    first comma truncated "writePrice:second (ring slot cold)" to "writePrice:second (ring
+    slot cold)" losing nothing visible, but truncated the wrapped-ring names mid-phrase.
+    """
     out = []
-    for line in path.read_text().splitlines():
+    for lineno, line in enumerate(path.read_text().splitlines(), 1):
         line = line.strip()
         if "ENG3913CMP," not in line:
             continue
         body = line[line.index("ENG3913CMP,") + len("ENG3913CMP,"):]
         fields = body.split(",")
-        name = fields[0]
+        first_kv = next((i for i, f in enumerate(fields) if "=" in f), None)
+        if first_kv is None or first_kv == 0:
+            sys.exit("%s:%d: cannot separate scenario name from key=value fields:\n  %s"
+                     % (path, lineno, line))
+        name = ",".join(fields[:first_kv]).strip()
         kv = {}
-        for f in fields[1:]:
-            if "=" in f:
-                k, v = f.split("=", 1)
-                kv[k] = v
+        for f in fields[first_kv:]:
+            if "=" not in f:
+                sys.exit("%s:%d: trailing field %r is not key=value:\n  %s" % (path, lineno, f, line))
+            k, v = f.split("=", 1)
+            kv[k.strip()] = v.strip()
         out.append({"scenario": name, **kv})
+    if not out:
+        sys.exit("%s: no ENG3913CMP rows found" % path)
     return out
+
+
+PLACEHOLDER = "/*__DATA__*/null"
+# Everything the page is built from. The digest over these is a provenance stamp that, unlike
+# a commit SHA, a committed file CAN name: it does not change when the file is committed.
+INPUTS = [
+    "page-template.html",
+    "chain-data.json",
+    "reports/bench-rows.txt",
+    "reports/deployed-vs-main.txt",
+    "reports/gas-report.txt",
+]
 
 
 def git(*args):
     return subprocess.check_output(["git", "-C", str(REPO), *args], text=True).strip()
 
 
+def input_digest():
+    h = hashlib.sha256()
+    for name in INPUTS:
+        h.update(name.encode())
+        h.update(b"\0")
+        h.update((HERE / name).read_bytes())
+        h.update(b"\0")
+    return h.hexdigest()[:16]
+
+
 def main():
+    check_only = "--check" in sys.argv[1:]
     rows = parse_bench_rows(HERE / "reports" / "bench-rows.txt")
     compare = parse_compare(HERE / "reports" / "deployed-vs-main.txt")
     chain = json.loads((HERE / "chain-data.json").read_text())
@@ -93,12 +155,48 @@ def main():
         "reportHeader": (HERE / "reports" / "bench-rows.txt").read_text().split("\n\n")[0],
     }
 
+    meta["inputDigest"] = input_digest()
+
     payload = json.dumps(
         {"rows": rows, "compare": compare, "chain": chain, "meta": meta},
         indent=1, sort_keys=True)
-    html = (HERE / "page-template.html").read_text().replace("/*__DATA__*/null", payload)
-    (HERE / "index.html").write_text(html)
-    print("wrote", HERE / "index.html", f"({len(html):,} bytes, {len(rows)} measured scenarios)")
+    # The payload is embedded inside a <script> block, so two sequences must not survive
+    # verbatim: `</script` would end the block early, and a bare `&` is ambiguous to an HTML
+    # parser in some contexts. Both have JSON escapes that parse back to the same string, so
+    # escaping them changes nothing about the data. reportHeader carries free text from the
+    # report files and is the realistic source of either.
+    payload = (payload.replace("&", "\\u0026")
+                      .replace("<", "\\u003c")
+                      .replace(">", "\\u003e")
+                      .replace("\u2028", "\\u2028")
+                      .replace("\u2029", "\\u2029"))
+
+    template = (HERE / "page-template.html").read_text()
+    if PLACEHOLDER not in template:
+        sys.exit("page-template.html no longer contains the %r placeholder; refusing to write a "
+                 "page with no data in it" % PLACEHOLDER)
+    html = template.replace(PLACEHOLDER, payload)
+    if PLACEHOLDER in html:
+        sys.exit("placeholder survived substitution; refusing to write")
+
+    target = HERE / "index.html"
+    if check_only:
+        if not target.exists():
+            sys.exit("--check: index.html does not exist")
+        current = target.read_text()
+        if current == html:
+            print("--check: index.html is exactly what its committed inputs produce "
+                  f"({len(html):,} bytes, {len(rows)} measured scenarios)")
+            return
+        # Say WHERE it differs; "they differ" is not actionable.
+        import difflib
+        diff = list(difflib.unified_diff(current.splitlines(), html.splitlines(),
+                                         "committed index.html", "regenerated", lineterm="", n=1))
+        sys.exit("--check FAILED: index.html does not match its inputs (%d diff lines)\n%s"
+                 % (len(diff), "\n".join(diff[:40])))
+
+    target.write_text(html)
+    print("wrote", target, f"({len(html):,} bytes, {len(rows)} measured scenarios)")
 
 
 if __name__ == "__main__":

@@ -83,8 +83,11 @@ Notes:
   isolation was not holding.
 - Report whole-transaction gas (21,000 intrinsic + calldata per EIP-2028 +
   execution), not execution alone, when the number is a cost. Cross-check
-  against `forge test --gas-report` Min/Max; a constant small delta (~115 gas)
-  is the harness call overhead, show it rather than fold it in.
+  against `forge test --gas-report` Min/Max; a constant small delta (115 gas)
+  is the harness call overhead, show it rather than fold it in. Check every
+  Min/Max cell, not a sample: a cell that does not match the constant usually
+  means that cell is pinned by a `setUp` call rather than by a benched
+  scenario, which is worth knowing rather than averaging away.
 - The `FabricaAttributeOracle` history ring (`historyDepth = 48`) means writes
   1-48 on a row allocate fresh slots (~20k gas/word) and write 49+ overwrite
   (~2.9k/word); state which regime a write-side number is in. There are four

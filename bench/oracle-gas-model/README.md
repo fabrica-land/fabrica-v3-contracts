@@ -29,11 +29,26 @@ committed at all.
 | `reports/gas-report.txt` | literal `forge test --gas-report` output |
 | `reports/deployed-vs-main.txt` | literal output of the deployed-versus-`main` comparison |
 | `deployed-round1/` | the round-1 fact store source, vendored for that comparison only |
+| `identify-deployed-bytecode.py` | proves which commit produced the deployed contract |
+| `reports/deployed-bytecode-id.txt` | that proof's literal output |
 
 The measurements come from `test/Eng3913OracleGasBench.t.sol` and
 `test/Eng3913DeployedVsMainGas.t.sol` in this repo.
 
 ## Regenerating everything
+
+The one command a reviewer needs, which requires no RPC and no keys:
+
+```sh
+python3 bench/oracle-gas-model/build-model-page.py --check
+```
+
+That regenerates the page from the committed template, reports and chain data and fails if
+`index.html` differs, printing where. It is the reproducibility guarantee, and unlike a
+commit SHA it is something a committed file can actually assert about itself — a page cannot
+name the commit it lives in.
+
+To regenerate rather than verify:
 
 ```sh
 forge test --match-path test/Eng3913OracleGasBench.t.sol -vv \
@@ -56,8 +71,10 @@ reports. A page with a hole in it is worse than no page.
 
 1. **Run the bench WITHOUT `--gas-report`.** Foundry's gas-report instrumentation inflates
    the `gasleft()` deltas the bench reads. The CSV rows are only valid from a plain `-vv`
-   run; the `--gas-report` artifact is kept separately as a cross-check, and it agrees with
-   the bench to a constant 115 gas.
+   run; the `--gas-report` artifact is kept separately as a cross-check. Of its twelve
+   Min/Max cells, eleven sit exactly 115 gas above the bench; the twelfth (`writePrice`
+   Max) is 127 because that cell is pinned by a `setUp` priming write rather than by a
+   benched scenario — `21,000 + 2,696 + 146,053 + 115 = 169,864`.
 2. **Each scenario is measured in its own test, primed in `setUp`.** Measuring several
    inside one test warms and dirties the storage slots, and EIP-2200's dirty-slot discount
    then charges ~100 gas per word instead of ~2,900. That mistake understated a wrapped-ring

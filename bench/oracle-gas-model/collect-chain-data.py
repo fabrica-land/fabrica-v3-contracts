@@ -139,9 +139,29 @@ def main():
             "dailySample": "one block per calendar day for 365 days, stepping back in exact "
                            "7200-block strides (12s slots) from the latest block; the base fee "
                            "of that single block, not a daily average",
-            "peakRefinement": "every block inspected across a +/-150 block window around a "
-                              "coarse hit, so the reported peak is the true maximum of that "
-                              "~1 hour window",
+            "peakRefinement": "each anchor block below was found in two steps, both "
+                              "reproducible with peak_in_window(): (1) a coarse scan of the "
+                              "candidate UTC day at 100-block strides (72 samples), (2) an "
+                              "exhaustive scan of every block in a +/-150 window around that "
+                              "coarse hit. The recorded block is the maximum base fee of that "
+                              "~1 hour window, not of the whole day -- a higher block may "
+                              "exist elsewhere in the day and the label says 'the busiest "
+                              "moment found', not 'the maximum possible'",
+            "anchorSearch": {
+                "high": {"candidateDay": "2026-03-22", "coarseHit": 24710490,
+                         "refinedWindow": [24710407, 24710707]},
+                "extremely high": {"candidateDay": "2025-10-10", "coarseHit": 23550015,
+                                   "refinedWindow": [23549879, 23550179]},
+                "historical peak": {"candidateDay": "2022-05-01", "coarseHit": 14688929,
+                                    "refinedWindow": [14688809, 14689049]},
+            },
+            "candidateDaySelection": "the two recent anchors are the dearest days in the "
+                                     "365-sample dailyYear series below (max 16.45 gwei on "
+                                     "2026-03-22; the 2025-10-10 liquidation event surfaced "
+                                     "via the 2025-10-11 sample at 10.64 gwei, whose day scan "
+                                     "ran back into 2025-10-10). The historical peak is the "
+                                     "Otherdeed mint, the known highest base fee since "
+                                     "EIP-1559; it is named rather than searched for",
             "ethPrice": "Chainlink ETH/USD aggregator " + CHAINLINK_ETH_USD +
                         " latestRoundData() on mainnet, 8 decimals",
         },

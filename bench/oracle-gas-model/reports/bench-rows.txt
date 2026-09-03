@@ -1,15 +1,19 @@
 # ENG-3913 — per-scenario gas bench, literal output
 #
 # repo:    fabrica-v3-contracts
-# base:    origin/main @ 10aafd66aeee847dd381ab857a983de8067f3e45
+# base:    origin/main @ 4b9201d17d78c7296545a6bd5ef6ac8da1d5a86e
+# branch:  tozzetto/eng-3913-oracle-gas-model
 # command: forge test --match-path test/Eng3913OracleGasBench.t.sol -vv
 # forge:   forge Version: 1.7.1 (Commit SHA: 4072e48705af9d93e3c0f6e29e93b5e9a40caed8)
 # profile: optimizer=true, optimizer_runs=1, via_ir=false (foundry.toml [profile.default])
 # knobs:   FabricaAttributeOracle.defaultKnobs() — the config
 #          script/FabricaAttributeOracleDeploy.s.sol deploys with.
-
-# NOTE: run WITHOUT --gas-report. Foundry's gas-report instrumentation inflates the
-#       gasleft() deltas this bench reads, so the CSV rows are valid only from a plain run.
+#
+# ⚠ RUN THIS WITHOUT --gas-report.
+#   Foundry's gas-report instrumentation inflates the gasleft() deltas these benches
+#   read, and the codeless-control subtraction absorbs most but not all of it. The CSV
+#   rows here are valid ONLY from a plain -vv run. Under --gas-report the steady-state
+#   writePrice row reads 72,268 instead of 73,812.
 
 No files changed, compilation skipped
 
@@ -94,6 +98,6 @@ Logs:
 Logs:
   ENG3913ROW,writePrice:write 49+ (ring wrapped), price unchanged,79911,499,79412,356,2684,103096
 
-Suite result: ok. 20 passed; 0 failed; 0 skipped; finished in 37.49ms (43.39ms CPU time)
+Suite result: ok. 20 passed; 0 failed; 0 skipped; finished in 33.98ms (35.59ms CPU time)
 
-Ran 1 test suite in 47.67ms (37.49ms CPU time): 20 tests passed, 0 failed, 0 skipped (20 total tests)
+Ran 1 test suite in 47.90ms (33.98ms CPU time): 20 tests passed, 0 failed, 0 skipped (20 total tests)
