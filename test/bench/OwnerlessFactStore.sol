@@ -42,6 +42,13 @@ contract OwnerlessFactStore {
     mapping(address => mapping(uint256 => mapping(uint256 => HistoryEntry))) private _history;
     /// @notice writer => tokenId => total history writes (head slot = (count - 1) % depth).
     mapping(address => mapping(uint256 => uint256)) private _historyCount;
+    /// @notice writer => tokenId => the last cycle in which the writer still vouched for this
+    ///         token, whether or not it revalued it.
+    /// @dev Tim, 3 September 18:44Z. A writer's cycle pass covers tokens it did not revalue; a
+    ///      full rewrite of an unchanged valuation is waste, and proof-at-read is dead because a
+    ///      BNPL loan's calldata is fixed days before execution and a daily close would stale
+    ///      every proof. So coverage is a one-slot stamp the writer refreshes instead.
+    mapping(address => mapping(uint256 => uint64)) public coveredThrough;
     /// @notice writer => tokenId => the writer's own lock on its own facts.
     mapping(address => mapping(uint256 => bool)) public locked;
     /// @notice writer => last heartbeat timestamp.
@@ -60,6 +67,7 @@ contract OwnerlessFactStore {
     event PriceWritten(address indexed writer, uint256 indexed tokenId, uint128 priceUsdc6, uint64 cycle);
     event Heartbeat(address indexed writer, uint64 cycle, uint64 timestamp, bytes32 root);
     event LockSet(address indexed writer, uint256 indexed tokenId, bool locked);
+    event CoverageStamped(address indexed writer, uint256 indexed tokenId, uint64 cycle);
     event MinValidCycleSet(address indexed writer, uint64 minValidCycle);
 
     error InvalidPrice();
@@ -105,6 +113,16 @@ contract OwnerlessFactStore {
             _writePrice(tokenIds[i], pricesUsdc6[i], confidenceScores[i], valuedAts[i], cycle);
         }
         _touchHeartbeat(cycle, root);
+    }
+
+    /// @notice Stamp coverage for tokens the caller still vouches for but did not revalue.
+    /// @dev One storage slot per token, against a full price write for a token that moved.
+    function stampCoverage(uint256[] calldata tokenIds, uint64 cycle) external {
+        if (cycle < minValidCycle[msg.sender]) revert CycleTooLow(minValidCycle[msg.sender], cycle);
+        for (uint256 i; i < tokenIds.length; ++i) {
+            coveredThrough[msg.sender][tokenIds[i]] = cycle;
+            emit CoverageStamped(msg.sender, tokenIds[i], cycle);
+        }
     }
 
     /// @notice Standalone heartbeat for a cycle in which the caller published nothing.
@@ -182,6 +200,8 @@ contract OwnerlessFactStore {
         current.valuedAt = effectiveValuedAt;
         current.lastWrittenAt = nowTs;
         current.cycle = cycle;
+        // A full write is itself coverage for the cycle it names.
+        coveredThrough[msg.sender][tokenId] = cycle;
         emit PriceWritten(msg.sender, tokenId, priceUsdc6, cycle);
     }
 

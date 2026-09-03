@@ -32,6 +32,8 @@ abstract contract EasArmBase is BenchAggregatorBase {
     bytes32 public immutable priceSchema;
     /// @notice The registered cycle-close schema uid: (address writer, uint64 cycle, bytes32 root).
     bytes32 public immutable cycleCloseSchema;
+    /// @notice The registered coverage schema uid: (uint256 tokenId, uint64 cycle).
+    bytes32 public immutable coverageSchema;
     /// @notice Whether this instance enforces a per-writer heartbeat. See `_heartbeatFresh`.
     bool public immutable requireHeartbeat;
 
@@ -48,6 +50,7 @@ abstract contract EasArmBase is BenchAggregatorBase {
         address eas;
         bytes32 priceSchema;
         bytes32 cycleCloseSchema;
+        bytes32 coverageSchema;
         bool requireHeartbeat;
         address[3] writers;
     }
@@ -57,6 +60,7 @@ abstract contract EasArmBase is BenchAggregatorBase {
         eas = IEAS(easCfg.eas);
         priceSchema = easCfg.priceSchema;
         cycleCloseSchema = easCfg.cycleCloseSchema;
+        coverageSchema = easCfg.coverageSchema;
         requireHeartbeat = easCfg.requireHeartbeat;
         _writer0 = easCfg.writers[0];
         _writer1 = easCfg.writers[1];
@@ -72,6 +76,10 @@ abstract contract EasArmBase is BenchAggregatorBase {
 
     /// @notice How this arm finds the head attestation for a row. The arms' only difference.
     function _headUid(uint8 sourceId, uint256 tokenId, Ctx memory ctx) internal view virtual returns (bytes32);
+
+    /// @notice How this arm finds the writer's coverage stamp for one token, when the stamp is
+    ///         an attestation rather than a contract slot.
+    function _coverageUid(uint8 sourceId, uint256 tokenId, Ctx memory ctx) internal view virtual returns (bytes32);
 
     /// @notice How this arm finds the writer's latest cycle-close attestation.
     function _cycleCloseUid(uint8 sourceId, Ctx memory ctx) internal view virtual returns (bytes32);
@@ -160,6 +168,30 @@ abstract contract EasArmBase is BenchAggregatorBase {
         (, uint64 attCycle, bytes32 attRoot) = abi.decode(att.data, (address, uint64, bytes32));
         fresh = !requireHeartbeat || uint256(att.time) + uint256(maxSilence) >= block.timestamp;
         return (fresh, attCycle, attRoot);
+    }
+
+    /// @notice Coverage stamp read for an arm that owns no contract: the stamp is an attestation
+    ///         under the coverage schema `(uint256 tokenId, uint64 cycle)`, so reading it costs a
+    ///         uid lookup plus a full `getAttestation`, not one SLOAD. That asymmetry against the
+    ///         pointer arm is a real property of owning no contract, and it is measured.
+    function _coveredThrough(uint8 sourceId, uint256 tokenId, Ctx memory ctx)
+        internal
+        view
+        virtual
+        override
+        returns (uint64)
+    {
+        bytes32 uid = _coverageUid(sourceId, tokenId, ctx);
+        if (uid == bytes32(0)) return 0;
+        Attestation memory att = eas.getAttestation(uid);
+        if (att.uid == bytes32(0)) return 0;
+        if (att.schema != coverageSchema) return 0;
+        if (att.attester != writerOf(sourceId)) return 0;
+        if (att.revocationTime != 0) return 0;
+        if (att.data.length != 64) return 0;
+        (uint256 attTokenId, uint64 attCycle) = abi.decode(att.data, (uint256, uint64));
+        if (attTokenId != tokenId) return 0;
+        return attCycle;
     }
 
     /// @notice The writer lock. On EAS the lock IS revocation of the head price attestation:

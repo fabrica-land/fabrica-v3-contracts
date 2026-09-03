@@ -29,6 +29,10 @@ contract ArmEasContext is EasArmBase {
         return ctx.priceUids[sourceId];
     }
 
+    function _coverageUid(uint8 sourceId, uint256, Ctx memory ctx) internal pure override returns (bytes32) {
+        return ctx.coverageUids[sourceId];
+    }
+
     function _cycleCloseUid(uint8 sourceId, Ctx memory ctx) internal pure override returns (bytes32) {
         return ctx.cycleCloseUids[sourceId];
     }

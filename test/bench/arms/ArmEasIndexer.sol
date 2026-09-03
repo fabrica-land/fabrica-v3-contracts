@@ -43,6 +43,14 @@ contract ArmEasIndexer is EasArmBase {
         return uids[0];
     }
 
+    function _coverageUid(uint8 sourceId, uint256 tokenId, Ctx memory) internal view override returns (bytes32) {
+        bytes32[] memory uids = indexer.getSchemaAttesterRecipientAttestationUIDs(
+            coverageSchema, writerOf(sourceId), recipientForToken(tokenId), 0, 1, true
+        );
+        if (uids.length == 0) return bytes32(0);
+        return uids[0];
+    }
+
     function _cycleCloseUid(uint8 sourceId, Ctx memory) internal view override returns (bytes32) {
         bytes32[] memory uids = indexer.getSchemaAttesterRecipientAttestationUIDs(
             cycleCloseSchema, writerOf(sourceId), writerOf(sourceId), 0, 1, true

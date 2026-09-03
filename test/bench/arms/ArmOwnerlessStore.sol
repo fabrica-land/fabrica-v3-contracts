@@ -95,6 +95,10 @@ contract ArmOwnerlessStore is BenchAggregatorBase {
         return (fresh, store.lastHeartbeatCycle(w), store.lastHeartbeatRoot(w));
     }
 
+    function _coveredThrough(uint8 sourceId, uint256 tokenId, Ctx memory) internal view override returns (uint64) {
+        return store.coveredThrough(writerOf(sourceId), tokenId);
+    }
+
     /// @notice The writer lock: the writer's own declaration that its facts must not be used.
     function _isLocked(uint8 sourceId, uint256 tokenId, Ctx memory) internal view override returns (bool) {
         return store.locked(writerOf(sourceId), tokenId);

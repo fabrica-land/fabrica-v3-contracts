@@ -99,6 +99,13 @@ contract ArmCustomStore is BenchAggregatorBase {
         return (fresh, cycle, IRound1HeartbeatCycle(address(store)).cycleRoot(validatorId, cycle));
     }
 
+    /// @dev Round 1 has no coverage stamp of any kind, so the calibration arm reports none and
+    ///      is simply ineligible under `CoverageMode.CoverageStamp`. That is the honest answer:
+    ///      the stamp is a round-2 write that the deployed contracts do not have.
+    function _coveredThrough(uint8, uint256, Ctx memory) internal pure override returns (uint64) {
+        return 0;
+    }
+
     /// @dev Round 1 has no writer lock; the recovery status it does have is retired by round-2
     ///      Part A item 3, so this arm reports unlocked and the lock is exercised on the arms
     ///      that actually implement it.

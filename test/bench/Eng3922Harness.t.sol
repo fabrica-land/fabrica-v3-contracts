@@ -57,6 +57,7 @@ contract Eng3922HarnessTest is Test {
         "uint256 tokenId,uint8 sourceId,uint128 priceUsdc6,uint24 confidence,uint64 cycle,bytes32 inputsHash";
     string internal constant ATTRIBUTE_SCHEMA_DEF = "uint256 tokenId,bytes32 attributeId,bytes32 value";
     string internal constant LOCK_SCHEMA_DEF = "uint256 tokenId,bool locked";
+    string internal constant COVERAGE_SCHEMA_DEF = "uint256 tokenId,uint64 cycle";
     string internal constant CYCLE_CLOSE_SCHEMA_DEF = "address writer,uint64 cycle,bytes32 root";
 
     IEAS internal eas = IEAS(EAS);
@@ -67,6 +68,7 @@ contract Eng3922HarnessTest is Test {
     bytes32 internal attributeSchema;
     bytes32 internal lockSchema;
     bytes32 internal cycleCloseSchema;
+    bytes32 internal coverageSchema;
 
     FactPointer internal pointer;
     OwnerlessFactStore internal ownerlessStore;
@@ -75,16 +77,19 @@ contract Eng3922HarnessTest is Test {
     /// @notice writer => tokenId => head price uid, mirroring what the oracle writer would keep.
     mapping(address => mapping(uint256 => bytes32)) internal headUid;
     mapping(address => bytes32) internal cycleCloseUid;
+    mapping(address => mapping(uint256 => bytes32)) internal coverageUid;
 
     bool internal forked;
 
     /// @notice Tokens one weekly cycle covers, so a proof is depth 10 as the rule intends.
     uint256 internal constant TOKENS_PER_CYCLE = 1024;
     /// @notice The coverage rule the headline arm numbers are measured under.
-    /// @dev Tim has not picked between proof-at-read, the closed-cycle check and no on-chain
-    ///      coverage check, so `test_coverageModeCostByArm` measures all three on every arm and
-    ///      the headline table is quoted under this one until he does.
-    BenchAggregatorBase.CoverageMode internal constant COVERAGE = BenchAggregatorBase.CoverageMode.ClosedCycle;
+    /// @dev Tim, 3 September 18:47Z: the Merkle-proof idea is out of round 2 and is a round-3
+    ///      candidate. Round 2's coverage mechanism is immediate supersession — the lock leg,
+    ///      revocation on EAS and the lock flag on the custom store — so the headline numbers
+    ///      carry no on-chain coverage check. The other three modes stay measured and are
+    ///      reported as a not-in-round-2 appendix, because round 3 will want them.
+    BenchAggregatorBase.CoverageMode internal constant COVERAGE = BenchAggregatorBase.CoverageMode.None;
 
     FabricaAttributeOracle internal round1Store = FabricaAttributeOracle(LIVE_FACT_STORE);
     address internal round1Owner;
@@ -111,6 +116,7 @@ contract Eng3922HarnessTest is Test {
         attributeSchema = registry.register(ATTRIBUTE_SCHEMA_DEF, address(0), true);
         lockSchema = registry.register(LOCK_SCHEMA_DEF, address(0), true);
         cycleCloseSchema = registry.register(CYCLE_CLOSE_SCHEMA_DEF, address(0), true);
+        coverageSchema = registry.register(COVERAGE_SCHEMA_DEF, address(0), true);
         pointer = new FactPointer();
         ownerlessStore = new OwnerlessFactStore(48);
         // The calibration arm reads the LIVE round-1 store, so the same prices have to exist
@@ -247,10 +253,29 @@ contract Eng3922HarnessTest is Test {
                 _round1Publish(s, tokenId, p, cycle);
             }
         }
+        uint256[] memory one = new uint256[](1);
+        one[0] = tokenId;
         for (uint8 s; s < 3; ++s) {
             _easCycleClose(s, cycle, cycleRoot);
-            vm.prank(writers[s]);
+            vm.startPrank(writers[s]);
             ownerlessStore.heartbeat(cycle, cycleRoot);
+            ownerlessStore.stampCoverage(one, cycle);
+            pointer.stampCoverage(one, cycle);
+            coverageUid[writers[s]][tokenId] = eas.attest(
+                AttestationRequest({
+                    schema: coverageSchema,
+                    data: AttestationRequestData({
+                        recipient: address(uint160(tokenId)),
+                        expirationTime: 0,
+                        revocable: true,
+                        refUID: bytes32(0),
+                        data: abi.encode(tokenId, cycle),
+                        value: 0
+                    })
+                })
+            );
+            indexer.indexAttestation(coverageUid[writers[s]][tokenId]);
+            vm.stopPrank();
         }
         // The live store's own maxSilence is one hour, so the calibration arm needs a heartbeat
         // inside that window after the seeding warps.
@@ -283,6 +308,7 @@ contract Eng3922HarnessTest is Test {
             eas: EAS,
             priceSchema: priceSchema,
             cycleCloseSchema: cycleCloseSchema,
+            coverageSchema: coverageSchema,
             requireHeartbeat: hb,
             writers: writers
         });
@@ -324,12 +350,16 @@ contract Eng3922HarnessTest is Test {
             p[s] = headUid[writers[s]][tokenId];
             h[s] = cycleCloseUid[writers[s]];
         }
+        bytes32[3] memory cv;
+        for (uint8 s; s < 3; ++s) {
+            cv[s] = coverageUid[writers[s]][tokenId];
+        }
         bytes32[] memory path = MerkleCycle.proof(cycleLevels, cycleIndexOfToken);
         bytes32[][] memory proofs = new bytes32[][](3);
         for (uint8 s; s < 3; ++s) {
             proofs[s] = path;
         }
-        return abi.encode(p, h, proofs);
+        return abi.encode(p, h, cv, proofs);
     }
 
     /// @notice Gas inside one single-token, quantity-1 `price()` call, from cold storage.
@@ -425,13 +455,15 @@ contract Eng3922HarnessTest is Test {
         uint256 tokenId = uint256(keccak256("eng3922-coverage-cost"));
         _seed(tokenId, 0);
         bytes memory ctx = _contextFor(tokenId);
-        BenchAggregatorBase.CoverageMode[3] memory modes = [
+        BenchAggregatorBase.CoverageMode[4] memory modes = [
             BenchAggregatorBase.CoverageMode.None,
             BenchAggregatorBase.CoverageMode.ClosedCycle,
-            BenchAggregatorBase.CoverageMode.ProofAtRead
+            BenchAggregatorBase.CoverageMode.ProofAtRead,
+            BenchAggregatorBase.CoverageMode.CoverageStamp
         ];
         for (uint256 m; m < modes.length; ++m) {
-            string memory tag = m == 0 ? "none      " : (m == 1 ? "closedCycle" : "proofAtRead");
+            string memory tag =
+                m == 0 ? "none       " : (m == 1 ? "closedCycle" : (m == 2 ? "proofAtRead" : "coverStamp "));
             _cov(
                 tag,
                 "arm3 ownerless store   ",
@@ -732,5 +764,192 @@ contract Eng3922HarnessTest is Test {
                 "pointer lookup is deterministic per writer"
             );
         }
+    }
+
+    /// @notice Coverage-stamp write cost, and what a weekly cycle at 1,000 tokens costs at
+    ///         20%, 50% and 100% movers.
+    /// @dev A mover pays a full write; a non-mover pays a stamp. Per-item figures come from a
+    ///      100-item batch, which is the regime a 1,000-token cycle actually runs in.
+    function test_writeGasCoverageStamp() public {
+        if (!forked) vm.skip(true);
+        uint256 n = 100;
+        uint256[] memory ids = new uint256[](n);
+        for (uint256 i; i < n; ++i) {
+            ids[i] = uint256(keccak256(abi.encode("eng3922-stamp", i)));
+        }
+
+        vm.cool(address(ownerlessStore));
+        vm.prank(writers[0]);
+        uint256 g = gasleft();
+        ownerlessStore.stampCoverage(ids, 1);
+        uint256 storeStamp = (g - gasleft()) / n;
+        emit log_named_uint("ownerless store stampCoverage per token (batch 100)", storeStamp);
+
+        vm.cool(address(pointer));
+        vm.prank(writers[0]);
+        g = gasleft();
+        pointer.stampCoverage(ids, 1);
+        uint256 ptrStamp = (g - gasleft()) / n;
+        emit log_named_uint("pointer stampCoverage per token (batch 100)", ptrStamp);
+
+        AttestationRequestData[] memory data = new AttestationRequestData[](n);
+        for (uint256 i; i < n; ++i) {
+            data[i] = AttestationRequestData({
+                recipient: address(uint160(ids[i])),
+                expirationTime: 0,
+                revocable: true,
+                refUID: bytes32(0),
+                data: abi.encode(ids[i], uint64(1)),
+                value: 0
+            });
+        }
+        MultiAttestationRequest[] memory req = new MultiAttestationRequest[](1);
+        req[0] = MultiAttestationRequest({schema: coverageSchema, data: data});
+        vm.cool(EAS);
+        vm.prank(writers[0]);
+        g = gasleft();
+        eas.multiAttest(req);
+        uint256 easStamp = (g - gasleft()) / n;
+        emit log_named_uint("EAS coverage attestation per token (multiAttest 100)", easStamp);
+
+        // Full-write per-token costs at batch 100, for the mover side of the mix.
+        uint256 storeFull = _fullWritePerItem();
+        emit log_named_uint("ownerless store full writePrice per token (batch 100)", storeFull);
+        uint256 easFull = _easFullPerItem();
+        emit log_named_uint("EAS full price attestation per token (multiAttest 100)", easFull);
+
+        uint256[3] memory movers = [uint256(20), 50, 100];
+        for (uint256 i; i < movers.length; ++i) {
+            uint256 m = movers[i];
+            uint256 nonMovers = 100 - m;
+            // 1,000 tokens x 3 oracle sources = 3,000 facts per cycle.
+            uint256 storeCycle = 30 * (m * storeFull + nonMovers * storeStamp);
+            uint256 easPtrCycle = 30 * (m * (easFull + _pointerWritePerItem()) + nonMovers * ptrStamp);
+            uint256 easOnlyCycle = 30 * (m * easFull + nonMovers * easStamp);
+            emit log_named_uint(
+                string.concat("cycle gas, 1000 tokens, ", vm.toString(m), "% movers - arm3 ownerless store"), storeCycle
+            );
+            emit log_named_uint(
+                string.concat("cycle gas, 1000 tokens, ", vm.toString(m), "% movers - arm2 EAS+pointer"), easPtrCycle
+            );
+            emit log_named_uint(
+                string.concat("cycle gas, 1000 tokens, ", vm.toString(m), "% movers - arm1 all-EAS"), easOnlyCycle
+            );
+        }
+    }
+
+    function _fullWritePerItem() internal returns (uint256) {
+        uint256 n = 100;
+        uint256[] memory ids = new uint256[](n);
+        uint128[] memory prices = new uint128[](n);
+        uint24[] memory confs = new uint24[](n);
+        uint64[] memory valuedAts = new uint64[](n);
+        for (uint256 i; i < n; ++i) {
+            ids[i] = uint256(keccak256(abi.encode("eng3922-full", i)));
+            prices[i] = 100_000e6;
+            confs[i] = 9000;
+            valuedAts[i] = uint64(block.timestamp);
+        }
+        vm.cool(address(ownerlessStore));
+        vm.prank(writers[0]);
+        uint256 g = gasleft();
+        ownerlessStore.writePriceBatch(ids, prices, confs, valuedAts, 1, keccak256("root"));
+        return (g - gasleft()) / n;
+    }
+
+    function _easFullPerItem() internal returns (uint256) {
+        uint256 n = 100;
+        AttestationRequestData[] memory data = new AttestationRequestData[](n);
+        for (uint256 i; i < n; ++i) {
+            uint256 tokenId = uint256(keccak256(abi.encode("eng3922-easfull", i)));
+            data[i] = AttestationRequestData({
+                recipient: address(uint160(tokenId)),
+                expirationTime: 0,
+                revocable: true,
+                refUID: bytes32(0),
+                data: _priceData(tokenId, 0, 100_000e6, 1),
+                value: 0
+            });
+        }
+        MultiAttestationRequest[] memory req = new MultiAttestationRequest[](1);
+        req[0] = MultiAttestationRequest({schema: priceSchema, data: data});
+        vm.cool(EAS);
+        vm.prank(writers[0]);
+        uint256 g = gasleft();
+        eas.multiAttest(req);
+        return (g - gasleft()) / n;
+    }
+
+    function _pointerWritePerItem() internal returns (uint256) {
+        uint256 n = 100;
+        uint256[] memory ids = new uint256[](n);
+        bytes32[] memory kinds = new bytes32[](n);
+        bytes32[] memory uids = new bytes32[](n);
+        for (uint256 i; i < n; ++i) {
+            ids[i] = uint256(keccak256(abi.encode("eng3922-ptrw", i)));
+            kinds[i] = keccak256("price");
+            uids[i] = keccak256(abi.encode("u", i));
+        }
+        vm.cool(address(pointer));
+        vm.prank(writers[0]);
+        uint256 g = gasleft();
+        pointer.pointBatch(ids, kinds, uids);
+        return (g - gasleft()) / n;
+    }
+
+    /// @notice The cycle-close write on every arm, with and without the Merkle root.
+    /// @dev Round 2's cycle close carries the cycle number only (Tim, 18:47Z). The root-carrying
+    ///      variant is measured too because item 13 is a round-3 candidate.
+    function test_writeGasCycleClose() public {
+        if (!forked) vm.skip(true);
+        vm.cool(address(ownerlessStore));
+        vm.prank(writers[0]);
+        uint256 g = gasleft();
+        ownerlessStore.heartbeat(1, bytes32(0));
+        emit log_named_uint("arm3 ownerless store, cycle close WITHOUT root", g - gasleft());
+
+        vm.cool(address(ownerlessStore));
+        vm.prank(writers[0]);
+        g = gasleft();
+        ownerlessStore.heartbeat(2, keccak256("root"));
+        emit log_named_uint("arm3 ownerless store, cycle close WITH root (round-3 item 13)", g - gasleft());
+
+        // On EAS a cycle close is an attestation. Without the root the payload is two words
+        // rather than three.
+        vm.cool(EAS);
+        vm.prank(writers[0]);
+        g = gasleft();
+        eas.attest(
+            AttestationRequest({
+                schema: cycleCloseSchema,
+                data: AttestationRequestData({
+                    recipient: writers[0],
+                    expirationTime: 0,
+                    revocable: true,
+                    refUID: bytes32(0),
+                    data: abi.encode(writers[0], uint64(1), bytes32(0)),
+                    value: 0
+                })
+            })
+        );
+        emit log_named_uint("EAS arms, cycle close attestation WITHOUT root (zero root word)", g - gasleft());
+
+        vm.cool(EAS);
+        vm.prank(writers[0]);
+        g = gasleft();
+        eas.attest(
+            AttestationRequest({
+                schema: cycleCloseSchema,
+                data: AttestationRequestData({
+                    recipient: writers[0],
+                    expirationTime: 0,
+                    revocable: true,
+                    refUID: bytes32(0),
+                    data: abi.encode(writers[0], uint64(2), keccak256("root")),
+                    value: 0
+                })
+            })
+        );
+        emit log_named_uint("EAS arms, cycle close attestation WITH root (round-3 item 13)", g - gasleft());
     }
 }

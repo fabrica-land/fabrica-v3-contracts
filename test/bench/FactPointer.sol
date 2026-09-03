@@ -15,8 +15,16 @@ contract FactPointer {
     /// @notice writer => tokenId => kind => head attestation uid.
     mapping(address => mapping(uint256 => mapping(bytes32 => bytes32))) private _head;
 
+    /// @notice writer => tokenId => last cycle the writer still vouched for this token.
+    /// @dev On the EAS-plus-pointer arm the coverage stamp is a slot here rather than an
+    ///      attestation: a stamp attestation would cost a full EAS record for a fact that is one
+    ///      integer. This is the cheapest honest form of Tim's 18:44Z stamp on that arm.
+    mapping(address => mapping(uint256 => uint64)) public coveredThrough;
+
     /// @notice Emitted whenever a writer repoints one of its own rows.
     event Pointed(address indexed writer, uint256 indexed tokenId, bytes32 indexed kind, bytes32 uid);
+
+    event CoverageStamped(address indexed writer, uint256 indexed tokenId, uint64 cycle);
 
     error LengthMismatch();
 
@@ -33,6 +41,14 @@ contract FactPointer {
         for (uint256 i; i < n; ++i) {
             _head[msg.sender][tokenIds[i]][kinds[i]] = uids[i];
             emit Pointed(msg.sender, tokenIds[i], kinds[i], uids[i]);
+        }
+    }
+
+    /// @notice Stamp coverage for tokens the caller still vouches for but did not revalue.
+    function stampCoverage(uint256[] calldata tokenIds, uint64 cycle) external {
+        for (uint256 i; i < tokenIds.length; ++i) {
+            coveredThrough[msg.sender][tokenIds[i]] = cycle;
+            emit CoverageStamped(msg.sender, tokenIds[i], cycle);
         }
     }
 

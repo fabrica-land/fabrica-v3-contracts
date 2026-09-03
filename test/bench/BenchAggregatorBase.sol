@@ -29,8 +29,14 @@ abstract contract BenchAggregatorBase is IPriceOracle {
         /// @dev The valuation's cycle must be one its writer has closed. One extra read.
         ClosedCycle,
         /// @dev The token must be proven under the writer's cycle root, proof supplied by the
-        ///      caller through `oracleContext`.
-        ProofAtRead
+        ///      caller through `oracleContext`. Ruled out by Tim at 18:44Z: a BNPL loan's
+        ///      calldata is fixed days before execution, and a daily cycle close would stale
+        ///      every proof already sitting in a signed quote. Kept measurable, not proposed.
+        ProofAtRead,
+        /// @dev The writer must have stamped this token as still covered at its current cycle.
+        ///      Writer-side state only, nothing supplied by the caller, and a writer can cover a
+        ///      token it did not revalue without rewriting the valuation.
+        CoverageStamp
     }
 
     /// @notice The aggregator's immutable rule set, grouped so subclasses stay shallow.
@@ -59,6 +65,7 @@ abstract contract BenchAggregatorBase is IPriceOracle {
     struct Ctx {
         bytes32[3] priceUids;
         bytes32[3] cycleCloseUids;
+        bytes32[3] coverageUids;
         bytes32[][] proofs;
         uint256 tokenIndex;
     }
@@ -135,6 +142,9 @@ abstract contract BenchAggregatorBase is IPriceOracle {
 
     function _isLocked(uint8 sourceId, uint256 tokenId, Ctx memory ctx) internal view virtual returns (bool);
 
+    /// @notice The last cycle in which this writer stamped this token as still covered.
+    function _coveredThrough(uint8 sourceId, uint256 tokenId, Ctx memory ctx) internal view virtual returns (uint64);
+
     // -------------------------------------------------------------------------
     // IPriceOracle
     // -------------------------------------------------------------------------
@@ -187,8 +197,8 @@ abstract contract BenchAggregatorBase is IPriceOracle {
 
     function _decodeContext(bytes calldata oracleContext) internal pure returns (Ctx memory ctx) {
         if (oracleContext.length == 0) return ctx;
-        (ctx.priceUids, ctx.cycleCloseUids, ctx.proofs) =
-            abi.decode(oracleContext, (bytes32[3], bytes32[3], bytes32[][]));
+        (ctx.priceUids, ctx.cycleCloseUids, ctx.coverageUids, ctx.proofs) =
+            abi.decode(oracleContext, (bytes32[3], bytes32[3], bytes32[3], bytes32[][]));
     }
 
     function _evaluate(address currencyToken, uint256 tokenId, Ctx memory ctx)
@@ -224,6 +234,10 @@ abstract contract BenchAggregatorBase is IPriceOracle {
         if (!fact.present || fact.priceUsdc6 == 0) return (false, true, fact);
         if (coverage == CoverageMode.ClosedCycle && (fact.cycle == 0 || fact.cycle > closedCycle)) {
             return (false, true, fact);
+        }
+        if (coverage == CoverageMode.CoverageStamp) {
+            uint64 covered = _coveredThrough(sourceId, tokenId, ctx);
+            if (covered == 0 || covered < closedCycle) return (false, true, fact);
         }
         if (_trippedBreaker(sourceId, tokenId, fact, ctx)) return (false, true, fact);
         return (true, true, fact);
