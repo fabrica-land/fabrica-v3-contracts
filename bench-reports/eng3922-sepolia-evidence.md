@@ -69,13 +69,15 @@ with how many attestations have accumulated in a row. Measured directly on the f
 `refUID` chain at depth 0 and varying only the row:
 
 <!-- GENERATED:indexer-row-depth do not edit by hand; bench-reports/regenerate.sh rewrites this -->
+
 | Indexer row depth | arm 1 `price()` gas |
 | -- | -- |
-| 1 | 328,975 |
-| 2 | 336,213 |
-| 5 | 358,344 |
+| 1 | 329,596 |
+| 2 | 336,834 |
+| 5 | 358,965 |
 
 That is **7,238 gas for the first extra attestation and about 7,377 per attestation averaged over depths 2 to 5** — it is not one constant, and quoting it as a single figure understates how it grows.
+
 <!-- /GENERATED:indexer-row-depth -->
 
 Comparing like for like — the fork at row
@@ -165,6 +167,30 @@ writer0 row before: 0x25b7b81ff5b1929a2daeeed06c842a8c9a8a9bd33fcd83b69b6da272cc
 writer0 row after:  0x25b7b81ff5b1929a2daeeed06c842a8c9a8a9bd33fcd83b69b6da272ccad1488
 writer1 row after:  0x1111111111111111111111111111111111111111111111111111111111111111
 ```
+
+## One fidelity caveat on the recorded write costs
+
+Both Sepolia runs used synthetic token ids derived as a full `uint256(keccak256(...))`. Real Fabrica
+ids are narrower: `FabricaToken` computes `uint64 smallId = uint64(keccak256(...))` and returns it
+widened (`FabricaToken.sol:363-365`), so every production id is below 2^64. Round 3 of review
+surfaced this while adding a bounds guard to the EAS `recipient` truncation, and the harness now
+generates Fabrica-shaped ids throughout.
+
+It matters only for calldata, and it matters in the safe direction: EIP-2028 charges 4 gas for a
+zero byte against 16 for a non-zero one, and a `uint64` id carries 24 zero bytes in its word where a
+256-bit id carries almost none. So **the write costs recorded above are slightly HIGH** relative to
+what production would pay. Measured on the fork, the same operations with Fabrica-shaped ids:
+
+| Operation | 256-bit ids | Fabrica-shaped ids | Difference |
+| -- | -- | -- | -- |
+| pointer `pointBatch` n=100, per item | 27,016 | 26,728 | −288 |
+| ownerless `writePriceBatch` n=100, per item | 72,794 | 72,507 | −287 |
+| EAS `multiAttest` n=100, per item | 260,123 | 259,692 | −431 |
+
+About 288 gas per token id in calldata, roughly 0.4% of a store write and 0.2% of an attestation, and
+it lands on every arm in proportion, so no comparison between arms moves. Execution gas is
+unaffected — one word is one word. The on-chain figures are kept as recorded rather than re-run,
+because they are real receipts and the direction and size of the bias are now measured.
 
 ## Faucet ETH
 

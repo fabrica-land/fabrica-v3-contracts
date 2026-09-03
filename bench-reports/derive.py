@@ -52,7 +52,9 @@ def replace_block(path, marker, body):
         sys.exit(f"derive.py: markers for {marker} not found in {path.name}")
     head = text[: text.index(start) + len(start)]
     tail = text[text.index(end):]
-    path.write_text(head + "\n" + body + "\n" + tail)
+    # Markdown tables need a blank line before and after them (markdownlint MD058), and
+    # every generated body here starts with one.
+    path.write_text(head + "\n\n" + body + "\n\n" + tail)
 
 
 def main():

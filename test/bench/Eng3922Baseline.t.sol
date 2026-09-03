@@ -200,12 +200,19 @@ contract Eng3922BaselineTest is Test {
         );
     }
 
+    /// @notice Measure one `writePrice`, charging the store for the store's work only.
+    /// @dev The params struct is built ONCE and hoisted above the measured span. An earlier version
+    ///      called `_params` inside it, so the struct build and its two `keccak256` provenance
+    ///      hashes were charged to `writePrice` — and called it a SECOND time for the calldata,
+    ///      which advanced `nextCycle`, so the payload whose calldata was costed was not the payload
+    ///      written. Both are fixed by having exactly one value.
     function _reportWrite(string memory label, uint256 tokenId, uint128 priceUsdc6) internal {
-        bytes memory callData = abi.encodeCall(FabricaAttributeOracle.writePrice, (_params(tokenId, 0, priceUsdc6)));
+        FabricaAttributeOracle.PriceWriteParams memory params = _params(tokenId, 0, priceUsdc6);
+        bytes memory callData = abi.encodeCall(FabricaAttributeOracle.writePrice, (params));
         vm.cool(LIVE_FACT_STORE);
         vm.prank(writer);
         uint256 before = gasleft();
-        store.writePrice(_params(tokenId, 0, priceUsdc6));
+        store.writePrice(params);
         uint256 execution = before - gasleft();
         _emitCost(label, execution, callData);
     }
@@ -227,7 +234,7 @@ contract Eng3922BaselineTest is Test {
     }
 
     function _register(string memory tag) internal returns (uint256 tokenId) {
-        tokenId = uint256(keccak256(abi.encode("eng3922-baseline", tag)));
+        tokenId = uint256(uint64(uint256(keccak256(abi.encode("eng3922-baseline", tag)))));
         vm.prank(storeOwner);
         store.register(VALIDATOR_ID, tokenId);
     }

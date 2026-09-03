@@ -15,27 +15,27 @@
 #
 Ran 10 tests for test/bench/Eng3922Baseline.t.sol:Eng3922BaselineTest
 [PASS] test_liveTwoSourceAggregatorConfig() (gas: 21553)
-[PASS] test_readGasWalkDepth0() (gas: 2753050)
+[PASS] test_readGasWalkDepth0() (gas: 2753071)
 Logs:
   price() execution gas, 3 oracle sources, seasoning walk depth 0: 134804
 
-[PASS] test_readGasWalkDepth1() (gas: 3078421)
+[PASS] test_readGasWalkDepth1() (gas: 3078442)
 Logs:
   price() execution gas, 3 oracle sources, seasoning walk depth 1: 197573
 
-[PASS] test_readGasWalkDepth3() (gas: 3526327)
+[PASS] test_readGasWalkDepth3() (gas: 3526348)
 Logs:
   price() execution gas, 3 oracle sources, seasoning walk depth 3: 251639
 
-[PASS] test_readGasWalkDepth7() (gas: 4422452)
+[PASS] test_readGasWalkDepth7() (gas: 4422473)
 Logs:
   price() execution gas, 3 oracle sources, seasoning walk depth 7: 359805
 
-[PASS] test_writeGasFirstWrite() (gas: 314947)
+[PASS] test_writeGasFirstWrite() (gas: 312293)
 Logs:
-  writePrice, write 1 of a row (no history push) -- execution gas: 149310
-  writePrice, write 1 of a row (no history push) -- intrinsic + calldata: 24044
-  writePrice, write 1 of a row (no history push) -- WHOLE TRANSACTION: 173354
+  writePrice, write 1 of a row (no history push) -- execution gas: 146852
+  writePrice, write 1 of a row (no history push) -- intrinsic + calldata: 23768
+  writePrice, write 1 of a row (no history push) -- WHOLE TRANSACTION: 170620
 
 [PASS] test_writeGasHeartbeat() (gas: 54937)
 Logs:
@@ -43,24 +43,24 @@ Logs:
   heartbeat -- intrinsic + calldata: 21344
   heartbeat -- WHOLE TRANSACTION: 44384
 
-[PASS] test_writeGasSecondWrite() (gas: 447410)
+[PASS] test_writeGasSecondWrite() (gas: 444724)
 Logs:
-  writePrice, write 2 of a row (ring slot and counter both cold) -- execution gas: 133166
-  writePrice, write 2 of a row (ring slot and counter both cold) -- intrinsic + calldata: 24056
-  writePrice, write 2 of a row (ring slot and counter both cold) -- WHOLE TRANSACTION: 157222
+  writePrice, write 2 of a row (ring slot and counter both cold) -- execution gas: 130697
+  writePrice, write 2 of a row (ring slot and counter both cold) -- intrinsic + calldata: 23756
+  writePrice, write 2 of a row (ring slot and counter both cold) -- WHOLE TRANSACTION: 154453
 
-[PASS] test_writeGasThirdWrite() (gas: 518544)
+[PASS] test_writeGasThirdWrite() (gas: 515867)
 Logs:
-  writePrice, writes 3-48 of a row (ring slot fresh, counter warm) -- execution gas: 116079
-  writePrice, writes 3-48 of a row (ring slot fresh, counter warm) -- intrinsic + calldata: 24044
-  writePrice, writes 3-48 of a row (ring slot fresh, counter warm) -- WHOLE TRANSACTION: 140123
+  writePrice, writes 3-48 of a row (ring slot fresh, counter warm) -- execution gas: 113600
+  writePrice, writes 3-48 of a row (ring slot fresh, counter warm) -- intrinsic + calldata: 23768
+  writePrice, writes 3-48 of a row (ring slot fresh, counter warm) -- WHOLE TRANSACTION: 137368
 
-[PASS] test_writeGasWrappedRing() (gas: 3704968)
+[PASS] test_writeGasWrappedRing() (gas: 3701753)
 Logs:
-  writePrice, write 49+ of a row (ring wrapped, slot overwritten) -- execution gas: 82509
-  writePrice, write 49+ of a row (ring wrapped, slot overwritten) -- intrinsic + calldata: 24056
-  writePrice, write 49+ of a row (ring wrapped, slot overwritten) -- WHOLE TRANSACTION: 106565
+  writePrice, write 49+ of a row (ring wrapped, slot overwritten) -- execution gas: 79501
+  writePrice, write 49+ of a row (ring wrapped, slot overwritten) -- intrinsic + calldata: 23768
+  writePrice, write 49+ of a row (ring wrapped, slot overwritten) -- WHOLE TRANSACTION: 103269
 
-Suite result: ok. 10 passed; 0 failed; 0 skipped; finished in 122.30ms (20.19ms CPU time)
+Suite result: ok. 10 passed; 0 failed; 0 skipped; finished in 94.21ms (11.90ms CPU time)
 
-Ran 1 test suite in 141.43ms (122.30ms CPU time): 10 tests passed, 0 failed, 0 skipped (10 total tests)
+Ran 1 test suite in 105.32ms (94.21ms CPU time): 10 tests passed, 0 failed, 0 skipped (10 total tests)

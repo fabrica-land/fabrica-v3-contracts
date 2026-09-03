@@ -188,7 +188,7 @@ contract Eng3922WriteTest is Eng3922HarnessBase {
     function _ids(string memory tag, uint256 n) internal pure returns (uint256[] memory ids) {
         ids = new uint256[](n);
         for (uint256 i; i < n; ++i) {
-            ids[i] = uint256(keccak256(abi.encode("eng3922-write", tag, n, i)));
+            ids[i] = _tokenId(abi.encode("eng3922-write", tag, n, i));
         }
     }
 
@@ -330,5 +330,82 @@ contract Eng3922WriteTest is Eng3922HarnessBase {
         uint256 g = gasleft();
         eas.attest(req);
         _emitCost(label, g - gasleft(), cd, 1);
+    }
+
+    // ---------------------------------------------------------------------
+    // Arm 1 totals: an EAS record it cannot find is a record it does not have
+    // ---------------------------------------------------------------------
+
+    /// @notice The coverage stamp on arm 1, INCLUDING the Indexer write it needs to be findable.
+    /// @dev `multiAttest` creates the record; it does not index it. `ArmEasIndexer._coverageUid`
+    ///      discovers coverage through `getSchemaAttesterRecipientAttestationUIDs`, so an unindexed
+    ///      coverage attestation is invisible to that arm and the stamp may as well not exist.
+    ///      Reporting the attest alone understates what arm 1 must actually pay.
+    function test_easCoverageAttestationIndexed100() public {
+        if (!forked) vm.skip(true);
+        uint256 n = BATCH_LARGE;
+        uint256[] memory ids = _ids("stamp-eas-indexed", n);
+        AttestationRequestData[] memory data = new AttestationRequestData[](n);
+        for (uint256 i; i < n; ++i) {
+            data[i] = AttestationRequestData({
+                recipient: address(uint160(ids[i])),
+                expirationTime: 0,
+                revocable: true,
+                refUID: bytes32(0),
+                data: abi.encode(ids[i], uint64(1)),
+                value: 0
+            });
+        }
+        MultiAttestationRequest[] memory req = new MultiAttestationRequest[](1);
+        req[0] = MultiAttestationRequest({schema: coverageSchema, data: data});
+        bytes memory attestCd = abi.encodeCall(IEAS.multiAttest, (req));
+        vm.cool(EAS);
+        vm.prank(writers[0]);
+        uint256 g = gasleft();
+        bytes32[] memory uids = eas.multiAttest(req);
+        uint256 attestExec = g - gasleft();
+        bytes memory indexCd = abi.encodeCall(IEASIndexer.indexAttestations, (uids));
+        vm.cool(EAS_INDEXER);
+        vm.prank(writers[0]);
+        g = gasleft();
+        indexer.indexAttestations(uids);
+        uint256 indexExec = g - gasleft();
+        uint256 total = attestExec + _intrinsicGas(attestCd) + indexExec + _intrinsicGas(indexCd);
+        emit log_named_uint("arm1 coverage stamp, attest + index, batch 100 -- WHOLE TRANSACTIONS", total);
+        emit log_named_uint("arm1 coverage stamp, attest + index, batch 100 -- per item", total / n);
+    }
+
+    /// @notice The cycle close on arm 1, INCLUDING its Indexer write.
+    /// @dev Same reasoning: `ArmEasIndexer._cycleCloseUid` finds the cycle close through the
+    ///      Indexer, so an unindexed cycle close leaves the writer looking permanently silent.
+    function test_easCycleCloseIndexed() public {
+        if (!forked) vm.skip(true);
+        AttestationRequest memory req = AttestationRequest({
+            schema: cycleCloseSchema,
+            data: AttestationRequestData({
+                recipient: writers[0],
+                expirationTime: 0,
+                revocable: true,
+                refUID: bytes32(0),
+                data: abi.encode(writers[0], uint64(1), bytes32(0)),
+                value: 0
+            })
+        });
+        bytes memory attestCd = abi.encodeCall(IEAS.attest, (req));
+        vm.cool(EAS);
+        vm.prank(writers[0]);
+        uint256 g = gasleft();
+        bytes32 uid = eas.attest(req);
+        uint256 attestExec = g - gasleft();
+        bytes memory indexCd = abi.encodeCall(IEASIndexer.indexAttestation, (uid));
+        vm.cool(EAS_INDEXER);
+        vm.prank(writers[0]);
+        g = gasleft();
+        indexer.indexAttestation(uid);
+        uint256 indexExec = g - gasleft();
+        emit log_named_uint(
+            "arm1 cycle close, attest + index -- WHOLE TRANSACTIONS",
+            attestExec + _intrinsicGas(attestCd) + indexExec + _intrinsicGas(indexCd)
+        );
     }
 }

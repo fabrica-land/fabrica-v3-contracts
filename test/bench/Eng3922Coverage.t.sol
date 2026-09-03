@@ -23,7 +23,7 @@ abstract contract Eng3922CoverageBase is Eng3922HarnessBase {
     function setUp() public virtual override {
         super.setUp();
         if (!forked) return;
-        tokenId = uint256(keccak256(abi.encode("eng3922-coverage", _tag())));
+        tokenId = _tokenId(abi.encode("eng3922-coverage", _tag()));
         _seed(tokenId, 0);
         ctx = _contextFor(tokenId);
     }

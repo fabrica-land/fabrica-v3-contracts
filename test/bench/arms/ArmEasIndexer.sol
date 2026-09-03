@@ -23,6 +23,9 @@ import {IEASIndexer} from "../eas/IEAS.sol";
 ///      bits and two token ids sharing their low 160 bits would share a row. That is a real
 ///      soundness caveat, recorded here rather than buried in the numbers.
 contract ArmEasIndexer is EasArmBase {
+    /// @notice A token id that does not fit EAS's address-shaped `recipient` field.
+    error TokenIdTooWideForEasRecipient(uint256 tokenId);
+
     IEASIndexer public immutable indexer;
 
     constructor(AggConfig memory cfg, EasConfig memory easCfg, address indexer_) EasArmBase(cfg, easCfg) {
@@ -48,7 +51,19 @@ contract ArmEasIndexer is EasArmBase {
     }
 
     /// @notice The address a token is addressed by, given EAS's address-shaped `recipient`.
+    /// @dev EAS core's only structured subject field is `recipient`, an `address`, so a token id has
+    ///      to be squeezed into 160 bits. That is lossless for Fabrica: `FabricaToken` derives an id
+    ///      as `uint64 smallId = uint64(keccak256(...))` and returns it widened
+    ///      (`FabricaToken.sol:363-365`), so every id is below 2^64 — 96 bits of headroom. Observed
+    ///      live ids run 62 to 64 bits.
+    ///
+    ///      The guard is here anyway, because "our ids happen to fit" is an assumption a future
+    ///      token contract can break silently: ids `x` and `x + 2^160` would collide on one row, and
+    ///      `_newest` could hand back the other token's attestation. `_readPrice` would reject its
+    ///      payload and the valid fact for `x` would simply vanish, with the outcome depending on
+    ///      publication order. Failing loudly beats a fact disappearing.
     function recipientForToken(uint256 tokenId) public pure returns (address) {
+        if (tokenId > type(uint160).max) revert TokenIdTooWideForEasRecipient(tokenId);
         return address(uint160(tokenId));
     }
 

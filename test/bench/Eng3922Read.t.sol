@@ -18,7 +18,7 @@ abstract contract Eng3922ReadBase is Eng3922HarnessBase {
     function setUp() public virtual override {
         super.setUp();
         if (!forked) return;
-        tokenId = uint256(keccak256(abi.encode("eng3922-read", _walkDepth())));
+        tokenId = _tokenId(abi.encode("eng3922-read", _walkDepth()));
         _seed(tokenId, _walkDepth());
         ctx = _contextFor(tokenId);
     }
@@ -83,7 +83,7 @@ contract Eng3922HeartbeatCostTest is Eng3922HarnessBase {
     function setUp() public virtual override {
         super.setUp();
         if (!forked) return;
-        tokenId = uint256(keccak256("eng3922-heartbeat-cost"));
+        tokenId = _tokenId("eng3922-heartbeat-cost");
         _seed(tokenId, 0);
         ctx = _contextFor(tokenId);
     }
@@ -117,7 +117,7 @@ abstract contract Eng3922IndexerRowDepthBase is Eng3922HarnessBase {
     function setUp() public virtual override {
         super.setUp();
         if (!forked) return;
-        tokenId = uint256(keccak256(abi.encode("eng3922-rowdepth", _extraAttestations())));
+        tokenId = _tokenId(abi.encode("eng3922-rowdepth", _extraAttestations()));
         _seed(tokenId, 0);
         for (uint256 n; n < _extraAttestations(); ++n) {
             for (uint8 s; s < 3; ++s) {

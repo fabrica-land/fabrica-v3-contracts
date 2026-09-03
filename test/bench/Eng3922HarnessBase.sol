@@ -383,6 +383,16 @@ abstract contract Eng3922HarnessBase is Test {
         return new ArmOwnerlessStore(_cfg(), address(ownerlessStore), writers);
     }
 
+    /// @notice A synthetic token id shaped like a real Fabrica one.
+    /// @dev `FabricaToken` derives an id as `uint64 smallId = uint64(keccak256(...))` and returns it
+    ///      widened (`FabricaToken.sol:363-365`), so every real id is below 2^64. The harness used
+    ///      full 256-bit keccak ids until round 3 of review, which is not what production looks
+    ///      like — and it is the shape that would have hidden the EAS `recipient` truncation this
+    ///      arm depends on. Gas is unaffected either way (one word is one word); fidelity is not.
+    function _tokenId(bytes memory seed) internal pure returns (uint256) {
+        return uint256(uint64(uint256(keccak256(seed))));
+    }
+
     /// @notice Build the cycle's Merkle tree over TOKENS_PER_CYCLE ids, with `tokenId` inside it.
     /// @dev Only `tokenId` has facts published; the other ids exist so the proof has the depth a
     ///      real 1,000-token cycle produces. Depth 10 for 1,024 leaves.

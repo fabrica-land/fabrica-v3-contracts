@@ -5,6 +5,7 @@ import {Eng3922HarnessBase} from "./Eng3922HarnessBase.sol";
 import {BenchAggregatorBase} from "./BenchAggregatorBase.sol";
 import {ArmEasPointer} from "./arms/ArmEasPointer.sol";
 import {ArmEasContext} from "./arms/ArmEasContext.sol";
+import {ArmEasIndexer} from "./arms/ArmEasIndexer.sol";
 import {ArmOwnerlessStore} from "./arms/ArmOwnerlessStore.sol";
 import {OwnerlessFactStore} from "./OwnerlessFactStore.sol";
 import {RevocationRequest, RevocationRequestData} from "./eas/IEAS.sol";
@@ -21,7 +22,7 @@ contract Eng3922BehaviourTest is Eng3922HarnessBase {
     ///      Both steps are asserted here so the mechanism is demonstrated rather than argued.
     function test_lockEndToEnd() public {
         if (!forked) vm.skip(true);
-        uint256 tokenId = uint256(keccak256("eng3922-lock"));
+        uint256 tokenId = _tokenId("eng3922-lock");
         _seed(tokenId, 0);
         bytes memory ctx = _contextFor(tokenId);
 
@@ -55,6 +56,15 @@ contract Eng3922BehaviourTest is Eng3922HarnessBase {
         _expectMinSourcesRevert(ptr, tokenId, ctx);
         emit log_string("arm2 EAS+pointer: writer revocation drops liveCount and price() reverts CHECK_MIN_SOURCES");
 
+        // Arm 1 finds its head through EAS's Indexer rather than a pointer, so its lookup is a
+        // separate candidate path and revocation has to be shown to reach it too.
+        ArmEasIndexer idx = _armIndexer(true);
+        (ok, failed,,) = idx.eligibilityReport(SEPOLIA_USDC, tokenId, ctx);
+        assertFalse(ok, "arm1 refuses once a second writer revokes");
+        assertEq(failed, idx.CHECK_MIN_SOURCES(), "arm1 fails on min sources");
+        _expectMinSourcesRevert(idx, tokenId, ctx);
+        emit log_string("arm1 all-EAS Indexer: revocation reaches the Indexer lookup path too");
+
         // Option C reads the same revoked attestations through oracleContext and refuses too.
         ArmEasContext cxt = _armContext(true);
         (ok, failed,,) = cxt.eligibilityReport(SEPOLIA_USDC, tokenId, ctx);
@@ -84,7 +94,7 @@ contract Eng3922BehaviourTest is Eng3922HarnessBase {
     /// @notice Ticket bullet 2 — the keying gap is closed, and no writer can touch another's row.
     function test_keyingGapClosed() public {
         if (!forked) vm.skip(true);
-        uint256 tokenId = uint256(keccak256("eng3922-keying"));
+        uint256 tokenId = _tokenId("eng3922-keying");
         _seed(tokenId, 0);
 
         // Pointer: a row is addressed by msg.sender, so writer 1 writing cannot move writer 0's.
@@ -161,7 +171,7 @@ contract Eng3922BehaviourTest is Eng3922HarnessBase {
     function test_contextFromEncoderDrivesArm() public {
         if (!forked) vm.skip(true);
         ArmEasContext arm = _armContext(true);
-        uint256 tokenId = uint256(keccak256("eng3922-roundtrip"));
+        uint256 tokenId = _tokenId("eng3922-roundtrip");
         _seed(tokenId, 0);
         bytes memory encoded = _encodedContextFor(arm, tokenId);
         (bool ok, bytes32 failed,,) = arm.eligibilityReport(SEPOLIA_USDC, tokenId, encoded);

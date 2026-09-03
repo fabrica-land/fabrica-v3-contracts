@@ -106,6 +106,6 @@ contract Eng3922SepoliaPublishScript is Script {
     }
 
     function _tokenIdAt(uint256 i) internal pure returns (uint256) {
-        return uint256(keccak256(abi.encode("eng3922-sepolia-token", i)));
+        return uint256(uint64(uint256(keccak256(abi.encode("eng3922-sepolia-token", i)))));
     }
 }
