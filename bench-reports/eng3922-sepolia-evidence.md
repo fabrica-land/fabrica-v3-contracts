@@ -68,13 +68,17 @@ Arm 1 is the only arm whose read touches that array, so it is the only arm whose
 with how many attestations have accumulated in a row. Measured directly on the fork, holding the
 `refUID` chain at depth 0 and varying only the row:
 
+<!-- GENERATED:indexer-row-depth do not edit by hand; bench-reports/regenerate.sh rewrites this -->
 | Indexer row depth | arm 1 `price()` gas |
 | -- | -- |
 | 1 | 328,975 |
 | 2 | 336,213 |
 | 5 | 358,344 |
 
-About **7,240 gas per extra attestation in the row**. Comparing like for like — the fork at row
+That is **7,238 gas for the first extra attestation and about 7,377 per attestation averaged over depths 2 to 5** — it is not one constant, and quoting it as a single figure understates how it grows.
+<!-- /GENERATED:indexer-row-depth -->
+
+Comparing like for like — the fork at row
 depth 2 against Sepolia at row depth 2 — gives 336,213 against 338,281, **+0.6%**, in line with
 every other arm.
 

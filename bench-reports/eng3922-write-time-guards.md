@@ -39,18 +39,21 @@ here it is differenced off the rows in `bench-reports/eng3922-arms.txt` rather t
 row is a three-oracle-source read, so a per-hop figure is the row delta divided by three times the
 hops added.
 
-| Arm | depth 0 | depth 1 | depth 3 | depth 7 | per hop 0->1 | 1->3 | 3->7 |
-| -- | -- | -- | -- | -- | -- | -- | -- |
-| arm 3 ownerless custom store | 149,308 | 200,163 | 238,362 | 314,781 | 16,951 | 6,366 | 6,368 |
-| calibration round-1 store | 163,430 | 226,829 | 280,955 | 389,239 | 21,133 | 9,021 | 9,023 |
-| arm 1C all-EAS `oracleContext` | 315,254 | 465,232 | 669,002 | 1,077,321 | 49,992 | 33,961 | 34,026 |
-| arm 2 EAS plus pointer | 354,812 | 504,796 | 708,568 | 1,116,894 | 49,994 | 33,962 | 34,027 |
-| arm 1 all-EAS `Indexer` | 407,276 | 565,723 | 786,189 | 1,227,899 | 52,815 | 36,744 | 36,809 |
+**This table is generated, not typed.** `bench-reports/regenerate.sh` rewrites it from the arms
+report every time the report itself is regenerated. Round 3 of review caught it carrying pre-fix
+numbers precisely because it was derived by hand and so survived a regeneration of its own source.
 
-So the honest statement is a range, not a point: **6,366 to 21,133 gas per hop on a custom store
-and 33,961 to 52,815 on the EAS arms**, with the first hop dearer on every arm because it is the one
-that pays cold access to the history slot or the referenced attestation. A single "~46,700" figure
-appeared in an earlier draft of this document; it did not trace to any row, and it is withdrawn.
+<!-- GENERATED:seasoning-walk-per-hop do not edit by hand; bench-reports/regenerate.sh rewrites this -->
+| Arm | depth 0 | depth 1 | depth 3 | depth 7 | per hop 0→1 | 1→3 | 3→7 |
+| -- | -- | -- | -- | -- | -- | -- | -- |
+| arm 3 ownerless custom store | 113,393 | 149,938 | 188,115 | 264,491 | 12,181 | 6,362 | 6,364 |
+| calibration round-1 store | 121,165 | 168,270 | 222,362 | 330,579 | 15,701 | 9,015 | 9,018 |
+| arm 1C all-EAS `oracleContext` | 245,830 | 371,239 | 574,497 | 981,794 | 41,803 | 33,876 | 33,941 |
+| arm 2 EAS plus pointer | 273,589 | 398,991 | 602,244 | 1,009,529 | 41,800 | 33,875 | 33,940 |
+| arm 1 all-EAS `Indexer` | 323,308 | 456,175 | 674,260 | 1,111,210 | 44,289 | 36,347 | 36,412 |
+
+So the honest statement is a range, not a point: **6,362 to 15,701 gas per hop on a custom store and 33,875 to 44,289 on the EAS arms**, with the first hop dearer on every arm because it is the one that pays cold access to the history slot or the referenced attestation. A single "~46,700" figure appeared in an earlier draft of this document; it did not trace to any row, and it is withdrawn.
+<!-- /GENERATED:seasoning-walk-per-hop -->
 
 ## The three that actually matter
 
