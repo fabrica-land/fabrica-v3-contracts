@@ -43,9 +43,9 @@ contract ArmEasIndexer is EasArmBase {
         return uids[0];
     }
 
-    function _heartbeatUid(uint8 sourceId, Ctx memory) internal view override returns (bytes32) {
+    function _cycleCloseUid(uint8 sourceId, Ctx memory) internal view override returns (bytes32) {
         bytes32[] memory uids = indexer.getSchemaAttesterRecipientAttestationUIDs(
-            heartbeatSchema, writerOf(sourceId), writerOf(sourceId), 0, 1, true
+            cycleCloseSchema, writerOf(sourceId), writerOf(sourceId), 0, 1, true
         );
         if (uids.length == 0) return bytes32(0);
         return uids[0];

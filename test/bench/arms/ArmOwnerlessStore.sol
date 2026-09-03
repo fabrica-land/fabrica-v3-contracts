@@ -80,14 +80,19 @@ contract ArmOwnerlessStore is BenchAggregatorBase {
         return (false, 0, hops);
     }
 
-    /// @dev The heartbeat timestamp and the cycle root are two slots on the same record, so one
-    ///      hook answers both and the arm pays for one lookup, not two.
-    function _writerLiveness(uint8 sourceId, Ctx memory) internal view override returns (bool fresh, bytes32 root) {
+    /// @dev The cycle-close timestamp and the closed cycle number are two slots on the same
+    ///      record, so one hook answers both and the arm pays for one lookup, not two.
+    function _writerLiveness(uint8 sourceId, Ctx memory)
+        internal
+        view
+        override
+        returns (bool fresh, uint64 closedCycle, bytes32 root)
+    {
         address w = writerOf(sourceId);
         uint64 last = store.lastHeartbeatAt(w);
-        if (last == 0) return (false, bytes32(0));
+        if (last == 0) return (false, 0, bytes32(0));
         fresh = uint256(last) + uint256(maxSilence) >= block.timestamp;
-        return (fresh, store.lastHeartbeatRoot(w));
+        return (fresh, store.lastHeartbeatCycle(w), store.lastHeartbeatRoot(w));
     }
 
     /// @notice The writer lock: the writer's own declaration that its facts must not be used.

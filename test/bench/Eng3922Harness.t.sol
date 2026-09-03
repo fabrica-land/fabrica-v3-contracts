@@ -51,11 +51,13 @@ contract Eng3922HarnessTest is Test {
     uint16 internal constant MAX_DISPERSION_BPS = 20_000;
     uint8 internal constant MIN_LIVE_SOURCES = 2;
 
+    /// @dev The survey's §3 shape plus the `uint64 cycle` Tim's 18:21Z closed-cycle rule
+    ///      requires: without it an EAS valuation names no cycle and nothing can be checked.
     string internal constant PRICE_SCHEMA_DEF =
-        "uint256 tokenId,uint8 sourceId,uint128 priceUsdc6,uint24 confidence,bytes32 inputsHash";
+        "uint256 tokenId,uint8 sourceId,uint128 priceUsdc6,uint24 confidence,uint64 cycle,bytes32 inputsHash";
     string internal constant ATTRIBUTE_SCHEMA_DEF = "uint256 tokenId,bytes32 attributeId,bytes32 value";
     string internal constant LOCK_SCHEMA_DEF = "uint256 tokenId,bool locked";
-    string internal constant HEARTBEAT_SCHEMA_DEF = "address writer,uint64 cycle,bytes32 root";
+    string internal constant CYCLE_CLOSE_SCHEMA_DEF = "address writer,uint64 cycle,bytes32 root";
 
     IEAS internal eas = IEAS(EAS);
     ISchemaRegistry internal registry = ISchemaRegistry(SCHEMA_REGISTRY);
@@ -64,7 +66,7 @@ contract Eng3922HarnessTest is Test {
     bytes32 internal priceSchema;
     bytes32 internal attributeSchema;
     bytes32 internal lockSchema;
-    bytes32 internal heartbeatSchema;
+    bytes32 internal cycleCloseSchema;
 
     FactPointer internal pointer;
     OwnerlessFactStore internal ownerlessStore;
@@ -72,14 +74,17 @@ contract Eng3922HarnessTest is Test {
     address[3] internal writers;
     /// @notice writer => tokenId => head price uid, mirroring what the oracle writer would keep.
     mapping(address => mapping(uint256 => bytes32)) internal headUid;
-    mapping(address => bytes32) internal heartbeatUid;
+    mapping(address => bytes32) internal cycleCloseUid;
 
     bool internal forked;
 
     /// @notice Tokens one weekly cycle covers, so a proof is depth 10 as the rule intends.
     uint256 internal constant TOKENS_PER_CYCLE = 1024;
-    /// @notice Every published arm number is measured with Tim's Merkle rule ON.
-    bool internal constant REQUIRE_PROOF = true;
+    /// @notice The coverage rule the headline arm numbers are measured under.
+    /// @dev Tim has not picked between proof-at-read, the closed-cycle check and no on-chain
+    ///      coverage check, so `test_coverageModeCostByArm` measures all three on every arm and
+    ///      the headline table is quoted under this one until he does.
+    BenchAggregatorBase.CoverageMode internal constant COVERAGE = BenchAggregatorBase.CoverageMode.ClosedCycle;
 
     FabricaAttributeOracle internal round1Store = FabricaAttributeOracle(LIVE_FACT_STORE);
     address internal round1Owner;
@@ -105,7 +110,7 @@ contract Eng3922HarnessTest is Test {
         priceSchema = registry.register(PRICE_SCHEMA_DEF, address(0), true);
         attributeSchema = registry.register(ATTRIBUTE_SCHEMA_DEF, address(0), true);
         lockSchema = registry.register(LOCK_SCHEMA_DEF, address(0), true);
-        heartbeatSchema = registry.register(HEARTBEAT_SCHEMA_DEF, address(0), true);
+        cycleCloseSchema = registry.register(CYCLE_CLOSE_SCHEMA_DEF, address(0), true);
         pointer = new FactPointer();
         ownerlessStore = new OwnerlessFactStore(48);
         // The calibration arm reads the LIVE round-1 store, so the same prices have to exist
@@ -122,14 +127,22 @@ contract Eng3922HarnessTest is Test {
     // Publication helpers — what the oracle writer does each cycle
     // -------------------------------------------------------------------------
 
-    function _priceData(uint256 tokenId, uint8 sourceId, uint128 priceUsdc6) internal pure returns (bytes memory) {
-        return
-            abi.encode(tokenId, sourceId, priceUsdc6, uint24(9000), keccak256(abi.encode("inputs", tokenId, sourceId)));
+    function _priceData(uint256 tokenId, uint8 sourceId, uint128 priceUsdc6, uint64 cycle)
+        internal
+        pure
+        returns (bytes memory)
+    {
+        return abi.encode(
+            tokenId, sourceId, priceUsdc6, uint24(9000), cycle, keccak256(abi.encode("inputs", tokenId, sourceId))
+        );
     }
 
     /// @notice One EAS price attestation, chained to the previous one by `refUID`, plus the
     ///         pointer write and the supersession revoke that the writer's discipline requires.
-    function _easPublish(uint8 sourceId, uint256 tokenId, uint128 priceUsdc6) internal returns (bytes32 uid) {
+    function _easPublish(uint8 sourceId, uint256 tokenId, uint128 priceUsdc6, uint64 cycle)
+        internal
+        returns (bytes32 uid)
+    {
         address w = writers[sourceId];
         bytes32 prev = headUid[w][tokenId];
         vm.startPrank(w);
@@ -141,7 +154,7 @@ contract Eng3922HarnessTest is Test {
                     expirationTime: uint64(block.timestamp) + MAX_SILENCE,
                     revocable: true,
                     refUID: prev,
-                    data: _priceData(tokenId, sourceId, priceUsdc6),
+                    data: _priceData(tokenId, sourceId, priceUsdc6, cycle),
                     value: 0
                 })
             })
@@ -159,13 +172,13 @@ contract Eng3922HarnessTest is Test {
     }
 
     /// @notice One heartbeat attestation carrying the cycle's Merkle root (round-2 item 13).
-    function _easHeartbeat(uint8 sourceId, uint64 cycle, bytes32 root) internal returns (bytes32 uid) {
+    function _easCycleClose(uint8 sourceId, uint64 cycle, bytes32 root) internal returns (bytes32 uid) {
         address w = writers[sourceId];
-        bytes32 prev = heartbeatUid[w];
+        bytes32 prev = cycleCloseUid[w];
         vm.startPrank(w);
         uid = eas.attest(
             AttestationRequest({
-                schema: heartbeatSchema,
+                schema: cycleCloseSchema,
                 data: AttestationRequestData({
                     recipient: w,
                     expirationTime: uint64(block.timestamp) + MAX_SILENCE,
@@ -176,10 +189,10 @@ contract Eng3922HarnessTest is Test {
                 })
             })
         );
-        pointer.point(0, keccak256("heartbeat"), uid);
+        pointer.point(0, keccak256("cycleClose"), uid);
         indexer.indexAttestation(uid);
         vm.stopPrank();
-        heartbeatUid[w] = uid;
+        cycleCloseUid[w] = uid;
     }
 
     function _ownerlessPublish(uint8 sourceId, uint256 tokenId, uint128 priceUsdc6, uint64 cycle) internal {
@@ -219,7 +232,7 @@ contract Eng3922HarnessTest is Test {
         uint64 cycle = nextCycle++;
         // The pre-seasoning baseline every arm's seasoning walk lands on.
         for (uint8 s; s < 3; ++s) {
-            _easPublish(s, tokenId, 100_000e6);
+            _easPublish(s, tokenId, 100_000e6, cycle);
             _ownerlessPublish(s, tokenId, 100_000e6, cycle);
             _round1Publish(s, tokenId, 100_000e6, cycle);
         }
@@ -229,13 +242,13 @@ contract Eng3922HarnessTest is Test {
             cycle = nextCycle++;
             uint128 p = uint128(100_000e6 + (i + 1) * 1_000e6);
             for (uint8 s; s < 3; ++s) {
-                _easPublish(s, tokenId, p);
+                _easPublish(s, tokenId, p, cycle);
                 _ownerlessPublish(s, tokenId, p, cycle);
                 _round1Publish(s, tokenId, p, cycle);
             }
         }
         for (uint8 s; s < 3; ++s) {
-            _easHeartbeat(s, cycle, cycleRoot);
+            _easCycleClose(s, cycle, cycleRoot);
             vm.prank(writers[s]);
             ownerlessStore.heartbeat(cycle, cycleRoot);
         }
@@ -250,10 +263,10 @@ contract Eng3922HarnessTest is Test {
     // -------------------------------------------------------------------------
 
     function _cfg() internal pure returns (BenchAggregatorBase.AggConfig memory) {
-        return _cfg(REQUIRE_PROOF);
+        return _cfg(COVERAGE);
     }
 
-    function _cfg(bool proof) internal pure returns (BenchAggregatorBase.AggConfig memory) {
+    function _cfg(BenchAggregatorBase.CoverageMode mode) internal pure returns (BenchAggregatorBase.AggConfig memory) {
         return BenchAggregatorBase.AggConfig({
             usdc: SEPOLIA_USDC,
             seasoningWindow: SEASONING_WINDOW,
@@ -261,13 +274,17 @@ contract Eng3922HarnessTest is Test {
             maxDispersionBps: MAX_DISPERSION_BPS,
             minLiveSources: MIN_LIVE_SOURCES,
             maxSilence: MAX_SILENCE,
-            requireMerkleProof: proof
+            coverage: mode
         });
     }
 
     function _easCfg(bool hb) internal view returns (EasArmBase.EasConfig memory) {
         return EasArmBase.EasConfig({
-            eas: EAS, priceSchema: priceSchema, heartbeatSchema: heartbeatSchema, requireHeartbeat: hb, writers: writers
+            eas: EAS,
+            priceSchema: priceSchema,
+            cycleCloseSchema: cycleCloseSchema,
+            requireHeartbeat: hb,
+            writers: writers
         });
     }
 
@@ -305,7 +322,7 @@ contract Eng3922HarnessTest is Test {
         bytes32[3] memory h;
         for (uint8 s; s < 3; ++s) {
             p[s] = headUid[writers[s]][tokenId];
-            h[s] = heartbeatUid[writers[s]];
+            h[s] = cycleCloseUid[writers[s]];
         }
         bytes32[] memory path = MerkleCycle.proof(cycleLevels, cycleIndexOfToken);
         bytes32[][] memory proofs = new bytes32[][](3);
@@ -372,17 +389,16 @@ contract Eng3922HarnessTest is Test {
         emit log_named_uint("cost of rebuilding EAS's missing heartbeat, 3 oracle sources", withHb - withoutHb);
     }
 
-    function _armCustom() internal returns (ArmCustomStore arm) {
-        arm = _newArmCustom();
-        arm.setCycleRoot(cycleRoot);
+    function _armCustom() internal returns (ArmCustomStore) {
+        return _newArmCustom();
     }
 
     function _newArmCustom() internal returns (ArmCustomStore) {
-        return _newArmCustom(REQUIRE_PROOF);
+        return _newArmCustom(COVERAGE);
     }
 
-    function _newArmCustom(bool proof) internal returns (ArmCustomStore) {
-        return new ArmCustomStore(_cfg(proof), LIVE_FACT_STORE, 1);
+    function _newArmCustom(BenchAggregatorBase.CoverageMode mode) internal returns (ArmCustomStore) {
+        return new ArmCustomStore(_cfg(mode), LIVE_FACT_STORE, 1);
     }
 
     function _report(string memory label, uint256 level, BenchAggregatorBase arm, uint256 tokenId, bytes memory ctx)
@@ -399,44 +415,322 @@ contract Eng3922HarnessTest is Test {
         );
     }
 
-    /// @notice What Tim's Merkle rule costs inside `price()`, per arm, as its own line.
-    /// @dev Tim, 3 September 18:17Z: a valuation for a token not proven under its writer's root
-    ///      is refused. Three proofs of depth 10 for a 1,000-token cycle. Measured by running
-    ///      each arm twice — rule on, rule off — with everything else identical.
-    function test_merkleProofCostByArm() public {
+    /// @notice What each candidate coverage rule costs inside `price()`, per arm.
+    /// @dev Tim is choosing between proof-at-read (18:17Z), the closed-cycle check (18:21Z) and
+    ///      no on-chain coverage check, because a writer may cover a token in a cycle WITHOUT
+    ///      rewriting an unchanged valuation — in which case coverage lives only in the root and
+    ///      only a proof shows it. All three are measured so the choice has numbers under it.
+    function test_coverageModeCostByArm() public {
         if (!forked) vm.skip(true);
-        uint256 tokenId = uint256(keccak256("eng3922-proof-cost"));
+        uint256 tokenId = uint256(keccak256("eng3922-coverage-cost"));
         _seed(tokenId, 0);
         bytes memory ctx = _contextFor(tokenId);
-        uint256 on;
-        uint256 off;
-
-        on = _measure(new ArmOwnerlessStore(_cfg(true), address(ownerlessStore), writers), tokenId, ctx);
-        off = _measure(new ArmOwnerlessStore(_cfg(false), address(ownerlessStore), writers), tokenId, ctx);
-        _proofLine("arm3 ownerless store   ", on, off);
-
-        on = _measure(new ArmEasPointer(_cfg(true), _easCfg(true), address(pointer)), tokenId, ctx);
-        off = _measure(new ArmEasPointer(_cfg(false), _easCfg(true), address(pointer)), tokenId, ctx);
-        _proofLine("arm2 EAS+pointer       ", on, off);
-
-        on = _measure(new ArmEasContext(_cfg(true), _easCfg(true)), tokenId, ctx);
-        off = _measure(new ArmEasContext(_cfg(false), _easCfg(true)), tokenId, ctx);
-        _proofLine("arm1C EAS oracleContext", on, off);
-
-        on = _measure(new ArmEasIndexer(_cfg(true), _easCfg(true), EAS_INDEXER), tokenId, ctx);
-        off = _measure(new ArmEasIndexer(_cfg(false), _easCfg(true), EAS_INDEXER), tokenId, ctx);
-        _proofLine("arm1 all-EAS indexer   ", on, off);
-
-        ArmCustomStore cOn = _newArmCustom(true);
-        cOn.setCycleRoot(cycleRoot);
-        ArmCustomStore cOff = _newArmCustom(false);
-        cOff.setCycleRoot(cycleRoot);
-        _proofLine("cal. round-1 store     ", _measure(cOn, tokenId, ctx), _measure(cOff, tokenId, ctx));
+        BenchAggregatorBase.CoverageMode[3] memory modes = [
+            BenchAggregatorBase.CoverageMode.None,
+            BenchAggregatorBase.CoverageMode.ClosedCycle,
+            BenchAggregatorBase.CoverageMode.ProofAtRead
+        ];
+        for (uint256 m; m < modes.length; ++m) {
+            string memory tag = m == 0 ? "none      " : (m == 1 ? "closedCycle" : "proofAtRead");
+            _cov(
+                tag,
+                "arm3 ownerless store   ",
+                new ArmOwnerlessStore(_cfg(modes[m]), address(ownerlessStore), writers),
+                tokenId,
+                ctx
+            );
+            _cov(
+                tag,
+                "arm2 EAS+pointer       ",
+                new ArmEasPointer(_cfg(modes[m]), _easCfg(true), address(pointer)),
+                tokenId,
+                ctx
+            );
+            _cov(tag, "arm1C EAS oracleContext", new ArmEasContext(_cfg(modes[m]), _easCfg(true)), tokenId, ctx);
+            _cov(
+                tag,
+                "arm1 all-EAS indexer   ",
+                new ArmEasIndexer(_cfg(modes[m]), _easCfg(true), EAS_INDEXER),
+                tokenId,
+                ctx
+            );
+            _cov(tag, "cal. round-1 store     ", _newArmCustom(modes[m]), tokenId, ctx);
+        }
     }
 
-    function _proofLine(string memory label, uint256 on, uint256 off) internal {
-        emit log_named_uint(string.concat(label, " proof ON  gas"), on);
-        emit log_named_uint(string.concat(label, " proof OFF gas"), off);
-        emit log_named_uint(string.concat(label, " Merkle rule costs"), on - off);
+    function _cov(string memory mode, string memory label, BenchAggregatorBase arm, uint256 tokenId, bytes memory ctx)
+        internal
+    {
+        (bool ok,,,) = arm.eligibilityReport(SEPOLIA_USDC, tokenId, ctx);
+        if (!ok) {
+            emit log_named_string(string.concat(label, " coverage=", mode), "not eligible under this rule");
+            return;
+        }
+        emit log_named_uint(string.concat(label, " coverage=", mode, " gas"), _measure(arm, tokenId, ctx));
+    }
+
+    // -------------------------------------------------------------------------
+    // Write side — per fact, and per weekly cycle at 1,000 tokens
+    // -------------------------------------------------------------------------
+
+    /// @notice EAS writes: `attest` at 1, `multiAttest` at 10 and 100, and the revokes.
+    /// @dev Tim, 3 September 16:49Z: EAS batches through `multiAttest`/`multiRevoke` grouped by
+    ///      schema, which saves only per-transaction overhead because every attestation still
+    ///      writes its own record. Measured rather than assumed.
+    function test_writeGasEas() public {
+        if (!forked) vm.skip(true);
+        _buildCycle(uint256(keccak256("eng3922-write-eas")));
+        uint256[3] memory sizes = [uint256(1), 10, 100];
+        for (uint256 k; k < sizes.length; ++k) {
+            uint256 n = sizes[k];
+            bytes32[] memory uids = _attestBatch(n, k);
+            emit log_named_uint(string.concat("EAS multiAttest n=", vm.toString(n), " per item"), lastBatchGas / n);
+            uint256 revokeGas = _revokeBatch(uids, k);
+            emit log_named_uint(string.concat("EAS multiRevoke n=", vm.toString(n), " total"), revokeGas);
+            emit log_named_uint(string.concat("EAS multiRevoke n=", vm.toString(n), " per item"), revokeGas / n);
+            uint256 indexGas = _indexBatch(uids);
+            emit log_named_uint(string.concat("EAS indexAttestations n=", vm.toString(n), " total"), indexGas);
+            emit log_named_uint(string.concat("EAS indexAttestations n=", vm.toString(n), " per item"), indexGas / n);
+        }
+    }
+
+    uint256 internal lastBatchGas;
+
+    function _attestBatch(uint256 n, uint256 salt) internal returns (bytes32[] memory uids) {
+        AttestationRequestData[] memory data = new AttestationRequestData[](n);
+        for (uint256 i; i < n; ++i) {
+            uint256 tokenId = uint256(keccak256(abi.encode("eng3922-batch", salt, i)));
+            data[i] = AttestationRequestData({
+                recipient: address(uint160(tokenId)),
+                expirationTime: uint64(block.timestamp) + MAX_SILENCE,
+                revocable: true,
+                refUID: bytes32(0),
+                data: _priceData(tokenId, 0, 100_000e6, 1),
+                value: 0
+            });
+        }
+        MultiAttestationRequest[] memory req = new MultiAttestationRequest[](1);
+        req[0] = MultiAttestationRequest({schema: priceSchema, data: data});
+        vm.cool(EAS);
+        vm.prank(writers[0]);
+        uint256 before = gasleft();
+        uids = eas.multiAttest(req);
+        lastBatchGas = before - gasleft();
+        emit log_named_uint(string.concat("EAS multiAttest n=", vm.toString(n), " total"), lastBatchGas);
+    }
+
+    function _revokeBatch(bytes32[] memory uids, uint256) internal returns (uint256) {
+        RevocationRequestData[] memory data = new RevocationRequestData[](uids.length);
+        for (uint256 i; i < uids.length; ++i) {
+            data[i] = RevocationRequestData({uid: uids[i], value: 0});
+        }
+        MultiRevocationRequest[] memory req = new MultiRevocationRequest[](1);
+        req[0] = MultiRevocationRequest({schema: priceSchema, data: data});
+        vm.cool(EAS);
+        vm.prank(writers[0]);
+        uint256 before = gasleft();
+        eas.multiRevoke(req);
+        return before - gasleft();
+    }
+
+    function _indexBatch(bytes32[] memory uids) internal returns (uint256) {
+        vm.cool(EAS_INDEXER);
+        vm.prank(writers[0]);
+        uint256 before = gasleft();
+        indexer.indexAttestations(uids);
+        return before - gasleft();
+    }
+
+    /// @notice The ownerless pointer's writes, single and batched.
+    function test_writeGasPointer() public {
+        if (!forked) vm.skip(true);
+        uint256[3] memory sizes = [uint256(1), 10, 100];
+        for (uint256 k; k < sizes.length; ++k) {
+            uint256 n = sizes[k];
+            uint256[] memory ids = new uint256[](n);
+            bytes32[] memory kinds = new bytes32[](n);
+            bytes32[] memory uids = new bytes32[](n);
+            for (uint256 i; i < n; ++i) {
+                ids[i] = uint256(keccak256(abi.encode("eng3922-ptr", k, i)));
+                kinds[i] = keccak256("price");
+                uids[i] = keccak256(abi.encode("uid", k, i));
+            }
+            vm.cool(address(pointer));
+            vm.prank(writers[0]);
+            uint256 before = gasleft();
+            pointer.pointBatch(ids, kinds, uids);
+            uint256 used = before - gasleft();
+            emit log_named_uint(string.concat("pointer pointBatch n=", vm.toString(n), " total"), used);
+            emit log_named_uint(string.concat("pointer pointBatch n=", vm.toString(n), " per item"), used / n);
+        }
+    }
+
+    /// @notice The ownerless store's writes, single and the batched prototype.
+    /// @dev The batched write is a round-3 candidate (proposal Part A item 12), measured here
+    ///      because ENG-3922's measurement list asks for it. It is not proposed for round 2.
+    function test_writeGasOwnerlessStore() public {
+        if (!forked) vm.skip(true);
+        uint256[3] memory sizes = [uint256(1), 10, 100];
+        for (uint256 k; k < sizes.length; ++k) {
+            uint256 n = sizes[k];
+            uint256[] memory ids = new uint256[](n);
+            uint128[] memory prices = new uint128[](n);
+            uint24[] memory confs = new uint24[](n);
+            uint64[] memory valuedAts = new uint64[](n);
+            for (uint256 i; i < n; ++i) {
+                ids[i] = uint256(keccak256(abi.encode("eng3922-own", k, i)));
+                prices[i] = 100_000e6;
+                confs[i] = 9000;
+                valuedAts[i] = uint64(block.timestamp);
+            }
+            vm.cool(address(ownerlessStore));
+            vm.prank(writers[0]);
+            uint256 before = gasleft();
+            ownerlessStore.writePriceBatch(ids, prices, confs, valuedAts, 1, keccak256("root"));
+            uint256 used = before - gasleft();
+            emit log_named_uint(string.concat("ownerless writePriceBatch n=", vm.toString(n), " total"), used);
+            emit log_named_uint(string.concat("ownerless writePriceBatch n=", vm.toString(n), " per item"), used / n);
+        }
+        // Single write, first and repeat, for the per-fact figure the cycle budget uses.
+        uint256 tokenId = uint256(keccak256("eng3922-own-single"));
+        vm.cool(address(ownerlessStore));
+        vm.prank(writers[0]);
+        uint256 g0 = gasleft();
+        ownerlessStore.writePrice(tokenId, 100_000e6, 9000, uint64(block.timestamp), 1);
+        emit log_named_uint("ownerless writePrice, first write", g0 - gasleft());
+        vm.warp(block.timestamp + 1 hours);
+        vm.cool(address(ownerlessStore));
+        vm.prank(writers[0]);
+        g0 = gasleft();
+        ownerlessStore.writePrice(tokenId, 101_000e6, 9000, uint64(block.timestamp), 2);
+        emit log_named_uint("ownerless writePrice, repeat write", g0 - gasleft());
+        // Heartbeat carrying the cycle Merkle root (proposal item 13, now in round 2).
+        vm.cool(address(ownerlessStore));
+        vm.prank(writers[0]);
+        g0 = gasleft();
+        ownerlessStore.heartbeat(3, keccak256("cycle-root"));
+        emit log_named_uint("ownerless heartbeat WITH Merkle root", g0 - gasleft());
+        vm.cool(address(ownerlessStore));
+        vm.prank(writers[0]);
+        g0 = gasleft();
+        ownerlessStore.heartbeat(4, bytes32(0));
+        emit log_named_uint("ownerless heartbeat without root", g0 - gasleft());
+    }
+
+    // -------------------------------------------------------------------------
+    // Behaviour: the lock, and the keying gap
+    // -------------------------------------------------------------------------
+
+    /// @notice Ticket bullet 3 — the lock end to end, on every arm.
+    /// @dev A finding worth stating plainly: with three oracle sources and `minLiveSources` 2,
+    ///      ONE writer's lock does NOT stop pricing — it drops the live count from 3 to 2, which
+    ///      is still the floor. The ticket's expectation that one lock trips
+    ///      `CheckFailed(CHECK_MIN_SOURCES)` holds only when two sources were live to begin with.
+    ///      Both steps are asserted here so the mechanism is demonstrated rather than argued.
+    function test_lockEndToEnd() public {
+        if (!forked) vm.skip(true);
+        uint256 tokenId = uint256(keccak256("eng3922-lock"));
+        _seed(tokenId, 0);
+        bytes memory ctx = _contextFor(tokenId);
+
+        ArmOwnerlessStore own = _armOwnerless();
+        (bool ok,,,) = own.eligibilityReport(SEPOLIA_USDC, tokenId, ctx);
+        assertTrue(ok, "arm3 prices before any lock");
+        vm.prank(writers[0]);
+        ownerlessStore.setLock(tokenId, true);
+        (ok,,,) = own.eligibilityReport(SEPOLIA_USDC, tokenId, ctx);
+        assertTrue(ok, "arm3 still prices on two live oracle sources after one lock");
+        vm.prank(writers[1]);
+        ownerlessStore.setLock(tokenId, true);
+        bytes32 failed;
+        (ok, failed,,) = own.eligibilityReport(SEPOLIA_USDC, tokenId, ctx);
+        assertFalse(ok, "arm3 refuses once a second writer locks");
+        assertEq(failed, own.CHECK_MIN_SOURCES(), "arm3 fails on min sources");
+        _expectMinSourcesRevert(own, tokenId, ctx);
+        emit log_string("arm3 ownerless store: writer lock drops liveCount and price() reverts CHECK_MIN_SOURCES");
+
+        // On EAS the lock IS revocation of the head price attestation, attester-only.
+        ArmEasPointer ptr = _armPointer(true);
+        (ok,,,) = ptr.eligibilityReport(SEPOLIA_USDC, tokenId, ctx);
+        assertTrue(ok, "arm2 prices before any revocation");
+        _revokeHead(0, tokenId);
+        (ok,,,) = ptr.eligibilityReport(SEPOLIA_USDC, tokenId, ctx);
+        assertTrue(ok, "arm2 still prices on two live oracle sources after one revocation");
+        _revokeHead(1, tokenId);
+        (ok, failed,,) = ptr.eligibilityReport(SEPOLIA_USDC, tokenId, ctx);
+        assertFalse(ok, "arm2 refuses once a second writer revokes");
+        assertEq(failed, ptr.CHECK_MIN_SOURCES(), "arm2 fails on min sources");
+        _expectMinSourcesRevert(ptr, tokenId, ctx);
+        emit log_string("arm2 EAS+pointer: writer revocation drops liveCount and price() reverts CHECK_MIN_SOURCES");
+
+        // Option C reads the same revoked attestations through oracleContext and refuses too.
+        ArmEasContext cxt = _armContext(true);
+        (ok, failed,,) = cxt.eligibilityReport(SEPOLIA_USDC, tokenId, ctx);
+        assertFalse(ok, "arm1C refuses the revoked head even when the caller supplies its uid");
+        assertEq(failed, cxt.CHECK_MIN_SOURCES(), "arm1C fails on min sources");
+        emit log_string("arm1C oracleContext: a caller-supplied revoked uid is rejected by validation");
+    }
+
+    function _revokeHead(uint8 sourceId, uint256 tokenId) internal {
+        vm.prank(writers[sourceId]);
+        eas.revoke(
+            RevocationRequest({
+                schema: priceSchema, data: RevocationRequestData({uid: headUid[writers[sourceId]][tokenId], value: 0})
+            })
+        );
+    }
+
+    function _expectMinSourcesRevert(BenchAggregatorBase arm, uint256 tokenId, bytes memory ctx) internal {
+        uint256[] memory ids = new uint256[](1);
+        ids[0] = tokenId;
+        uint256[] memory qty = new uint256[](1);
+        qty[0] = 1;
+        vm.expectRevert(abi.encodeWithSelector(BenchAggregatorBase.CheckFailed.selector, arm.CHECK_MIN_SOURCES()));
+        arm.price(SEPOLIA_COLLATERAL, SEPOLIA_USDC, ids, qty, ctx);
+    }
+
+    /// @notice Ticket bullet 2 — the keying gap is closed, and no writer can touch another's row.
+    function test_keyingGapClosed() public {
+        if (!forked) vm.skip(true);
+        uint256 tokenId = uint256(keccak256("eng3922-keying"));
+        _seed(tokenId, 0);
+
+        // Pointer: a row is addressed by msg.sender, so writer 1 writing cannot move writer 0's.
+        bytes32 before = pointer.headOf(writers[0], tokenId, keccak256("price"));
+        vm.prank(writers[1]);
+        pointer.point(tokenId, keccak256("price"), keccak256("forged"));
+        assertEq(pointer.headOf(writers[0], tokenId, keccak256("price")), before, "writer 0's pointer row is untouched");
+        assertEq(
+            pointer.headOf(writers[1], tokenId, keccak256("price")),
+            keccak256("forged"),
+            "writer 1 moved only its own row"
+        );
+
+        // Ownerless store: same property on the fact itself.
+        OwnerlessFactStore.Fact memory f0 = ownerlessStore.getFact(writers[0], tokenId);
+        vm.prank(writers[1]);
+        ownerlessStore.writePrice(tokenId, 123_456e6, 9000, uint64(block.timestamp), nextCycle++);
+        OwnerlessFactStore.Fact memory f0After = ownerlessStore.getFact(writers[0], tokenId);
+        assertEq(f0After.priceUsdc6, f0.priceUsdc6, "writer 0's fact is untouched");
+        assertEq(ownerlessStore.getFact(writers[1], tokenId).priceUsdc6, 123_456e6, "writer 1 wrote only its own");
+
+        // EAS: the attester is msg.sender and only the attester may revoke.
+        vm.prank(writers[1]);
+        vm.expectRevert();
+        eas.revoke(
+            RevocationRequest({
+                schema: priceSchema, data: RevocationRequestData({uid: headUid[writers[0]][tokenId], value: 0})
+            })
+        );
+        emit log_string("keying gap closed on all arms: pointer rows, store facts and EAS revocation are all msg.sender-bound");
+
+        // And the deterministic lookup really is (writer, tokenId, kind).
+        for (uint8 sid; sid < 3; ++sid) {
+            assertEq(
+                pointer.headOf(writers[sid], tokenId, keccak256("price")),
+                sid == 1 ? keccak256("forged") : headUid[writers[sid]][tokenId],
+                "pointer lookup is deterministic per writer"
+            );
+        }
     }
 }

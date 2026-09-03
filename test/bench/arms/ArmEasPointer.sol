@@ -10,7 +10,7 @@ import {FactPointer} from "../FactPointer.sol";
 ///      choose which attestation is read — the hazard the survey flags against Option C.
 contract ArmEasPointer is EasArmBase {
     bytes32 public constant KIND_PRICE = keccak256("price");
-    bytes32 public constant KIND_HEARTBEAT = keccak256("heartbeat");
+    bytes32 public constant KIND_CYCLE_CLOSE = keccak256("cycleClose");
 
     FactPointer public immutable pointer;
 
@@ -23,8 +23,8 @@ contract ArmEasPointer is EasArmBase {
         return pointer.headOf(writerOf(sourceId), tokenId, KIND_PRICE);
     }
 
-    /// @notice The heartbeat row is per writer, so it is keyed at tokenId 0.
-    function _heartbeatUid(uint8 sourceId, Ctx memory) internal view override returns (bytes32) {
-        return pointer.headOf(writerOf(sourceId), 0, KIND_HEARTBEAT);
+    /// @notice The cycle-close row is per writer, so it is keyed at tokenId 0.
+    function _cycleCloseUid(uint8 sourceId, Ctx memory) internal view override returns (bytes32) {
+        return pointer.headOf(writerOf(sourceId), 0, KIND_CYCLE_CLOSE);
     }
 }

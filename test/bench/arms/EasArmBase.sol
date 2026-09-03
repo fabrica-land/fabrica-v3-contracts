@@ -14,15 +14,24 @@ import {IEAS, Attestation} from "../eas/IEAS.sol";
 ///      nearly free, and running it everywhere keeps the arms' gas comparable rather than
 ///      flattering the ones that happen to trust their lookup.
 ///
-///      Price schema, per the adoption survey §3:
+///      Price schema. The survey's §3 shape was
 ///        (uint256 tokenId, uint8 sourceId, uint128 priceUsdc6, uint24 confidence, bytes32 inputsHash)
+///      and it is NOT sufficient under Tim's 18:21Z rule: a valuation has to name the cycle it
+///      belongs to or there is nothing to check against its writer's closed cycles. EAS has no
+///      cycle concept of its own, so the field has to live in the attestation data. The schema
+///      measured here is therefore
+///        (uint256 tokenId, uint8 sourceId, uint128 priceUsdc6, uint24 confidence, uint64 cycle,
+///         bytes32 inputsHash)
+///      which is 192 bytes rather than 160 — one extra word on every single write, on every EAS
+///      arm. That is a required addition, not an optimisation, and it belongs on the list of
+///      guards the move to EAS has to rebuild.
 abstract contract EasArmBase is BenchAggregatorBase {
     /// @notice Deployed EAS core. Ownerless, non-proxy, v0.26.
     IEAS public immutable eas;
     /// @notice The registered price schema uid.
     bytes32 public immutable priceSchema;
-    /// @notice The registered heartbeat schema uid: (address writer, uint64 cycle).
-    bytes32 public immutable heartbeatSchema;
+    /// @notice The registered cycle-close schema uid: (address writer, uint64 cycle, bytes32 root).
+    bytes32 public immutable cycleCloseSchema;
     /// @notice Whether this instance enforces a per-writer heartbeat. See `_heartbeatFresh`.
     bool public immutable requireHeartbeat;
 
@@ -38,7 +47,7 @@ abstract contract EasArmBase is BenchAggregatorBase {
     struct EasConfig {
         address eas;
         bytes32 priceSchema;
-        bytes32 heartbeatSchema;
+        bytes32 cycleCloseSchema;
         bool requireHeartbeat;
         address[3] writers;
     }
@@ -47,7 +56,7 @@ abstract contract EasArmBase is BenchAggregatorBase {
         if (easCfg.eas == address(0) || easCfg.priceSchema == bytes32(0)) revert InvalidConfig();
         eas = IEAS(easCfg.eas);
         priceSchema = easCfg.priceSchema;
-        heartbeatSchema = easCfg.heartbeatSchema;
+        cycleCloseSchema = easCfg.cycleCloseSchema;
         requireHeartbeat = easCfg.requireHeartbeat;
         _writer0 = easCfg.writers[0];
         _writer1 = easCfg.writers[1];
@@ -64,8 +73,8 @@ abstract contract EasArmBase is BenchAggregatorBase {
     /// @notice How this arm finds the head attestation for a row. The arms' only difference.
     function _headUid(uint8 sourceId, uint256 tokenId, Ctx memory ctx) internal view virtual returns (bytes32);
 
-    /// @notice How this arm finds the writer's head heartbeat attestation.
-    function _heartbeatUid(uint8 sourceId, Ctx memory ctx) internal view virtual returns (bytes32);
+    /// @notice How this arm finds the writer's latest cycle-close attestation.
+    function _cycleCloseUid(uint8 sourceId, Ctx memory ctx) internal view virtual returns (bytes32);
 
     // -------------------------------------------------------------------------
     // Fact-layer hooks
@@ -129,20 +138,28 @@ abstract contract EasArmBase is BenchAggregatorBase {
     ///      Rebuilding it costs one extra lookup plus one `getAttestation` per oracle source per
     ///      read, which is why it is switchable: the experiment measures `price()` with it and
     ///      without it, so the cost of the missing primitive is a number rather than a caveat.
-    /// @dev One `getAttestation` answers both questions, so the heartbeat read and the root read
-    ///      are the same read. Heartbeat schema is `(address writer, uint64 cycle, bytes32 root)`.
-    function _writerLiveness(uint8 sourceId, Ctx memory ctx) internal view override returns (bool fresh, bytes32 root) {
-        bytes32 uid = _heartbeatUid(sourceId, ctx);
-        if (uid == bytes32(0)) return (!requireHeartbeat && !requireMerkleProof, bytes32(0));
+    /// @dev One `getAttestation` answers both questions: the cycle-close attestation carries the
+    ///      time (liveness) and the cycle number (what has been closed). Cycles are monotonic, so
+    ///      the latest close covers every cycle at or below it. Schema
+    ///      `(address writer, uint64 cycle, bytes32 root)`; the root is the audit commitment and
+    ///      nothing on chain verifies a path against it.
+    function _writerLiveness(uint8 sourceId, Ctx memory ctx)
+        internal
+        view
+        override
+        returns (bool fresh, uint64 closedCycle, bytes32 root)
+    {
+        bytes32 uid = _cycleCloseUid(sourceId, ctx);
+        if (uid == bytes32(0)) return (!requireHeartbeat && coverage == CoverageMode.None, 0, bytes32(0));
         Attestation memory att = eas.getAttestation(uid);
-        if (att.uid == bytes32(0)) return (false, bytes32(0));
-        if (att.schema != heartbeatSchema) return (false, bytes32(0));
-        if (att.attester != writerOf(sourceId)) return (false, bytes32(0));
-        if (att.revocationTime != 0) return (false, bytes32(0));
-        if (att.data.length != 96) return (false, bytes32(0));
-        (,, bytes32 attRoot) = abi.decode(att.data, (address, uint64, bytes32));
+        if (att.uid == bytes32(0)) return (false, 0, bytes32(0));
+        if (att.schema != cycleCloseSchema) return (false, 0, bytes32(0));
+        if (att.attester != writerOf(sourceId)) return (false, 0, bytes32(0));
+        if (att.revocationTime != 0) return (false, 0, bytes32(0));
+        if (att.data.length != 96) return (false, 0, bytes32(0));
+        (, uint64 attCycle, bytes32 attRoot) = abi.decode(att.data, (address, uint64, bytes32));
         fresh = !requireHeartbeat || uint256(att.time) + uint256(maxSilence) >= block.timestamp;
-        return (fresh, attRoot);
+        return (fresh, attCycle, attRoot);
     }
 
     /// @notice The writer lock. On EAS the lock IS revocation of the head price attestation:
@@ -175,11 +192,11 @@ abstract contract EasArmBase is BenchAggregatorBase {
                 return (false, fact, bytes32(0));
             }
         }
-        if (att.data.length != 160) return (false, fact, bytes32(0));
-        (uint256 attTokenId, uint8 attSourceId, uint128 priceUsdc6,,) =
-            abi.decode(att.data, (uint256, uint8, uint128, uint24, bytes32));
+        if (att.data.length != 192) return (false, fact, bytes32(0));
+        (uint256 attTokenId, uint8 attSourceId, uint128 priceUsdc6,, uint64 attCycle,) =
+            abi.decode(att.data, (uint256, uint8, uint128, uint24, uint64, bytes32));
         if (attTokenId != tokenId || attSourceId != sourceId) return (false, fact, bytes32(0));
-        fact = PriceFact({present: true, priceUsdc6: priceUsdc6, lastWrittenAt: att.time, cycle: 0});
+        fact = PriceFact({present: true, priceUsdc6: priceUsdc6, lastWrittenAt: att.time, cycle: attCycle});
         return (true, fact, att.refUID);
     }
 }

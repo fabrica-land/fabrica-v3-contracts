@@ -29,7 +29,7 @@ contract ArmEasContext is EasArmBase {
         return ctx.priceUids[sourceId];
     }
 
-    function _heartbeatUid(uint8 sourceId, Ctx memory ctx) internal pure override returns (bytes32) {
-        return ctx.heartbeatUids[sourceId];
+    function _cycleCloseUid(uint8 sourceId, Ctx memory ctx) internal pure override returns (bytes32) {
+        return ctx.cycleCloseUids[sourceId];
     }
 }

@@ -4,6 +4,16 @@ pragma solidity ^0.8.24;
 import {BenchAggregatorBase} from "../BenchAggregatorBase.sol";
 import {IFabricaAttributeOracle} from "../../../src/interfaces/IFabricaAttributeOracle.sol";
 
+/// @notice The one getter the aggregator's read interface does not carry.
+/// @dev `lastHeartbeatCycle` is a public mapping on the deployed `FabricaAttributeOracle` but is
+///      absent from `IFabricaAttributeOracle`, which was written for round 1's check-set. Declared
+///      here rather than widening the shipped interface, since this arm is calibration only.
+interface IRound1HeartbeatCycle {
+    function lastHeartbeatCycle(uint256 validatorId) external view returns (uint64);
+
+    function cycleRoot(uint256 validatorId, uint64 cycle) external view returns (bytes32);
+}
+
 /// @notice ENG-3922 calibration arm — the harness reading the DEPLOYED round-1 fact store.
 /// @dev Not one of the ticket's three arms. Its job is to make the harness's own overhead
 ///      visible: this subclass reads exactly what `FabricaOracleAggregator` reads, from exactly
@@ -13,22 +23,11 @@ import {IFabricaAttributeOracle} from "../../../src/interfaces/IFabricaAttribute
 contract ArmCustomStore is BenchAggregatorBase {
     IFabricaAttributeOracle public immutable store;
     uint256 public immutable validatorId;
-    /// @notice The cycle root the calibration arm proves against.
-    /// @dev The deployed round-1 store exposes `cycleRoot` only through its own ABI, which the
-    ///      aggregator's read interface does not carry, and nothing has ever anchored a root on
-    ///      Sepolia. Supplying it at deploy keeps the calibration arm paying the same proof cost
-    ///      as every other arm without pretending round 1 stores something it does not.
-    bytes32 public cycleRootOverride;
 
     constructor(AggConfig memory cfg, address store_, uint256 validatorId_) BenchAggregatorBase(cfg) {
         if (store_ == address(0)) revert InvalidConfig();
         store = IFabricaAttributeOracle(store_);
         validatorId = validatorId_;
-    }
-
-    /// @notice Calibration-only setter for the root the proof check runs against.
-    function setCycleRoot(bytes32 root) external {
-        cycleRootOverride = root;
     }
 
     function _current(uint8 sourceId, uint256 tokenId, Ctx memory)
@@ -85,12 +84,19 @@ contract ArmCustomStore is BenchAggregatorBase {
         return (false, 0, hops);
     }
 
-    /// @dev Round 1 anchors a per-cycle Merkle root via the owner-only `anchorRoot`, and the
-    ///      calibration arm reads `cycleRoot` for the writer's last heartbeat cycle. Round 2
-    ///      moves that write to the heartbeat itself (proposal item 13).
-    function _writerLiveness(uint8, Ctx memory) internal view override returns (bool fresh, bytes32 root) {
+    /// @dev Round 1 has no cycle-close record: its `anchorRoot` is owner-only and nothing has
+    ///      ever anchored a root on Sepolia. The nearest equivalent it does hold is the
+    ///      per-validator heartbeat cycle, which is monotonic, so the calibration arm reads that
+    ///      as the closed cycle and pays the same one-lookup cost as every other arm.
+    function _writerLiveness(uint8, Ctx memory)
+        internal
+        view
+        override
+        returns (bool fresh, uint64 closedCycle, bytes32 root)
+    {
         fresh = store.isHeartbeatFresh(validatorId);
-        return (fresh, cycleRootOverride);
+        uint64 cycle = IRound1HeartbeatCycle(address(store)).lastHeartbeatCycle(validatorId);
+        return (fresh, cycle, IRound1HeartbeatCycle(address(store)).cycleRoot(validatorId, cycle));
     }
 
     /// @dev Round 1 has no writer lock; the recovery status it does have is retired by round-2

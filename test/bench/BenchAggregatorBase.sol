@@ -17,6 +17,22 @@ import {IPriceOracle} from "../../src/interfaces/IPriceOracle.sol";
 ///
 ///      Config is immutable, per round-2 position 3: a rule change is a new aggregator.
 abstract contract BenchAggregatorBase is IPriceOracle {
+    /// @notice How the aggregator checks that a valuation's token was covered by its cycle.
+    /// @dev Tim is choosing between these; the experiment measures all three so the choice has
+    ///      numbers under it. 18:17Z asked for proof-at-read, 18:21Z replaced it with the
+    ///      closed-cycle check, and 18:31Z reopened it because a writer may cover a token in a
+    ///      cycle WITHOUT rewriting an unchanged valuation — in which case coverage lives only in
+    ///      the root and only a proof can show it.
+    enum CoverageMode {
+        /// @dev No on-chain coverage check at all.
+        None,
+        /// @dev The valuation's cycle must be one its writer has closed. One extra read.
+        ClosedCycle,
+        /// @dev The token must be proven under the writer's cycle root, proof supplied by the
+        ///      caller through `oracleContext`.
+        ProofAtRead
+    }
+
     /// @notice The aggregator's immutable rule set, grouped so subclasses stay shallow.
     struct AggConfig {
         address usdc;
@@ -25,7 +41,7 @@ abstract contract BenchAggregatorBase is IPriceOracle {
         uint16 maxDispersionBps;
         uint8 minLiveSources;
         uint64 maxSilence;
-        bool requireMerkleProof;
+        CoverageMode coverage;
     }
 
     struct PriceFact {
@@ -36,13 +52,13 @@ abstract contract BenchAggregatorBase is IPriceOracle {
     }
 
     /// @notice Everything a caller may pass through `oracleContext`, decoded once per read.
-    /// @dev `priceUids` and `heartbeatUids` are Option C's caller-supplied attestation uids and
-    ///      are ignored by every arm that has an on-chain lookup. `proofs` is indexed
-    ///      `[tokenIndex * SOURCE_COUNT + sourceId]` so a basket carries one proof per token per
-    ///      oracle source.
+    /// @dev `priceUids` and `cycleCloseUids` are Option C's caller-supplied attestation uids,
+    ///      ignored by every arm with an on-chain lookup. `proofs` is used only in
+    ///      `CoverageMode.ProofAtRead`, indexed `[tokenIndex * SOURCE_COUNT + sourceId]` so a
+    ///      basket carries one proof per token per oracle source.
     struct Ctx {
         bytes32[3] priceUids;
-        bytes32[3] heartbeatUids;
+        bytes32[3] cycleCloseUids;
         bytes32[][] proofs;
         uint256 tokenIndex;
     }
@@ -53,7 +69,7 @@ abstract contract BenchAggregatorBase is IPriceOracle {
     bytes32 public constant CHECK_CURRENCY = keccak256("currency");
     bytes32 public constant CHECK_HEARTBEAT = keccak256("heartbeat");
     bytes32 public constant CHECK_LOCK = keccak256("lock");
-    bytes32 public constant CHECK_ROOT = keccak256("root");
+    bytes32 public constant CHECK_CYCLE = keccak256("cycle");
     bytes32 public constant CHECK_MIN_SOURCES = keccak256("min_sources");
     bytes32 public constant CHECK_DISPERSION = keccak256("dispersion");
 
@@ -64,11 +80,14 @@ abstract contract BenchAggregatorBase is IPriceOracle {
     uint8 public immutable minLiveSources;
     uint64 public immutable maxSilence;
 
-    /// @notice Whether a valuation must be proven under its writer's Merkle root.
-    /// @dev Tim, 3 September 18:17Z: the aggregator refuses a valuation for a token that is not
-    ///      proven under the writer's root. Switchable only so the experiment can price the rule
-    ///      — every published arm number is measured with it on.
-    bool public immutable requireMerkleProof;
+    /// @notice Which coverage rule this aggregator enforces.
+    /// @dev Tim, 3 September 18:21Z, superseding the read-time proof check of 18:17Z: nothing is
+    ///      passed at read time and nothing is computed per quote. The oracle writer computes a
+    ///      Merkle root over every token it wrote in the cycle and publishes it in the CYCLE
+    ///      CLOSE (his name for the heartbeat). The root is an audit commitment; no proof path is
+    ///      verified on chain. All the aggregator checks is that this valuation's cycle has been
+    ///      closed by its writer. Switchable so the rule's cost can be reported as its own line.
+    CoverageMode public immutable coverage;
 
     error InvalidLength();
     error ZeroQuantity(uint256 index);
@@ -86,7 +105,7 @@ abstract contract BenchAggregatorBase is IPriceOracle {
         maxDispersionBps = cfg.maxDispersionBps;
         minLiveSources = cfg.minLiveSources;
         maxSilence = cfg.maxSilence;
-        requireMerkleProof = cfg.requireMerkleProof;
+        coverage = cfg.coverage;
     }
 
     // -------------------------------------------------------------------------
@@ -104,9 +123,15 @@ abstract contract BenchAggregatorBase is IPriceOracle {
         returns (bool found, uint128 priceUsdc6, uint256 hops);
 
     /// @notice One read for both writer-liveness answers, so no arm pays for the same lookup twice.
-    /// @return fresh Whether the writer has heartbeat within `maxSilence`.
-    /// @return root The Merkle root over the token ids the writer's latest cycle covered.
-    function _writerLiveness(uint8 sourceId, Ctx memory ctx) internal view virtual returns (bool fresh, bytes32 root);
+    /// @return fresh Whether the writer has closed a cycle within `maxSilence`.
+    /// @return closedCycle The highest cycle number this writer has closed. Cycles are monotonic,
+    ///         so any cycle at or below this one has been closed.
+    /// @return root The Merkle root the writer committed for that close, for `ProofAtRead`.
+    function _writerLiveness(uint8 sourceId, Ctx memory ctx)
+        internal
+        view
+        virtual
+        returns (bool fresh, uint64 closedCycle, bytes32 root);
 
     function _isLocked(uint8 sourceId, uint256 tokenId, Ctx memory ctx) internal view virtual returns (bool);
 
@@ -147,13 +172,13 @@ abstract contract BenchAggregatorBase is IPriceOracle {
         return _evaluate(currencyToken, tokenId, _decodeContext(oracleContext));
     }
 
-    /// @notice Encode the context bytes a pool would forward, for one token.
-    function encodeContext(bytes32[3] memory priceUids, bytes32[3] memory heartbeatUids, bytes32[][] memory proofs)
+    /// @notice Encode the context bytes a pool would forward. Only Option C needs it.
+    function encodeContext(bytes32[3] memory priceUids, bytes32[3] memory cycleCloseUids, bytes32[][] memory proofs)
         external
         pure
         returns (bytes memory)
     {
-        return abi.encode(priceUids, heartbeatUids, proofs);
+        return abi.encode(priceUids, cycleCloseUids, proofs);
     }
 
     // -------------------------------------------------------------------------
@@ -162,7 +187,7 @@ abstract contract BenchAggregatorBase is IPriceOracle {
 
     function _decodeContext(bytes calldata oracleContext) internal pure returns (Ctx memory ctx) {
         if (oracleContext.length == 0) return ctx;
-        (ctx.priceUids, ctx.heartbeatUids, ctx.proofs) =
+        (ctx.priceUids, ctx.cycleCloseUids, ctx.proofs) =
             abi.decode(oracleContext, (bytes32[3], bytes32[3], bytes32[][]));
     }
 
@@ -187,15 +212,42 @@ abstract contract BenchAggregatorBase is IPriceOracle {
         view
         returns (bool live, bool fresh, PriceFact memory fact)
     {
+        uint64 closedCycle;
         bytes32 root;
-        (fresh, root) = _writerLiveness(sourceId, ctx);
+        (fresh, closedCycle, root) = _writerLiveness(sourceId, ctx);
         if (!fresh) return (false, false, fact);
         if (_isLocked(sourceId, tokenId, ctx)) return (false, true, fact);
-        if (requireMerkleProof && !_provenUnderRoot(sourceId, tokenId, ctx, root)) return (false, true, fact);
+        if (coverage == CoverageMode.ProofAtRead && !_provenUnderRoot(sourceId, tokenId, ctx, root)) {
+            return (false, true, fact);
+        }
         fact = _current(sourceId, tokenId, ctx);
         if (!fact.present || fact.priceUsdc6 == 0) return (false, true, fact);
+        if (coverage == CoverageMode.ClosedCycle && (fact.cycle == 0 || fact.cycle > closedCycle)) {
+            return (false, true, fact);
+        }
         if (_trippedBreaker(sourceId, tokenId, fact, ctx)) return (false, true, fact);
         return (true, true, fact);
+    }
+
+    /// @notice Merkle membership of the token under the writer's cycle root.
+    /// @dev Leaf is `keccak256(abi.encode(tokenId))`, sorted-pair hashing.
+    function _provenUnderRoot(uint8 sourceId, uint256 tokenId, Ctx memory ctx, bytes32 root)
+        internal
+        pure
+        returns (bool)
+    {
+        if (root == bytes32(0)) return false;
+        uint256 idx = ctx.tokenIndex * uint256(SOURCE_COUNT) + uint256(sourceId);
+        if (idx >= ctx.proofs.length) return false;
+        bytes32[] memory proof = ctx.proofs[idx];
+        bytes32 computed = keccak256(abi.encode(tokenId));
+        for (uint256 i; i < proof.length; ++i) {
+            bytes32 sibling = proof[i];
+            computed = computed <= sibling
+                ? keccak256(abi.encode(computed, sibling))
+                : keccak256(abi.encode(sibling, computed));
+        }
+        return computed == root;
     }
 
     function _collectLiveMinMax(uint256 tokenId, Ctx memory ctx)
@@ -240,27 +292,6 @@ abstract contract BenchAggregatorBase is IPriceOracle {
             any = true;
         }
         if (any && pastMin < usablePrice) usablePrice = pastMin;
-    }
-
-    /// @notice Merkle membership of the token under the writer's cycle root.
-    /// @dev Leaf is `keccak256(abi.encode(tokenId))`, sorted-pair hashing, per Tim's rule.
-    function _provenUnderRoot(uint8 sourceId, uint256 tokenId, Ctx memory ctx, bytes32 root)
-        internal
-        pure
-        returns (bool)
-    {
-        if (root == bytes32(0)) return false;
-        uint256 idx = ctx.tokenIndex * uint256(SOURCE_COUNT) + uint256(sourceId);
-        if (idx >= ctx.proofs.length) return false;
-        bytes32[] memory proof = ctx.proofs[idx];
-        bytes32 computed = keccak256(abi.encode(tokenId));
-        for (uint256 i; i < proof.length; ++i) {
-            bytes32 sibling = proof[i];
-            computed = computed <= sibling
-                ? keccak256(abi.encode(computed, sibling))
-                : keccak256(abi.encode(sibling, computed));
-        }
-        return computed == root;
     }
 
     /// @notice Rate-of-change breaker.
