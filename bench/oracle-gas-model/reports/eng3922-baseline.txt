@@ -1,0 +1,66 @@
+# ENG-3922 baseline: three-source price() on the live Sepolia round-1 fact store
+#
+# PROVENANCE
+#   forge          : forge Version: 1.7.1
+#   forge commit   : 4072e48705af9d93e3c0f6e29e93b5e9a40caed8
+#   profile        : default (foundry.toml: optimizer=true, optimizer_runs=1, via_ir=false)
+#   command        : forge test --match-path "test/bench/Eng3922Baseline.t.sol" -vv
+#   regenerate all : bench-reports/regenerate.sh
+#   fork           : Sepolia via the `sepolia` rpc alias, pinned FORK_BLOCK = 11_628_000
+#   live fact store: 0xFfA7535eF090C9193f44399843a05b60808ffC0D (round-1, read as deployed)
+#   code           : the test sources committed alongside this report
+#   branch         : sebadas/eng-3922-fact-layer-bench
+#
+# NOTE ON --gas-report: do NOT regenerate this file with --gas-report. See the script header.
+#
+Ran 10 tests for test/bench/Eng3922Baseline.t.sol:Eng3922BaselineTest
+[PASS] test_liveTwoSourceAggregatorConfig() (gas: 21553)
+[PASS] test_readGasWalkDepth0() (gas: 2753071)
+Logs:
+  price() execution gas, 3 oracle sources, seasoning walk depth 0: 134804
+
+[PASS] test_readGasWalkDepth1() (gas: 3078442)
+Logs:
+  price() execution gas, 3 oracle sources, seasoning walk depth 1: 197573
+
+[PASS] test_readGasWalkDepth3() (gas: 3526348)
+Logs:
+  price() execution gas, 3 oracle sources, seasoning walk depth 3: 251639
+
+[PASS] test_readGasWalkDepth7() (gas: 4422473)
+Logs:
+  price() execution gas, 3 oracle sources, seasoning walk depth 7: 359805
+
+[PASS] test_writeGasFirstWrite() (gas: 316209)
+Logs:
+  writePrice, write 1 of a row (no history push) -- execution gas: 146852
+  writePrice, write 1 of a row (no history push) -- intrinsic + calldata: 23768
+  writePrice, write 1 of a row (no history push) -- WHOLE TRANSACTION: 170620
+
+[PASS] test_writeGasHeartbeat() (gas: 55685)
+Logs:
+  heartbeat -- execution gas: 23040
+  heartbeat -- intrinsic + calldata: 21344
+  heartbeat -- WHOLE TRANSACTION: 44384
+
+[PASS] test_writeGasSecondWrite() (gas: 448640)
+Logs:
+  writePrice, write 2 of a row (ring slot and counter both cold) -- execution gas: 130697
+  writePrice, write 2 of a row (ring slot and counter both cold) -- intrinsic + calldata: 23756
+  writePrice, write 2 of a row (ring slot and counter both cold) -- WHOLE TRANSACTION: 154453
+
+[PASS] test_writeGasThirdWrite() (gas: 519783)
+Logs:
+  writePrice, writes 3-48 of a row (ring slot fresh, counter warm) -- execution gas: 113600
+  writePrice, writes 3-48 of a row (ring slot fresh, counter warm) -- intrinsic + calldata: 23768
+  writePrice, writes 3-48 of a row (ring slot fresh, counter warm) -- WHOLE TRANSACTION: 137368
+
+[PASS] test_writeGasWrappedRing() (gas: 3705669)
+Logs:
+  writePrice, write 49+ of a row (ring wrapped, slot overwritten) -- execution gas: 79501
+  writePrice, write 49+ of a row (ring wrapped, slot overwritten) -- intrinsic + calldata: 23768
+  writePrice, write 49+ of a row (ring wrapped, slot overwritten) -- WHOLE TRANSACTION: 103269
+
+Suite result: ok. 10 passed; 0 failed; 0 skipped; finished in 116.28ms (13.70ms CPU time)
+
+Ran 1 test suite in 137.22ms (116.28ms CPU time): 10 tests passed, 0 failed, 0 skipped (10 total tests)

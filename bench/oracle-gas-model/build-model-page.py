@@ -111,6 +111,12 @@ INPUTS = [
     # In INPUTS so the digest changes when the report is swapped for its final revision.
     "reports/eng3922-arms.txt",
     "reports/eng3922-source.txt",
+    # ENG-3944: the read side. The arms report already carried the per-arm price() rows; the
+    # baseline report carries the deployed aggregator's read, and the Sepolia evidence carries
+    # the four real-transaction probe receipts that corroborate the fork. All three are vendored
+    # verbatim from the same merged commit, and all three are in INPUTS so the digest tracks them.
+    "reports/eng3922-baseline.txt",
+    "reports/eng3922-sepolia-evidence.md",
 ]
 
 # ENG-3938: the batch-size dial drives the write-side per-item cost at these sizes. writePriceBatch
@@ -180,6 +186,199 @@ def parse_arms_batch(path):
     return out
 
 
+# ENG-3944: the read side. The order is ascending measured gas and is the order every read-side
+# table on the page renders in. `needle` is the literal prefix the arms report prints for that arm;
+# `probe` is the literal row label the Sepolia evidence table uses for the same arm.
+READ_ARMS = [
+    {"key": "arm3", "label": "arm 3 — ownerless custom store",
+     "needle": "arm3 ownerless store", "probe": "arm 3 — ownerless custom store",
+     "family": "store", "reference": True},
+    {"key": "cal", "label": "calibration — deployed round-1 store, read through the harness",
+     "needle": "cal. round-1 store", "probe": None,
+     "family": "store", "reference": True},
+    {"key": "arm1C", "label": "arm 1C — all-EAS via `oracleContext`",
+     "needle": "arm1C EAS oracleContext", "probe": "arm 1C — all-EAS via `oracleContext`",
+     "family": "eas", "reference": False},
+    {"key": "arm2", "label": "arm 2 — EAS plus pointer",
+     "needle": "arm2 EAS+pointer", "probe": "arm 2 — EAS plus pointer",
+     "family": "eas", "reference": False},
+    {"key": "arm1", "label": "arm 1 — all-EAS via EAS `Indexer`",
+     "needle": "arm1 all-EAS indexer", "probe": "arm 1 — all-EAS via EAS `Indexer`",
+     "family": "eas", "reference": False},
+]
+READ_DEPTHS = [0, 1, 3, 7]
+# The seasoning walk is per ORACLE SOURCE, and every read on this page is a three-source read, so a
+# depth step of one costs three hops. Per-hop figures divide by hops x sources, never by hops alone.
+READ_SOURCES = 3
+# The Indexer/cycle-close growth probes the page renders. Missing any one is a hard error: the
+# growth curve is the finding, and a curve with a hole in it is worse than no curve.
+INDEXER_ROW_DEPTHS = [1, 2, 5]
+CLOSE_ROW_DEPTHS = [1, 3, 7]
+
+# The pass marks, pre-registered on ENG-3922 on 2026-09-03 BEFORE any arm was measured, on Fede's
+# bias concern, and never moved. They are constants here, not derived, because that is the entire
+# point of pre-registering them: the bar is an INPUT to this comparison and never an output of it.
+# Publication of the comparison was directed by Tim on 2026-09-04 16:18Z. C (the write-side weekly
+# budget) is ENG-3922's own scorecard and is not re-rendered here; this page carries A and B.
+MARK_A_CEILING = 1.5
+MARK_B_ABSOLUTE = 350_000
+MARK_PRE_REGISTERED_ON = "2026-09-03"
+MARK_PUBLICATION_DIRECTED = "2026-09-04 16:18Z"
+
+
+def _read_int(text, pattern, path, what):
+    match = re.search(pattern, text)
+    if not match:
+        sys.exit("%s: missing measured row for %s -- the read-side panel needs it" % (path, what))
+    return int(match.group(1).replace(",", ""))
+
+
+def parse_arms_read(path):
+    """Per-arm `price()` execution gas at each seasoning walk depth, from the arms report.
+
+    Two independent test suites in that report measure the depth-0 read: `Eng3922Read` prints it
+    plain, and `Eng3922Coverage` prints it again as the `coverage=none` control. They must agree --
+    they are the same read under the same configuration -- so the build asserts it rather than
+    trusting either. That is a genuine cross-check between two suites, not a value compared with
+    itself, and it is why no equivalent row appears in the page's self-check panel.
+
+    A missing depth is a hard error. A read-side table with a hole in it is worse than none.
+    """
+    text = path.read_text()
+    out = {}
+    for arm in READ_ARMS:
+        depths = {}
+        for depth in READ_DEPTHS:
+            depths[str(depth)] = _read_int(
+                text,
+                re.escape(arm["needle"]) + r"\s+depth/source=%d price\(\) execution gas: (\d+)" % depth,
+                path, "%s at walk depth %d" % (arm["key"], depth))
+        control = _read_int(
+            text,
+            re.escape(arm["needle"]) + r"\s+coverage=none depth/source=0 price\(\) execution gas: (\d+)",
+            path, "%s coverage=none control" % arm["key"])
+        if control != depths["0"]:
+            sys.exit("%s: %s depth-0 read is %d in Eng3922Read but %d in Eng3922Coverage's "
+                     "coverage=none control; the two suites disagree and the page will not render "
+                     "either" % (path, arm["key"], depths["0"], control))
+        out[arm["key"]] = depths
+    return out
+
+
+def parse_growth(path):
+    """Arm 1's two append-only Indexer growth curves, both measured in the arms report."""
+    text = path.read_text()
+    return {
+        "indexerRow": {str(d): _read_int(text, r"Indexer row depth %d: (\d+)" % d, path,
+                                         "Indexer row depth %d" % d) for d in INDEXER_ROW_DEPTHS},
+        "closeRow": {str(d): _read_int(text, r"cycle-close row depth %d: (\d+)" % d, path,
+                                       "cycle-close row depth %d" % d) for d in CLOSE_ROW_DEPTHS},
+    }
+
+
+def parse_heartbeat_variants(path):
+    """Arm 2's read with and without a rebuilt per-writer heartbeat.
+
+    These are the measured rows behind the claim that on EAS a read can take freshness from the
+    attestation's own publication time rather than from a separate clock a write has to touch.
+    Both are quoted verbatim; neither is the arm's headline read, which is measured separately.
+    """
+    text = path.read_text()
+    return {
+        "withHeartbeat": _read_int(
+            text, r"arm2 price\(\) WITH rebuilt per-writer heartbeat: (\d+)", path,
+            "arm 2 read with a rebuilt heartbeat"),
+        "withoutHeartbeat": _read_int(
+            text,
+            r"arm2 price\(\) WITHOUT heartbeat \(freshness from attestation time only\): (\d+)",
+            path, "arm 2 read without a heartbeat"),
+    }
+
+
+def parse_eas_close_write(path):
+    """The EAS cycle-close WRITE rows the running-cost model charges under the EAS dial.
+
+    Arm 1's close is measured complete (attest + the Indexer write). Arm 2's close is measured only
+    as far as the attestation: the pointer write that would make a cycle-close row findable on that
+    arm was never measured, which is why the EAS running cost carries an explicit exclusion for it
+    rather than an estimate.
+    """
+    text = path.read_text()
+    return {
+        "attestOnly": _read_int(
+            text,
+            r"EAS arms, cycle close attestation WITHOUT root \(round 2\) -- WHOLE TRANSACTION: (\d+)",
+            path, "EAS round-2 cycle-close attestation"),
+        "arm1Indexed": _read_int(
+            text, r"arm1 cycle close, attest \+ index -- WHOLE TRANSACTIONS: (\d+)",
+            path, "arm 1 cycle close, attest + index"),
+    }
+
+
+def parse_baseline_read(path):
+    """The DEPLOYED aggregator reading the live round-1 fact store, at each walk depth.
+
+    This is the anchor a reader recognises -- what a `price()` costs against the contracts that are
+    on Sepolia today -- and it is deliberately NOT the denominator of pass mark A. A also has to
+    hold everything but the fact layer constant, which only the calibration arm does.
+    """
+    text = path.read_text()
+    depths = {str(d): _read_int(
+        text, r"price\(\) execution gas, 3 oracle sources, seasoning walk depth %d: (\d+)" % d,
+        path, "deployed aggregator at walk depth %d" % d) for d in READ_DEPTHS}
+    store = re.search(r"live fact store: (0x[0-9a-fA-F]{40})", text)
+    if not store:
+        sys.exit("%s: cannot find the live fact store address in the report header" % path)
+    return {"depths": depths, "factStore": store.group(1)}
+
+
+def parse_sepolia_probes(path, fork=None):
+    """The four real-Sepolia probe receipts from the merged evidence report.
+
+    `price()` is a view, so an eth_call costs nothing observable; these come from a probe contract
+    that performs the read inside a transaction and emits what it consumed. They are receipts, and
+    they are the only read-side inputs on this page that cannot be recomputed -- which is why each
+    one travels with its transaction hash.
+
+    All four arms return the same price. That is asserted here rather than stated in prose: if a
+    revision of the report ever has the arms returning different prices they are no longer
+    measuring the same read, and the comparison on this page is void.
+    """
+    text = path.read_text()
+    out, prices = {}, {}
+    for arm in READ_ARMS:
+        if not arm["probe"]:
+            continue
+        row = re.search(
+            r"^\|\s*" + re.escape(arm["probe"]) + r"\s*\|\s*\*\*([\d,]+)\*\*\s*\|\s*([\d,]+)"
+            r"\s*\|\s*(\d+)\s*\|\s*`(0x[0-9a-f]{64})`\s*\|",
+            text, re.MULTILINE)
+        if not row:
+            sys.exit("%s: no Sepolia probe row for %r -- the read-side panel cites a transaction "
+                     "hash for every arm it shows a chain figure for" % (path, arm["probe"]))
+        out[arm["key"]] = {"gas": int(row.group(1).replace(",", "")),
+                           "wholeTx": int(row.group(2).replace(",", "")),
+                           "tx": row.group(4)}
+        prices[arm["key"]] = row.group(3)
+    # The read-side panel's fork-versus-chain narrative is arm 1's: it explains the divergence by
+    # arm 1's append-only Indexer rows, which no other arm has. If some other arm ever diverges
+    # more, that explanation is attached to the wrong row, so the premise is asserted rather than
+    # assumed. `fork` is passed in for exactly this check.
+    if fork:
+        gaps = {k: abs(v["gas"] - fork[k]["0"]) / fork[k]["0"] for k, v in out.items()}
+        worst = max(gaps, key=gaps.get)
+        if worst != "arm1":
+            sys.exit("%s: the largest fork-versus-chain divergence is %s (%.1f%%), not arm1; the "
+                     "read-side panel explains that divergence by arm 1's append-only Indexer "
+                     "rows, and that explanation no longer fits the data"
+                     % (path, worst, gaps[worst] * 100))
+    distinct = sorted(set(prices.values()))
+    if len(distinct) != 1:
+        sys.exit("%s: the probe rows return different prices (%s); the arms are not measuring the "
+                 "same read and the comparison is void" % (path, ", ".join(distinct)))
+    return {"probes": out, "priceReturned": distinct[0]}
+
+
 def git(*args):
     return subprocess.check_output(["git", "-C", str(REPO), *args], text=True).strip()
 
@@ -238,7 +437,8 @@ def main():
     # ENG-3938: the write-side batch figures for both arms. The bespoke single-write baseline is
     # the ENG-3913 first write measured in this repo (bench-rows.txt); the EAS arm has no ENG-3913
     # figure, so its baseline is ENG-3922's multiAttest at n=1, which is a single attest.
-    ops = parse_arms_batch(HERE / "reports" / "eng3922-arms.txt")
+    arms_report = HERE / "reports" / "eng3922-arms.txt"
+    ops = parse_arms_batch(arms_report)
     source = parse_source(HERE / "reports" / "eng3922-source.txt")
     batch = {
         "sizes": BATCH_SIZES,
@@ -274,6 +474,9 @@ def main():
             ],
             # multiRevoke is the revoke cost, shown as context; it is not part of the write.
             "related": ["multiRevoke"],
+            # ENG-3944: the cycle-close WRITE the running-cost model charges under the EAS dial.
+            # arm 1's is measured complete; arm 2's is measured only as far as the attestation.
+            "close": parse_eas_close_write(arms_report),
         },
     }
     # Labels for the addend ops, so the table can name each measured row it sums.
@@ -283,6 +486,38 @@ def main():
         "pointBatch": "pointBatch",
         "writePriceBatch": "writePriceBatch",
         "multiRevoke": "multiRevoke",
+    }
+
+    # ENG-3944: the read side, from the same three merged ENG-3922 reports (55058ab0). Only the
+    # raw measured integers travel onto the page: every ratio, per-hop cost, percentage and
+    # projection the read-side panel shows is composed in the page's own JS from these, so a
+    # reviewer verifies them by reading the rendered DOM rather than by grepping index.html.
+    fork_rows = parse_arms_read(arms_report)
+    read = {
+        "arms": [{k: arm[k] for k in ("key", "label", "family", "reference")} for arm in READ_ARMS],
+        "depths": READ_DEPTHS,
+        "sources": READ_SOURCES,
+        "indexerRowDepths": INDEXER_ROW_DEPTHS,
+        "closeRowDepths": CLOSE_ROW_DEPTHS,
+        "fork": fork_rows,
+        "growth": parse_growth(arms_report),
+        "heartbeat": parse_heartbeat_variants(arms_report),
+        "deployed": parse_baseline_read(HERE / "reports" / "eng3922-baseline.txt"),
+        "sepolia": parse_sepolia_probes(HERE / "reports" / "eng3922-sepolia-evidence.md", fork_rows),
+        "marks": {
+            "aCeiling": MARK_A_CEILING,
+            "bAbsolute": MARK_B_ABSOLUTE,
+            "preRegisteredOn": MARK_PRE_REGISTERED_ON,
+            "publicationDirected": MARK_PUBLICATION_DIRECTED,
+        },
+        # The paths these reports have on `main`, for citation. The vendored copies under
+        # reports/ are byte-identical to them at the commit in the provenance sidecar.
+        "reports": {
+            "arms": "bench-reports/eng3922-arms.txt",
+            "baseline": "bench-reports/eng3922-baseline.txt",
+            "evidence": "bench-reports/eng3922-sepolia-evidence.md",
+        },
+        "source": source,
     }
 
     meta = {
@@ -295,7 +530,8 @@ def main():
     meta["inputDigest"] = input_digest()
 
     payload = json.dumps(
-        {"rows": rows, "compare": compare, "chain": chain, "meta": meta, "batch": batch},
+        {"rows": rows, "compare": compare, "chain": chain, "meta": meta, "batch": batch,
+         "read": read},
         indent=1, sort_keys=True)
     # The payload is embedded inside a <script> block, so two sequences must not survive
     # verbatim: `</script` would end the block early, and a bare `&` is ambiguous to an HTML

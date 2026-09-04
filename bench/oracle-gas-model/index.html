@@ -232,6 +232,28 @@ footer{border-top:1px solid var(--line);padding:18px 20px 40px;color:var(--muted
   <div id="eas-banner"></div>
 
   <div class="panel">
+    <h2>Read side — gas inside <code>price()</code></h2>
+    <p class="small">What it costs a pool to <em>read</em> a fact, on each candidate fact layer.
+      Per the adoption survey this — not write gas — is the binding constraint on the fact-layer
+      choice, which is why it sits above the running cost. Every figure here is a measured row from
+      <a href="https://linear.app/fabrica/issue/ENG-3922">ENG-3922</a>'s merged reports or an
+      arithmetic composition of measured rows, stated with its formula. Nothing on this panel is
+      modelled, which is why none of it appears in the self-check below: there is no model here to
+      check.</p>
+    <div id="read-verdict"></div>
+    <div class="cards" id="read-headline"></div>
+    <div class="scroll" style="margin-top:12px"><table id="read-arms"></table></div>
+    <div id="read-arms-notes"></div>
+    <h3>The seasoning walk — what one hop costs on each layer</h3>
+    <div class="scroll"><table id="read-walk"></table></div>
+    <div id="read-walk-notes"></div>
+    <h3>Arm 1 only — the read that gets dearer for as long as it runs</h3>
+    <div id="read-growth"></div>
+    <div id="read-growth-notes"></div>
+    <div id="read-provenance"></div>
+  </div>
+
+  <div class="panel">
     <h2>Cost of running the fact layer</h2>
     <div id="headline-caveat"></div>
     <div class="cards" id="headline"></div>
@@ -328,6 +350,10 @@ const DATA = {
      "note": "an ownerless pointer contract of our own supplies the (writer, token, kind) lookup the mainnet-absent Indexer would."
     }
    ],
+   "close": {
+    "arm1Indexed": 469623,
+    "attestOnly": 235993
+   },
    "related": [
     "multiRevoke"
    ]
@@ -420,6 +446,7 @@ const DATA = {
    "branch": "sebadas/eng-3922-fact-layer-bench",
    "commit": "55058ab0c9ec6bce5d9ef3779f9dafe22ec10552",
    "file": "bench-reports/eng3922-arms.txt",
+   "files": "bench-reports/eng3922-arms.txt, bench-reports/eng3922-baseline.txt, bench-reports/eng3922-sepolia-evidence.md",
    "pr": "42",
    "repo": "fabrica-land/fabrica-v3-contracts",
    "status": "final"
@@ -2770,11 +2797,164 @@ const DATA = {
   }
  ],
  "meta": {
-  "commit": "c8b413473ff7aa555ca55228e94cb2650d041d0f",
-  "commitShort": "c8b4134",
+  "commit": "29273c3322f110281d83d85127f51c1c43defc52",
+  "commitShort": "29273c3",
   "historyDepth": 48,
-  "inputDigest": "b6745446475790cf",
+  "inputDigest": "484d12b6088be9a7",
   "reportHeader": "# ENG-3913 \u2014 per-scenario gas bench, literal output\n#\n# repo:    fabrica-v3-contracts\n# base:    origin/main @ 4b9201d17d78c7296545a6bd5ef6ac8da1d5a86e\n# branch:  tozzetto/eng-3913-oracle-gas-model\n# command: forge test --match-path test/Eng3913OracleGasBench.t.sol -vv\n# forge:   forge Version: 1.7.1 (Commit SHA: 4072e48705af9d93e3c0f6e29e93b5e9a40caed8)\n# profile: optimizer=true, optimizer_runs=1, via_ir=false (foundry.toml [profile.default])\n# knobs:   FabricaAttributeOracle.defaultKnobs() \u2014 the config\n#          script/FabricaAttributeOracleDeploy.s.sol deploys with.\n#\n# \u26a0 RUN THIS WITHOUT --gas-report.\n#   Foundry's gas-report instrumentation inflates the gasleft() deltas these benches\n#   read, and the codeless-control subtraction absorbs most but not all of it. The CSV\n#   rows here are valid ONLY from a plain -vv run. Under --gas-report the steady-state\n#   writePrice row reads 72,268 instead of 73,812."
+ },
+ "read": {
+  "arms": [
+   {
+    "family": "store",
+    "key": "arm3",
+    "label": "arm 3 \u2014 ownerless custom store",
+    "reference": true
+   },
+   {
+    "family": "store",
+    "key": "cal",
+    "label": "calibration \u2014 deployed round-1 store, read through the harness",
+    "reference": true
+   },
+   {
+    "family": "eas",
+    "key": "arm1C",
+    "label": "arm 1C \u2014 all-EAS via `oracleContext`",
+    "reference": false
+   },
+   {
+    "family": "eas",
+    "key": "arm2",
+    "label": "arm 2 \u2014 EAS plus pointer",
+    "reference": false
+   },
+   {
+    "family": "eas",
+    "key": "arm1",
+    "label": "arm 1 \u2014 all-EAS via EAS `Indexer`",
+    "reference": false
+   }
+  ],
+  "closeRowDepths": [
+   1,
+   3,
+   7
+  ],
+  "deployed": {
+   "depths": {
+    "0": 134804,
+    "1": 197573,
+    "3": 251639,
+    "7": 359805
+   },
+   "factStore": "0xFfA7535eF090C9193f44399843a05b60808ffC0D"
+  },
+  "depths": [
+   0,
+   1,
+   3,
+   7
+  ],
+  "fork": {
+   "arm1": {
+    "0": 251788,
+    "1": 383830,
+    "3": 600154,
+    "7": 1033656
+   },
+   "arm1C": {
+    "0": 200730,
+    "1": 326271,
+    "3": 529639,
+    "7": 937229
+   },
+   "arm2": {
+    "0": 220635,
+    "1": 346183,
+    "3": 549539,
+    "7": 957106
+   },
+   "arm3": {
+    "0": 106607,
+    "1": 143436,
+    "3": 181614,
+    "7": 257990
+   },
+   "cal": {
+    "0": 111207,
+    "1": 158335,
+    "3": 212423,
+    "7": 320633
+   }
+  },
+  "growth": {
+   "closeRow": {
+    "1": 257455,
+    "3": 270376,
+    "7": 296212
+   },
+   "indexerRow": {
+    "1": 257455,
+    "2": 263685,
+    "5": 283062
+   }
+  },
+  "heartbeat": {
+   "withHeartbeat": 225635,
+   "withoutHeartbeat": 136814
+  },
+  "indexerRowDepths": [
+   1,
+   2,
+   5
+  ],
+  "marks": {
+   "aCeiling": 1.5,
+   "bAbsolute": 350000,
+   "preRegisteredOn": "2026-09-03",
+   "publicationDirected": "2026-09-04 16:18Z"
+  },
+  "reports": {
+   "arms": "bench-reports/eng3922-arms.txt",
+   "baseline": "bench-reports/eng3922-baseline.txt",
+   "evidence": "bench-reports/eng3922-sepolia-evidence.md"
+  },
+  "sepolia": {
+   "priceReturned": "100500000000",
+   "probes": {
+    "arm1": {
+     "gas": 266120,
+     "tx": "0x1cf3a43422292a479ed5bcc91f332512a7c0468744bffcbdf00f88a836abd81c",
+     "wholeTx": 292119
+    },
+    "arm1C": {
+     "gas": 201606,
+     "tx": "0xec047aff0b6018e7ac9d6d0706b70914c8b1f7cabae44cadd5b839453ea3990f",
+     "wholeTx": 231365
+    },
+    "arm2": {
+     "gas": 222051,
+     "tx": "0xc483756a4f39162a42171a90e8122aaa08ac92c4ced59ec6eccf207adf702602",
+     "wholeTx": 248050
+    },
+    "arm3": {
+     "gas": 105591,
+     "tx": "0xfdfbed934c8f9d520914b1086230b6dbfac8d7f072d89edc4f1cb38f86121dfd",
+     "wholeTx": 131590
+    }
+   }
+  },
+  "source": {
+   "branch": "sebadas/eng-3922-fact-layer-bench",
+   "commit": "55058ab0c9ec6bce5d9ef3779f9dafe22ec10552",
+   "file": "bench-reports/eng3922-arms.txt",
+   "files": "bench-reports/eng3922-arms.txt, bench-reports/eng3922-baseline.txt, bench-reports/eng3922-sepolia-evidence.md",
+   "pr": "42",
+   "repo": "fabrica-land/fabrica-v3-contracts",
+   "status": "final"
+  },
+  "sources": 3
  },
  "rows": {
   "heartbeat:first": {
@@ -2940,6 +3120,12 @@ const DATA = {
  }
 };
 const R = DATA.rows, CHAIN = DATA.chain, META = DATA.meta, BATCH = DATA.batch;
+const READ = DATA.read;
+/* Which EAS arm the running-cost headline is quoted for. Arm 2 is the only EAS arm that can
+   ship to Ethereum mainnet: EAS's `Indexer` is not deployed there, which is why the adoption
+   survey's Option A carries an ownerless pointer contract of our own instead. Arm 1's figure
+   is computed alongside and shown on every card, never dropped. */
+const EAS_HEADLINE_ARM = "arm2";
 const MONTH_DAYS = 30.436875;           // mean Gregorian month
 const HISTORY_DEPTH = META.historyDepth; // ring depth, 48, read from the contract in the bench
 const G = n => R[n].txTotal;            // whole-transaction gas for a measured scenario
@@ -2991,7 +3177,72 @@ function attrCostForMonth(writesBefore, writesThis) {
   return cum(writesBefore + writesThis) - cum(writesBefore);
 }
 
-function model() {
+/* ENG-3944: the write side of the running-cost model is layer-aware.
+   Every term a month costs is composed from the hooks below, and a layer supplies a hook only
+   where it has a MEASURED row for it. An unmeasured term is never estimated and never silently
+   zeroed: the profile names it in `excluded`, the term drops out of the total, and every panel
+   that renders the total renders the exclusion with it. That is the page's standing rule --
+   nothing here is estimated -- applied to a layer that is only partly measured. */
+function writeProfile(armKey) {
+  if (S.layer !== "eas") {
+    const c = priceRegimes(false);
+    return {
+      layer: "bespoke", arm: null, armLabel: "the custom fact store",
+      priceCum: n => costOfFirstNWrites(n, c),
+      priceEach: null,
+      urgentPerWrite: reached => reached >= HISTORY_DEPTH ? c.r4 : c.r3,
+      closeRepeat: G("heartbeat:repeat"),
+      closeFirst: G("heartbeat:first"),
+      attrCum: (before, n) => attrCostForMonth(before, n),
+      attrEach: G("writeAttribute:repeat, value changed"),
+      registration: true,
+      excluded: [],
+    };
+  }
+  const arm = BATCH.eas.arms.find(a => a.key === (armKey || EAS_HEADLINE_ARM));
+  const [addA, addB] = arm.addends;
+  const O = BATCH.ops;
+  // Per fact = floor of the COMBINED two-transaction batch total / n, the same composition the
+  // Batching panel shows, not the sum of two independently floored per-item figures.
+  const measuredAtDial = BATCH.sizes.includes(S.batch);
+  const perFact = measuredAtDial
+    ? Math.floor((O[addA][String(S.batch)].total + O[addB][String(S.batch)].total) / S.batch) : null;
+  const excluded = [];
+  if (!measuredAtDial) excluded.push(`price writes at batch ${fmt(S.batch)}: no measured EAS row —
+    the EAS write side is measured at ${BATCH.sizes.join(" / ")} only, and this term is excluded
+    rather than extrapolated from the ${fmt(BATCH.sizes[BATCH.sizes.length - 1])} row`);
+  // The cycle close. Arm 1's is measured complete (attest + the Indexer write). Arm 2's is
+  // measured only as far as the attestation: the pointer write that would make a cycle-close row
+  // findable was never measured, so the close is charged at the measured attestation and the
+  // missing lookup is declared instead of guessed.
+  const closeRepeat = arm.key === "arm1" ? BATCH.eas.close.arm1Indexed : BATCH.eas.close.attestOnly;
+  if (arm.key !== "arm1") excluded.push(`arm 2's cycle-close <em>lookup</em> write: not measured —
+    the close is charged at the measured attestation (${fmt(BATCH.eas.close.attestOnly)}) and the
+    pointer write that would make that row findable is excluded, so arm 2's close is a floor`);
+  excluded.push(`a writer's FIRST cycle close on EAS: not measured — the bespoke store has a
+    measured cold-slot bootstrap premium and EAS has no equivalent row, so no one-time bootstrap
+    is charged on this layer`);
+  if (S.attrs > 0) excluded.push(`attribute writes: not measured on EAS — ENG-3922 measured no
+    attribute attestation, so the ${fmt(S.attrs)} attribute write${S.attrs === 1 ? "" : "s"} per
+    token per cycle are excluded from every figure on this layer`);
+  return {
+    layer: "eas", arm: arm.key, armLabel: arm.label,
+    // EAS has no history ring: an attestation creates a new record every time rather than pushing
+    // the old value into a 48-deep ring, so there is no first/repeat regime and no month in which
+    // a row gets cheaper. The cost is flat in the write count.
+    priceCum: n => perFact === null ? 0 : perFact * n,
+    priceEach: perFact,
+    urgentPerWrite: () => perFact === null ? 0 : perFact,
+    closeRepeat,
+    closeFirst: null,
+    attrCum: null,
+    attrEach: null,
+    registration: false,
+    excluded,
+  };
+}
+
+function model(armKey) {
   // Tim's 18:21Z ruling: an unchanged valuation need not be rewritten, and the token is
   // still covered by the cycle. A skipped write costs nothing at all -- no transaction is
   // sent -- so the mover share scales the number of writes actually SENT.
@@ -3008,8 +3259,8 @@ function model() {
   const cadenceWritesPerRowPerMonth = MONTH_DAYS / S.cadence;
   const writesPerRowPerMonth = cadenceWritesPerRowPerMonth * moverShare;
   const before = (S.month - 1) * writesPerRowPerMonth;
-  const c = priceRegimes(false);
-  const perRow = costOfFirstNWrites(before + writesPerRowPerMonth, c) - costOfFirstNWrites(before, c);
+  const P = writeProfile(armKey);
+  const perRow = P.priceCum(before + writesPerRowPerMonth) - P.priceCum(before);
   const priceGas = rows * perRow;
   const priceWrites = rows * writesPerRowPerMonth;
 
@@ -3028,25 +3279,27 @@ function model() {
   // a separate transaction only when no repeat close is already being charged; otherwise it
   // upgrades one of them. Kept as its own term so the printed equation balances and so the
   // twelve-month figure can pick it up too -- folding it into hbGas hid it from both.
-  const bootstrapCount = S.month === 1 ? S.sources : 0;
-  const bootstrapGas = S.month !== 1 ? 0
-    : hbCount > 0 ? S.sources * (G("heartbeat:first") - G("heartbeat:repeat"))
-                  : S.sources * G("heartbeat:first");
+  // On a layer with no measured first-close premium (EAS) there is no bootstrap term at all --
+  // it is declared in the profile's exclusions rather than charged at the repeat figure.
+  const bootstrapCount = (S.month === 1 && P.closeFirst !== null) ? S.sources : 0;
+  const bootstrapGas = (S.month !== 1 || P.closeFirst === null) ? 0
+    : hbCount > 0 ? S.sources * (P.closeFirst - P.closeRepeat)
+                  : S.sources * P.closeFirst;
   const hbTxns = hbCount + (hbCount > 0 ? 0 : bootstrapCount);
-  const hbGas = hbCount * G("heartbeat:repeat") + bootstrapGas;
+  const hbGas = hbCount * P.closeRepeat + bootstrapGas;
   // Round 2's close carries the cycle number only. The Merkle root came out of round 2 on
   // 2026-09-03 (Tim, 18:47Z) and is a round-3 candidate, so this row is fully measured --
   // it is the same contract call the round-1 close is, just made unconditionally.
 
   // Attributes.
   const attrWritesPerTokenPerMonth = S.attrs * writesPerRowPerMonth;
-  const attrGas = S.attrs > 0
-    ? S.tokens * attrCostForMonth(S.attrs * before, attrWritesPerTokenPerMonth) : 0;
-  const attrWrites = S.tokens * attrWritesPerTokenPerMonth;
+  const attrGas = (S.attrs > 0 && P.attrCum)
+    ? S.tokens * P.attrCum(S.attrs * before, attrWritesPerTokenPerMonth) : 0;
+  const attrWrites = P.attrCum ? S.tokens * attrWritesPerTokenPerMonth : 0;
 
   // Registration: a one-time, round-1-only cost, so it lands in month 1 or nowhere.
   const perItemReg = batchPerItem(S.batch);
-  const regGas = (S.reg && S.month === 1) ? S.tokens * perItemReg : 0;
+  const regGas = (P.registration && S.reg && S.month === 1) ? S.tokens * perItemReg : 0;
   const regTxns = regGas > 0 ? Math.ceil(S.tokens / S.batch) : 0;
 
   const totalGas = priceGas + hbGas + attrGas + regGas;
@@ -3057,7 +3310,7 @@ function model() {
   // Urgency split. Deferrable = routine price writes + the cycle close. Urgent = a
   // token-score collapse or a lock, priced at the urgent tip.
   const urgentCount = S.urgent * (S.tokens / 1000);
-  const urgentPerWrite = c.r4 <= 0 ? 0 : (before + writesPerRowPerMonth >= HISTORY_DEPTH ? c.r4 : c.r3);
+  const urgentPerWrite = P.urgentPerWrite(before + writesPerRowPerMonth);
   const urgentGas = urgentCount * urgentPerWrite;
   const urgentPrice = (S.gas + S.tip * S.urgentMult) * 1e-9;
   const urgentUsd = urgentGas * urgentPrice * S.eth;
@@ -3098,15 +3351,15 @@ function model() {
   let yearGas = 0;
   for (let k = 0; k < 12; k++) {
     const b = (S.month - 1 + k) * writesPerRowPerMonth;
-    yearGas += rows * (costOfFirstNWrites(b + writesPerRowPerMonth, c) - costOfFirstNWrites(b, c));
-    yearGas += Math.max(0, hbCount) * G("heartbeat:repeat");
-    if (S.attrs > 0) yearGas += S.tokens * attrCostForMonth(S.attrs * b, attrWritesPerTokenPerMonth);
+    yearGas += rows * (P.priceCum(b + writesPerRowPerMonth) - P.priceCum(b));
+    yearGas += Math.max(0, hbCount) * P.closeRepeat;
+    if (S.attrs > 0 && P.attrCum) yearGas += S.tokens * P.attrCum(S.attrs * b, attrWritesPerTokenPerMonth);
   }
   // Both one-time costs belong to the first month of the window and are charged once, not
   // twelve times. The month figure charges them the same way.
   yearGas += regGas + bootstrapGas;
 
-  return {rows, writesPerRowPerMonth, cadenceWritesPerRowPerMonth, perRow, priceGas, priceWrites,
+  return {P, rows, writesPerRowPerMonth, cadenceWritesPerRowPerMonth, perRow, priceGas, priceWrites,
           hbInterval, hbCount, hbGas, hbTxns, bootstrapCount, bootstrapGas,
           coveredByWrites, attrGas, attrWrites, regGas, regTxns, perItemReg, totalGas, toEth, toUsd,
           moverShare, hbPerWriterPerMonth,
@@ -3118,10 +3371,249 @@ function model() {
 
 function batchPerItem(n) { return G("registerBatch:" + n) / n; }
 
+/* ---------- read side (ENG-3944) ----------
+   Every composed figure below is computed here from the raw measured integers in DATA.read, by
+   the method the panel states, and never read out of a pre-rendered string:
+     ratio      = arm gas / denominator gas, to 2dp
+     per hop    = floor(depth delta / (depth steps x oracle sources))   -- the walk is per source
+     fork vs tx = (chain - fork) / fork, to 1dp
+     growth     = floor(delta / steps) over the measured row depths
+   Pass marks A and B are pre-registered inputs, carried through the build as constants. */
+const srcCommitShort = () => READ.source.commit.slice(0, 10);
+const ratio = (gas, denom) => gas / denom;
+const ratioCell = (gas, denom) => ratio(gas, denom).toFixed(2) + "×";
+const perHop = (depths, lo, hi) =>
+  Math.floor((depths[String(hi)] - depths[String(lo)]) / ((hi - lo) * READ.sources));
+const pctDiff = (from, to) => (to - from) / from * 100;
+const pctCell = v => (v < 0 ? "−" : "+") + Math.abs(v).toFixed(1) + "%";
+const markA = gas => ratio(gas, READ.fork.arm3["0"]) > READ.marks.aCeiling ? "FAIL" : "pass";
+const markB = gas => gas > READ.marks.bAbsolute ? "FAIL" : "pass";
+const verdictCell = v => v === "FAIL"
+  ? `<strong style="color:var(--bad)">FAIL</strong>` : `<span style="color:var(--ok)">pass</span>`;
+
+function renderReadSide() {
+  const isEas = S.layer === "eas";
+  const arms = READ.arms;
+  const easArms = arms.filter(a => a.family === "eas");
+  const storeGas = READ.fork.arm3["0"], calGas = READ.fork.cal["0"];
+  const easRatios = easArms.map(a => ratio(READ.fork[a.key]["0"], storeGas));
+  const easCalRatios = easArms.map(a => ratio(READ.fork[a.key]["0"], calGas));
+  const easGas = easArms.map(a => READ.fork[a.key]["0"]);
+  // Cheapest and dearest are found by comparing the measured figures, never by taking the first
+  // and last row: the arm order is a rendering choice and must not be able to mislabel an arm.
+  const byGas = [...easArms].sort((x, y) => READ.fork[x.key]["0"] - READ.fork[y.key]["0"]);
+  const cheapest = byGas[0], dearest = byGas[byGas.length - 1];
+  const best = READ.fork[cheapest.key]["0"], worst = READ.fork[dearest.key]["0"];
+  const closeRow = READ.growth.closeRow, closeDepths = READ.closeRowDepths;
+  const perClose = Math.floor(
+    (closeRow[String(closeDepths[closeDepths.length - 1])] - closeRow[String(closeDepths[0])])
+    / (closeDepths[closeDepths.length - 1] - closeDepths[0]));
+  const yearOfDailyCloses = perClose * 365;
+
+  /* headline */
+  const cards = isEas ? [
+    ["price(), 3 sources, depth 0", `${fmt(best)} – ${fmt(worst)}`,
+     `${cheapest.label} cheapest, ${dearest.label} dearest`],
+    ["× the ownerless custom store", `${Math.min(...easRatios).toFixed(2)}× – ${Math.max(...easRatios).toFixed(2)}×`,
+     `against ${fmt(storeGas)}, at the same walk depth`],
+    ["× the calibration arm", `${Math.min(...easCalRatios).toFixed(2)}× – ${Math.max(...easCalRatios).toFixed(2)}×`,
+     `against ${fmt(calGas)} — everything but the fact layer held constant`],
+    [`Pass mark A — within ${READ.marks.aCeiling}×`, "FAIL on every arm",
+     `pre-registered ${READ.marks.preRegisteredOn}, before any arm was measured`],
+    [`Pass mark B — ≤ ${fmt(READ.marks.bAbsolute)}`,
+     easGas.every(g => markB(g) === "pass") ? "pass on every arm" : "FAIL on an arm",
+     "passes everywhere, and therefore separates nothing"],
+    ["Arm 1 after a year of daily closes", `+${fmt(yearOfDailyCloses)}`,
+     `${fmt(perClose)} gas per past cycle close × 365, on every read of every token`],
+  ] : [
+    ["price(), 3 sources, depth 0", fmt(storeGas),
+     `arm 3, ownerless custom store · ${fmt(READ.sepolia.probes.arm3.gas)} on real Sepolia`],
+    ["× the ownerless custom store", "1.00×", "it is the denominator of pass mark A"],
+    ["The deployed aggregator today", fmt(READ.deployed.depths["0"]),
+     `live round-1 fact store ${READ.deployed.factStore.slice(0, 10)}…`],
+    [`Pass mark A — within ${READ.marks.aCeiling}×`, "reference",
+     "the custom store is what the EAS arms are measured against"],
+    [`Pass mark B — ≤ ${fmt(READ.marks.bAbsolute)}`, markB(storeGas),
+     `${fmt(storeGas)} at the operating point`],
+    ["At walk depth 7", fmt(READ.fork.arm3["7"]),
+     `${fmt(perHop(READ.fork.arm3, 3, 7))} gas per hop per oracle source`],
+  ];
+  document.getElementById("read-headline").innerHTML = cards.map(([k, v, s]) =>
+    `<div class="card"><div class="k">${k}</div><div class="v">${v}</div><div class="s">${s}</div></div>`).join("");
+
+  document.getElementById("read-verdict").innerHTML = `
+    <div class="note ${isEas ? "bad" : "ok"}"><p><strong>Pass mark A — the go/no-go — fails on
+    every EAS arm, at ${Math.min(...easRatios).toFixed(2)}× to ${Math.max(...easRatios).toFixed(2)}×
+    against a ${READ.marks.aCeiling}× ceiling.</strong> The mark was registered on
+    <a href="https://linear.app/fabrica/issue/ENG-3922">ENG-3922</a> on
+    ${READ.marks.preRegisteredOn}, <em>before any arm was built or measured</em>, on Fede's bias
+    concern, and was never moved; publication of the comparison was directed by Tim on
+    ${READ.marks.publicationDirected}. Pass mark B
+    (≤ ${fmt(READ.marks.bAbsolute)} gas) passes on every arm including the dearest, so it
+    discriminates nothing — which is a fact about the bar, not about the arms.</p>
+    <p class="small">The margin is narrower than it was. Review found the EAS arms re-resolving and
+    re-reading the same head attestation three times per oracle source where the store arms read a
+    packed struct twice — a real bias <em>against</em> EAS in every figure published before
+    4 September. The figures here are post-correction: removing it took the EAS arms down 18–22%
+    against 6–8% for the store arms, and narrowed the margin by about a quarter without changing
+    the verdict.</p></div>`;
+
+  /* per-arm table */
+  const armRow = a => {
+    const gas = READ.fork[a.key]["0"], probe = READ.sepolia.probes[a.key];
+    return `<tr>
+      <td>${a.label}${a.reference ? ' <span class="src">reference</span>' : ""}</td>
+      <td class="n"><strong>${fmt(gas)}</strong></td>
+      <td class="n">${probe ? fmt(probe.gas) : "—"}</td>
+      <td class="n">${probe ? pctCell(pctDiff(gas, probe.gas)) : "—"}</td>
+      <td class="n">${ratioCell(gas, storeGas)}</td>
+      <td class="n">${ratioCell(gas, calGas)}</td>
+      <td class="n">${a.reference ? "—" : verdictCell(markA(gas))}</td>
+      <td class="n">${verdictCell(markB(gas))}</td></tr>`;
+  };
+  document.getElementById("read-arms").innerHTML = `
+    <thead><tr><th>Arm</th><th class="n">price(), fork</th><th class="n">price(), real Sepolia tx</th>
+      <th class="n">fork vs chain</th><th class="n">× arm 3</th><th class="n">× calibration</th>
+      <th class="n">A ≤ ${READ.marks.aCeiling}×</th>
+      <th class="n">B ≤ ${fmt(READ.marks.bAbsolute)}</th></tr></thead>
+    <tbody>${arms.map(armRow).join("")}
+      <tr><td>the deployed <code>FabricaOracleAggregator</code>, for reference
+        <div class="src">reading the live round-1 fact store ${READ.deployed.factStore}</div></td>
+        <td class="n">${fmt(READ.deployed.depths["0"])}</td>
+        <td class="n">—</td><td class="n">—</td>
+        <td class="n">${ratioCell(READ.deployed.depths["0"], storeGas)}</td>
+        <td class="n">${ratioCell(READ.deployed.depths["0"], calGas)}</td>
+        <td class="n">—</td><td class="n">${verdictCell(markB(READ.deployed.depths["0"]))}</td></tr>
+    </tbody>`;
+
+  const forkVsChain = arms.filter(a => READ.sepolia.probes[a.key])
+    .map(a => ({a, pct: pctDiff(READ.fork[a.key]["0"], READ.sepolia.probes[a.key].gas)}));
+  const byDivergence = [...forkVsChain].sort((x, y) => Math.abs(y.pct) - Math.abs(x.pct));
+  const outlier = byDivergence[0], agreeing = byDivergence.slice(1);
+  const worstAgreeing = Math.max(...agreeing.map(x => Math.abs(x.pct)));
+  // The like-for-like comparison is against the fork at the row depth the probed deployment
+  // actually had: it was the third deployment, and the cycle-close row gains one entry per
+  // deployment, so its rows stood at depth 3. That is a fact about the run, not a derivation.
+  const probedCloseDepth = 3;
+  const likeForLike = pctDiff(closeRow[String(probedCloseDepth)], READ.sepolia.probes.arm1.gas);
+  document.getElementById("read-arms-notes").innerHTML = `
+    <div class="note"><p><strong>Every read number exists twice</strong> — once on a Sepolia fork
+    with <code>vm.cool</code>, once as a real Sepolia transaction through a probe contract that
+    performs the read inside a transaction and emits what it consumed. <code>price()</code> is a
+    view, so an <code>eth_call</code> costs nothing observable; these are receipts, not estimates.
+    All ${forkVsChain.length} arms return the same price (${READ.sepolia.priceReturned}), which
+    is the point: the arms differ only in where the facts live.</p>
+    <p><strong>${agreeing.length} of the ${forkVsChain.length} arms agree to within
+    ${worstAgreeing.toFixed(1)}%. ${outlier.a.label}'s ${pctCell(outlier.pct)} is not noise, and
+    chasing it produced the finding below.</strong> The price rows on that deployment were fresh at
+    depth 1, but the writers' cycle-close rows had reached depth ${probedCloseDepth} — one per
+    deployment, because that row is keyed by the writer rather than by the token. Like for like,
+    the fork at cycle-close depth ${probedCloseDepth}
+    (${fmt(closeRow[String(probedCloseDepth)])}) against Sepolia at cycle-close depth
+    ${probedCloseDepth} (${fmt(READ.sepolia.probes.arm1.gas)}) is ${pctCell(likeForLike)}, in line
+    with every other arm.</p>
+    <p class="small"><strong>Which denominator, and why two.</strong> Pass mark A is measured
+    against the ownerless custom store. The calibration arm — the deployed round-1 store read
+    through the same harness — is shown beside it because it is the only row that holds
+    <em>everything but the fact layer</em> constant. It costs ${fmt(calGas)},
+    ${fmt(READ.deployed.depths["0"] - calGas)} gas <em>less</em> than the deployed aggregator's
+    ${fmt(READ.deployed.depths["0"])}, so it is the <em>harder</em> of the two denominators for the
+    EAS arms: dividing by a smaller number makes the ratios larger. A fails against either.</p>
+    <p class="small">Sepolia probe transactions:
+    ${forkVsChain.map(x => `${x.a.label} <code>${READ.sepolia.probes[x.a.key].tx}</code>`).join("; ")}.</p></div>`;
+
+  /* seasoning walk */
+  const hops = [[0, 1], [1, 3], [3, 7]];
+  const walkRow = (label, depths) => `<tr>
+    <td>${label}</td>
+    ${READ.depths.map(d => `<td class="n">${fmt(depths[String(d)])}</td>`).join("")}
+    ${hops.map(([lo, hi]) => `<td class="n">${fmt(perHop(depths, lo, hi))}</td>`).join("")}</tr>`;
+  document.getElementById("read-walk").innerHTML = `
+    <thead><tr><th>Arm</th>${READ.depths.map(d => `<th class="n">depth ${d}</th>`).join("")}
+      ${hops.map(([lo, hi]) => `<th class="n">per hop ${lo}→${hi}</th>`).join("")}</tr></thead>
+    <tbody>${arms.map(a => walkRow(a.label, READ.fork[a.key])).join("")}
+      ${walkRow("the deployed <code>FabricaOracleAggregator</code>, for reference", READ.deployed.depths)}
+    </tbody>`;
+
+  const storeHops = ["arm3", "cal"].flatMap(k => hops.map(([lo, hi]) => perHop(READ.fork[k], lo, hi)));
+  const easHops = easArms.flatMap(a => hops.map(([lo, hi]) => perHop(READ.fork[a.key], lo, hi)));
+  document.getElementById("read-walk-notes").innerHTML = `
+    <div class="note"><p>Depth 0 is the operating point: a weekly cycle leaves the current price
+    about seven days old, past the 24-hour seasoning cutoff, so the walk finds a publication
+    immediately. Each depth step is one <code>refUID</code> hop <em>per oracle source</em>, so a
+    step of one costs ${READ.sources} hops on a ${READ.sources}-source read; every per-hop figure
+    here is
+    <code>floor(depth delta ÷ (steps × ${READ.sources} sources))</code>.</p>
+    <p><strong>The honest statement is a range, not a point:
+    ${fmt(Math.min(...storeHops))} to ${fmt(Math.max(...storeHops))} gas per hop on a custom store
+    and ${fmt(Math.min(...easHops))} to ${fmt(Math.max(...easHops))} on the EAS arms</strong>, with
+    the first hop dearer on every arm because it is the one that pays cold access to the history
+    slot or to the referenced attestation.</p></div>`;
+
+  /* arm 1's two growth curves */
+  const rowDepths = READ.indexerRowDepths, indexerRow = READ.growth.indexerRow;
+  const firstExtra = indexerRow[String(rowDepths[1])] - indexerRow[String(rowDepths[0])];
+  const avgExtra = Math.floor(
+    (indexerRow[String(rowDepths[rowDepths.length - 1])] - indexerRow[String(rowDepths[1])])
+    / (rowDepths[rowDepths.length - 1] - rowDepths[1]));
+  const growthTable = (title, depthList, values, unit) => `
+    <div style="flex:1;min-width:230px"><p class="small" style="margin:6px 0 4px"><strong>${title}</strong></p>
+    <div class="scroll"><table>
+      <thead><tr><th>${unit}</th><th class="n">arm 1 <code>price()</code> gas</th></tr></thead>
+      <tbody>${depthList.map(d => `<tr><td>${d}</td><td class="n">${fmt(values[String(d)])}</td></tr>`).join("")}
+      </tbody></table></div></div>`;
+  document.getElementById("read-growth").innerHTML =
+    `<div style="display:flex;gap:16px;flex-wrap:wrap">
+      ${growthTable("Keyed by the TOKEN — one entry per revaluation", rowDepths, indexerRow, "Indexer price-row depth")}
+      ${growthTable("Keyed by the WRITER — one entry per cycle, for every token", closeDepths, closeRow, "Cycle-close row depth")}
+    </div>`;
+  document.getElementById("read-growth-notes").innerHTML = `
+    <div class="note bad"><p><strong>Arm 1's read is the only one that is not O(1) in its own write
+    history.</strong> It is the only variant that owns no contract at all, so it finds its records
+    through EAS's <code>Indexer</code>, whose rows are arrays that only ever grow.
+    <strong>Nothing prunes an Indexer row.</strong> The price row costs ${fmt(firstExtra)} gas for
+    the first extra attestation and about ${fmt(avgExtra)} per attestation averaged over depths
+    ${rowDepths[1]} to ${rowDepths[rowDepths.length - 1]} — not one constant, and quoting it as one
+    understates how it grows.</p>
+    <p><strong>The row that grows fastest is not the token's.</strong> The cycle-close row is keyed
+    by the <em>writer</em>, so it gains an entry every cycle regardless of how many tokens exist,
+    and every <code>price()</code> for every token reads it: ${fmt(perClose)} gas per extra cycle
+    close. At a daily close that is 365 a year on one row — roughly
+    <strong>${fmt(yearOfDailyCloses)} gas added to every read, for every token, after twelve
+    months</strong>, more than the entire cost of a read today, and ${fmt(yearOfDailyCloses * 2)}
+    after two years.</p>
+    <p class="small">Neither the ownerless store nor the pointer has this shape: both overwrite a
+    fixed slot, so both read the same at cycle 1 and at cycle 500. No amount of adapter tuning
+    changes it — it is a property of reading through an append-only index. It was not designed for;
+    it was found by disagreement, when the fork and the chain diverged on arm 1 alone.</p>
+    <p class="small">These arm-1 figures are post-guard: <code>recipientForToken</code> rejects a
+    token id wider than <code>uint160</code> rather than silently truncating it into a colliding
+    Indexer row, and that check costs gas on every arm-1 read. No other arm moves. It is the right
+    trade — a reverting read beats a valid fact silently vanishing — and the number to quote for
+    arm 1 is the one that includes it.</p></div>`;
+
+  document.getElementById("read-provenance").innerHTML = `
+    <p class="small">Every figure on this panel comes from ENG-3922's committed reports, vendored
+    verbatim into this directory and byte-identical to
+    <code>${READ.reports.arms}</code>, <code>${READ.reports.baseline}</code> and
+    <code>${READ.reports.evidence}</code> on <code>main</code> at
+    <code>${srcCommitShort()}</code> (PR #${READ.source.pr}), which is the commit that merged them.
+    They are inputs to this page's digest, so <code>build-model-page.py --check</code> fails if any
+    row is edited. The ratios, per-hop costs, percentages and projections are composed here from
+    those rows by the formulas stated above and appear nowhere in the committed HTML — read them
+    off the rendered page, not out of the file.</p>`;
+}
+
 /* ---------- render ---------- */
 function render() {
   const m = model();
-  const pending = S.layer === "eas";
+  const isEas = S.layer === "eas";
+  // Every EAS arm figure below is computed per arm so the headline can name both without
+  // re-running the page: arm 2 is quoted, arm 1 travels on every card.
+  const easArmTotals = isEas
+    ? Object.fromEntries(BATCH.eas.arms.map(a => [a.key, model(a.key)])) : null;
+  const otherEasArm = isEas
+    ? BATCH.eas.arms.find(a => a.key !== EAS_HEADLINE_ARM) : null;
   document.getElementById("prov").innerHTML =
     `Input digest <code>${META.inputDigest}</code> — a hash of this page's own inputs, which is
      the identity that matters, because it does not change when the page is committed and does
@@ -3136,18 +3628,22 @@ function render() {
      Ticket <a href="https://linear.app/fabrica/issue/ENG-3913">ENG-3913</a>.
      Generated — do not hand-edit.`;
 
-  document.getElementById("eas-banner").innerHTML = pending ? `
-    <div class="note warn"><p><strong>The EAS arm's <em>write side</em> is now measured</strong>
-    (<a href="https://linear.app/fabrica/issue/ENG-3922">ENG-3922</a>) and shown in the
-    <em>Batching</em> panel below: <code>multiAttest</code> at 1/10/100, <code>multiRevoke</code>,
-    and the pointer write. <strong>The EAS running-cost headline is still
-    <span class="pending">pending</span></strong>, because it turns on the number that actually
-    decides the fact-layer question — gas inside <code>price()</code> for a read — which is
-    ENG-3922's and is not on this page yet. For the full running-cost model, switch the dial back
-    to <em>bespoke</em>.</p>
-    <p class="small">Deliberate: nothing here is estimated. The write-side figures are measured and
-    cited to a report and commit; the read-side headline stays blank rather than carry a number it
-    has no standing to settle.</p></div>` : "";
+  document.getElementById("eas-banner").innerHTML = !isEas ? "" : `
+    <div class="note warn"><p><strong>The EAS arm is now measured on both sides.</strong> The read
+    side — gas inside <code>price()</code>, the number the adoption survey says decides the
+    fact-layer choice — is in the <em>Read side</em> panel below, from
+    <a href="https://linear.app/fabrica/issue/ENG-3922">ENG-3922</a>'s merged reports at
+    <code>${srcCommitShort()}</code>. The write side is in <em>Batching</em>. The running cost on
+    this dial is quoted for <strong>${m.P.armLabel}</strong>${otherEasArm
+      ? `, with ${otherEasArm.label} on every card` : ""}: EAS's <code>Indexer</code> is not
+    deployed on Ethereum mainnet, so the pointer arm is the one that could ship there.</p>
+    ${m.P.excluded.length ? `<p><strong>${m.P.excluded.length === 1
+      ? "One term of the round-1 model has" : `${fmt(m.P.excluded.length)} terms of the round-1
+    model have`} no measured EAS row on these dials, and ${m.P.excluded.length === 1
+      ? "is" : "are"} excluded rather than estimated</strong> — the totals on this dial are
+    floors, not forecasts:</p><ul class="small">${m.P.excluded.map(x => `<li>${x}</li>`).join("")}</ul>` : ""}
+    <p class="small">Deliberate, and unchanged: nothing on this page is estimated. A term with a
+    measured row is charged; a term without one is named and left out.</p></div>`;
 
   /* A peak base fee is an instant, not a level. Multiplying it by a month's traffic gives
      an upper bound that has never actually occurred, and a reader will take it for a
@@ -3166,35 +3662,67 @@ function render() {
   /* headline */
   const cards = [];
   const perTokenMonth = m.totalGas / S.tokens;
-  if (!pending) {
-    cards.push(["Gas per month", fmt(m.totalGas),
-                `${fmt(m.priceWrites + m.hbTxns + m.attrWrites + m.regTxns, 0)} transactions`]);
-    cards.push(["ETH per month", eth(m.toEth(m.totalGas)), `at ${gwei(S.gas)} + ${gwei(S.tip)} gwei`]);
-    cards.push(["USD per month", usd(m.toUsd(m.totalGas)), `ETH at ${usd(S.eth)}`]);
-    cards.push(["USD per day", usd(m.toUsd(m.totalGas) / MONTH_DAYS), "month ÷ 30.44"]);
-    cards.push(["USD per token per month", usd(m.toUsd(perTokenMonth)), `${fmt(S.tokens)} tokens`]);
-    cards.push(["USD per token per year", usd(m.toUsd(m.yearGas) / S.tokens),
-                `months ${S.month}–${S.month + 11}, each in its own regime`]);
-  } else {
-    for (const k of ["Gas per month", "ETH per month", "USD per month", "USD per day",
-                     "USD per token per month", "USD per token per year"])
-      cards.push([k, "—", "pending ENG-3922"]);
-  }
+  // On the EAS dial every card carries the OTHER arm's figure on its sub-line, so the arm the
+  // headline quotes is a choice of emphasis and never a choice of what to show.
+  const alt = isEas ? easArmTotals[otherEasArm.key] : null;
+  // Bespoke prices a row through the history ring rather than from a flat per-fact figure, so it
+  // has no `priceEach` by construction; only the EAS layer can be missing one.
+  const noTotal = isEas && m.P.priceEach === null;
+  const noTotalWhy = `no measured EAS write row at batch ${fmt(S.batch)} — measured at ${BATCH.sizes.join(" / ")}`;
+  const withAlt = (sub, render) => noTotal ? noTotalWhy
+    : alt ? `${sub} · ${otherEasArm.label}: ${render(alt)}` : sub;
+  const cardVal = v => noTotal ? "—" : v;
+  const partial = m.P.excluded.length ? " · partial: see the exclusions above" : "";
+  cards.push(["Gas per month", cardVal(fmt(m.totalGas)),
+              withAlt(`${fmt(m.priceWrites + m.hbTxns + m.attrWrites + m.regTxns, 0)} transactions${partial}`,
+                      x => fmt(x.totalGas))]);
+  cards.push(["ETH per month", cardVal(eth(m.toEth(m.totalGas))),
+              withAlt(`at ${gwei(S.gas)} + ${gwei(S.tip)} gwei`, x => eth(x.toEth(x.totalGas)))]);
+  cards.push(["USD per month", cardVal(usd(m.toUsd(m.totalGas))),
+              withAlt(`ETH at ${usd(S.eth)}`, x => usd(x.toUsd(x.totalGas)))]);
+  cards.push(["USD per day", cardVal(usd(m.toUsd(m.totalGas) / MONTH_DAYS)),
+              withAlt("month ÷ 30.44", x => usd(x.toUsd(x.totalGas) / MONTH_DAYS))]);
+  cards.push(["USD per token per month", cardVal(usd(m.toUsd(perTokenMonth))),
+              withAlt(`${fmt(S.tokens)} tokens`, x => usd(x.toUsd(x.totalGas / S.tokens)))]);
+  cards.push(["USD per token per year", cardVal(usd(m.toUsd(m.yearGas) / S.tokens)),
+              withAlt(isEas ? `months ${S.month}–${S.month + 11}, flat: EAS has no history ring`
+                            : `months ${S.month}–${S.month + 11}, each in its own regime`,
+                      x => usd(x.toUsd(x.yearGas) / S.tokens))]);
+  renderReadSide();
   document.getElementById("headline").innerHTML = cards.map(([k, v, s]) =>
     `<div class="card"><div class="k">${k}</div><div class="v">${v}</div><div class="s">${s}</div></div>`).join("");
 
-  document.getElementById("headline-eq").textContent = pending ? "" :
+  /* The equation is one literal for both layers, so the layer-varying fields carry their own
+     padding: the bespoke rendering is then byte-for-byte what it was before the EAS arm gained
+     a running cost, which is the bar ENG-3944 set for every output it did not set out to change. */
+  const eqPerRow = isEas
+    ? (noTotal ? `batch ${fmt(S.batch)}: no measured EAS row`.padEnd(42)
+               : `flat, no ring, batch ${fmt(S.batch)}`.padEnd(42))
+    : `regime-weighted for month ${S.month}${S.month < 10 ? " " : ""}              `;
+  // An excluded term prints as an exclusion, never as a zero: a zero in a gas column reads as a
+  // measurement of nothing rather than as the absence of a measurement.
+  const eqNum = v => noTotal ? "—" : fmt(v);
+  const eqBootstrap = m.P.closeFirst === null ? "no measured EAS row, excluded"
+    : m.bootstrapGas ? `${fmt(m.bootstrapCount, 0)} writers, first close, one-time`
+    : "not counted this month";
+  const eqAttributes = m.P.attrCum === null
+    ? (S.attrs > 0 ? "not measured on EAS, excluded".padEnd(31) : "none on this layer".padEnd(31))
+    : `${fmt(m.attrWrites, 0)} writes                       `;
+  const eqRegistration = !m.P.registration ? "none on EAS (no per-token gate)"
+    : m.regGas ? `${fmt(m.regTxns)} tx x ${fmt(S.batch)}/tx, one-time`
+    : "not counted this month";
+  document.getElementById("headline-eq").textContent =
 `price rows        = ${fmt(S.tokens)} tokens x ${S.sources} sources         = ${fmt(m.rows)}
 writes per row    = 30.44 / ${S.cadence}d cadence x ${S.moved}% moved   = ${fmt(m.writesPerRowPerMonth, 2)} per month
-gas per row       = regime-weighted for month ${S.month}${S.month < 10 ? " " : ""}              = ${fmt(m.perRow)}
-price writes      = ${fmt(m.rows)} rows x ${fmt(m.perRow)} gas           = ${fmt(m.priceGas)}
-cycle closes      = ${fmt(m.hbCount, 1)} x ${fmt(G("heartbeat:repeat"))} gas       = ${fmt(m.hbCount * G("heartbeat:repeat"))}
-writer bootstrap  = ${m.bootstrapGas ? fmt(m.bootstrapCount, 0) + " writers, first close, one-time" : "not counted this month"}  = ${fmt(m.bootstrapGas)}
-attributes        = ${fmt(m.attrWrites, 0)} writes                       = ${fmt(m.attrGas)}
-registration      = ${m.regGas ? fmt(m.regTxns) + " tx x " + fmt(S.batch) + "/tx, one-time" : "not counted this month"}   = ${fmt(m.regGas)}
+gas per row       = ${eqPerRow}= ${eqNum(m.perRow)}
+price writes      = ${noTotal ? "excluded, see above" : fmt(m.rows) + " rows x " + fmt(m.perRow) + " gas"}           = ${eqNum(m.priceGas)}
+cycle closes      = ${fmt(m.hbCount, 1)} x ${fmt(m.P.closeRepeat)} gas       = ${fmt(m.hbCount * m.P.closeRepeat)}
+writer bootstrap  = ${eqBootstrap}  = ${fmt(m.bootstrapGas)}
+attributes        = ${eqAttributes}= ${fmt(m.attrGas)}
+registration      = ${eqRegistration}   = ${fmt(m.regGas)}
                                                          ------------
-total                                                    = ${fmt(m.totalGas)} gas
-                    x ${(S.gas + S.tip).toPrecision(4)} gwei x ${usd(S.eth)}/ETH    = ${usd(m.toUsd(m.totalGas))}`;
+total                                                    = ${noTotal ? "— not a total: the dominant term is excluded" : fmt(m.totalGas) + " gas"}
+                    x ${(S.gas + S.tip).toPrecision(4)} gwei x ${usd(S.eth)}/ETH    = ${noTotal ? "—" : usd(m.toUsd(m.totalGas))}`;
 
   /* share */
   const parts = [
@@ -3204,29 +3732,35 @@ total                                                    = ${fmt(m.totalGas)} ga
     ["Registration (one-time)", m.regGas, "#8a5a00"],
   ].filter(p => p[1] > 0);
   const tot = parts.reduce((a, p) => a + p[1], 0) || 1;
-  document.getElementById("sharebar").innerHTML = pending ? "" :
+  document.getElementById("sharebar").innerHTML =
     parts.map(p => `<span style="flex:${p[1] / tot};background:${p[2]}" title="${p[0]}"></span>`).join("");
-  document.getElementById("sharelegend").innerHTML = pending ? "" :
+  document.getElementById("sharelegend").innerHTML =
     parts.map(p => `<span><i style="background:${p[2]}"></i>${p[0]} — ${(100 * p[1] / tot).toFixed(1)}%</span>`).join("");
 
-  document.getElementById("breakdown").innerHTML = pending ? "" : `
+  document.getElementById("breakdown").innerHTML = `
     <thead><tr><th>Component</th><th class="n">Transactions</th><th class="n">Gas each</th>
       <th class="n">Gas total</th><th class="n">USD</th><th class="n">Share</th></tr></thead>
     <tbody>
-      <tr><td>Price writes</td><td class="n">${fmt(m.priceWrites, 0)}</td>
-        <td class="n">${m.writesPerRowPerMonth > 0 ? fmt(m.perRow / m.writesPerRowPerMonth, 0) : "—"}</td>
-        <td class="n">${fmt(m.priceGas)}</td><td class="n">${usd(m.toUsd(m.priceGas))}</td>
-        <td class="n">${(100 * m.priceGas / tot).toFixed(1)}%</td></tr>
+      <tr><td>Price writes${noTotal
+          ? ` <span class="src">${noTotalWhy} — excluded</span>` : ""}</td>
+        <td class="n">${fmt(m.priceWrites, 0)}</td>
+        <td class="n">${noTotal ? "—" : m.writesPerRowPerMonth > 0 ? fmt(m.perRow / m.writesPerRowPerMonth, 0) : "—"}</td>
+        <td class="n">${noTotal ? "—" : fmt(m.priceGas)}</td>
+        <td class="n">${noTotal ? "—" : usd(m.toUsd(m.priceGas))}</td>
+        <td class="n">${noTotal ? "—" : (100 * m.priceGas / tot).toFixed(1) + "%"}</td></tr>
       <tr><td>Cycle close${m.bootstrapGas ? " <span class=\"src\">incl. one-time writer bootstrap</span>" : ""}</td>
         <td class="n">${fmt(m.hbTxns, 1)}</td>
-        <td class="n">${m.hbCount > 0 ? fmt(G("heartbeat:repeat")) : m.bootstrapGas ? fmt(G("heartbeat:first")) : "—"}</td>
+        <td class="n">${m.hbCount > 0 ? fmt(m.P.closeRepeat) : m.bootstrapGas ? fmt(m.P.closeFirst) : "—"}</td>
         <td class="n">${fmt(m.hbGas)}</td><td class="n">${usd(m.toUsd(m.hbGas))}</td>
         <td class="n">${(100 * m.hbGas / tot).toFixed(1)}%</td></tr>
-      <tr><td>Attribute writes</td><td class="n">${fmt(m.attrWrites, 0)}</td>
-        <td class="n">${S.attrs ? fmt(G("writeAttribute:repeat, value changed")) : "—"}</td>
+      <tr><td>Attribute writes${m.P.attrCum === null && S.attrs > 0
+          ? " <span class=\"src\">not measured on EAS — excluded</span>" : ""}</td>
+        <td class="n">${m.P.attrCum === null ? "—" : fmt(m.attrWrites, 0)}</td>
+        <td class="n">${m.P.attrEach && S.attrs ? fmt(m.P.attrEach) : "—"}</td>
         <td class="n">${fmt(m.attrGas)}</td><td class="n">${usd(m.toUsd(m.attrGas))}</td>
         <td class="n">${(100 * m.attrGas / tot).toFixed(1)}%</td></tr>
-      <tr><td>Registration <span class="src">round 1 only</span></td>
+      <tr><td>Registration <span class="src">${m.P.registration ? "round 1 only"
+          : "no per-token gate on EAS"}</span></td>
         <td class="n">${m.regTxns ? fmt(m.regTxns) : "—"}</td>
         <td class="n">${m.regGas ? fmt(m.perItemReg, 0) + " /token" : "—"}</td>
         <td class="n">${fmt(m.regGas)}</td><td class="n">${usd(m.toUsd(m.regGas))}</td>
@@ -3237,10 +3771,12 @@ total                                                    = ${fmt(m.totalGas)} ga
   const coBody = co === null
     ? `<strong>On these dials the question does not arise: there are no bare cycle closes to pay
        for.</strong> The write cadence (${S.cadence} day) is inside the cycle-close window
-       (${fmt(m.hbInterval, 2)} days), and on the deployed contract a price write refreshes the
-       freshness clock by itself, so the close costs nothing beyond bootstrapping each writer
-       once. Lengthen the cadence past the window, or switch the cycle-close dial to round 2, to make it a
-       real line item.`
+       (${fmt(m.hbInterval, 2)} days), and ${isEas
+        ? `on EAS a fact carries its own publication time, so freshness comes from the attestation
+           rather than from a separate clock a write has to touch`
+        : `on the deployed contract a price write refreshes the freshness clock by itself, so the
+           close costs nothing beyond bootstrapping each writer once`}. Lengthen the cadence past
+       the window, or switch the cycle-close dial to round 2, to make it a real line item.`
     : `On these dials the crossover is at <span class="num">${co < 1 ? "under 1" : fmt(Math.ceil(co))}</span>
        token${co >= 2 ? "s" : ""} — ${co > S.tokens
         ? `above your current ${fmt(S.tokens)}, so the cycle close still dominates here.`
@@ -3249,13 +3785,22 @@ total                                                    = ${fmt(m.totalGas)} ga
        The cycle close is a per-writer, per-window cost and does not grow with the book, so its
        share collapses as soon as there is a real number of tokens. It is the dominant cost only
        for a nearly empty book.`;
-  document.getElementById("crossover").innerHTML = pending ? "" : `
+  document.getElementById("crossover").innerHTML = `
     <div class="note ${co !== null && co > S.tokens ? "warn" : "ok"}"><p><strong>At what token count
     does the cycle close stop being the dominant cost?</strong> ${coBody}</p>
     ${m.coveredByWrites && S.hbPolicy === "whenSilent" ? `<p class="small">With this cadence
-    (${S.cadence} day) inside the cycle-close window (${fmt(m.hbInterval, 2)} days), the deployed
-    contract needs <strong>no bare closes at all</strong>: <code>_writePrice</code> calls
-    <code>_touchHeartbeat</code>, so every price write refreshes the freshness clock. Fede has
+    (${S.cadence} day) inside the cycle-close window (${fmt(m.hbInterval, 2)} days),
+    ${isEas ? `the EAS arms need <strong>no bare closes at all</strong> either, for a different
+    reason: an attestation carries its own publication time, so a read can take freshness from the
+    fact itself. ENG-3922 measured both readings directly — arm 2's <code>price()</code> costs
+    ${fmt(READ.heartbeat.withHeartbeat)} with a rebuilt per-writer heartbeat and
+    ${fmt(READ.heartbeat.withoutHeartbeat)} taking freshness from the attestation time alone, a
+    difference of ${fmt(READ.heartbeat.withHeartbeat - READ.heartbeat.withoutHeartbeat)} gas on
+    every read. Neither is this page's headline arm-2 figure
+    (${fmt(READ.fork.arm2["0"])}), which is measured in its own scenario, and neither is
+    modelled into the running cost above` : `the deployed contract needs
+    <strong>no bare closes at all</strong>: <code>_writePrice</code> calls
+    <code>_touchHeartbeat</code>, so every price write refreshes the freshness clock`}. Fede has
     asked that a plain write <em>not</em> count as a cycle close; that is a change to the
     contract, not a description of it. Switch the policy dial to see what charging for it
     explicitly costs.</p>` : ""}</div>`;
@@ -3264,7 +3809,7 @@ total                                                    = ${fmt(m.totalGas)} ga
   const peak = CHAIN.gasAnchors.find(a => a.label === "extremely high");
   const hist = CHAIN.gasAnchors.find(a => a.label === "historical peak");
   const atGas = (g, tip, gas) => gas * (g + tip) * 1e-9 * S.eth;
-  document.getElementById("urgency").innerHTML = pending ? "" : `
+  document.getElementById("urgency").innerHTML = `
     <thead><tr><th>Scenario</th><th class="n">Base fee</th><th class="n">Urgent class</th>
       <th class="n">Deferrable class</th><th class="n">Total if nothing waits</th></tr></thead>
     <tbody>
@@ -3278,7 +3823,7 @@ total                                                    = ${fmt(m.totalGas)} ga
     </tbody>`;
 
   const longest = S.maxSilence * (1 - S.margin / 100);
-  document.getElementById("urgency-notes").innerHTML = pending ? "" : `
+  document.getElementById("urgency-notes").innerHTML = `
     <div class="note"><p><strong>Holding the urgent class to its bound at the worst moment of
     the trailing year</strong> (${gwei(peak.baseFeeGwei)} gwei, ${peak.timeUtc}) costs
     <strong>${usd(atGas(peak.baseFeeGwei, S.tip * S.urgentMult, m.urgentGas))}</strong> for
@@ -3424,8 +3969,8 @@ total                                                    = ${fmt(m.totalGas)} ga
 
   /* Registration — bespoke, round-1 only; unchanged from ENG-3913. Hidden on the EAS arm, which
      has no per-token registration gate (round 2 deletes it, ENG-3924). */
-  document.getElementById("batch-reg-h").hidden = pending;
-  document.getElementById("batch").innerHTML = pending ? "" : `
+  document.getElementById("batch-reg-h").hidden = isEas;
+  document.getElementById("batch").innerHTML = isEas ? "" : `
     <thead><tr><th>Batch size</th><th class="n">Gas per transaction</th><th class="n">Gas per token</th>
       <th class="n">vs one-by-one</th><th class="n">Share of a block</th></tr></thead>
     <tbody>${[1, 10, 100, 1000].map(n => {
@@ -3437,7 +3982,7 @@ total                                                    = ${fmt(m.totalGas)} ga
     }).join("")}</tbody>`;
 
   const b1000 = G("registerBatch:1000");
-  document.getElementById("batch-notes").innerHTML = pending ? `
+  document.getElementById("batch-notes").innerHTML = isEas ? `
     <div class="note"><p>The EAS arm has <strong>no per-token registration</strong>: there is no
     owner and no registry gate to batch through. Round 2 deletes registration on the custom store
     too (<a href="https://linear.app/fabrica/issue/ENG-3924">ENG-3924</a>). The measured EAS
@@ -3523,24 +4068,31 @@ total                                                    = ${fmt(m.totalGas)} ga
     </tbody>`;
 
   document.getElementById("eas-section").innerHTML = `
-    <div class="note warn"><p>The EAS arm's <strong>write side is now measured and shown</strong> in
-    the <em>Batching</em> panel above (ENG-3922), each figure cited to a report and commit —
-    including <code>indexAttestations</code>, folded into arm 1's per-item write because a record
-    the <code>Indexer</code> cannot find is a record it does not have. What is <strong>not</strong>
-    on this page, and is not estimated anywhere on it, is the number that actually decides the
-    fact-layer question: gas inside <code>price()</code> for a read. Those results are
-    <a href="https://linear.app/fabrica/issue/ENG-3922">ENG-3922</a>'s and are held pending Tim's
-    acknowledgement of the pre-registered pass mark, so the read-side comparison cannot be tuned
-    after the fact — no read-side figure or verdict appears here until then:</p>
+    <div class="note warn"><p><strong>The EAS arm is measured on both sides, and both are on this
+    page.</strong> The write side is in the <em>Batching</em> panel above (ENG-3922) — including
+    <code>indexAttestations</code>, folded into arm 1's per-item write because a record the
+    <code>Indexer</code> cannot find is a record it does not have. The read side — gas inside
+    <code>price()</code>, which per the adoption survey is the number that actually decides the
+    fact-layer question — is in the <em>Read side</em> panel at the top, from the same merged
+    reports at the same commit.</p>
+    <p>That read side was withheld until now, and the reason it was withheld is worth stating
+    rather than deleting: the pass mark was pre-registered on
+    <a href="https://linear.app/fabrica/issue/ENG-3922">ENG-3922</a> on
+    ${READ.marks.preRegisteredOn}, <em>before any arm was built or measured</em>, on Fede's bias
+    concern, so that the comparison could not be tuned after the fact. It never was. The bar is
+    exactly the one registered; publication was directed by Tim on
+    ${READ.marks.publicationDirected}.</p>
     <ul class="small">
+      <li><span class="src">measured, in Read side above:</span> gas inside <code>price()</code>
+        for a three-source read on each arm at <code>refUID</code> walk depths
+        ${READ.depths.join(" / ")}, each one against a real Sepolia transaction, plus arm 1's two
+        append-only growth curves — <em>the go/no-go number</em>, and it fails pass mark A on
+        every EAS arm</li>
       <li><span class="src">measured, in Batching above:</span> <code>multiAttest</code> and
         <code>indexAttestations</code> at 1/10/100, the ownerless pointer write, and
         <code>multiRevoke</code></li>
       <li><span class="src">measured, in Batching above:</span> a batched <code>writePrice</code> on
         the custom store, for the same comparison</li>
-      <li><span class="pending">held, not on this page:</span> gas inside <code>price()</code> for a
-        three-source read on each arm, including the <code>refUID</code> walk depth the seasoning
-        window needs — <em>the go/no-go number</em>, under the read-side pass-mark hold</li>
     </ul>
     <p><strong>⚠ On EAS, <code>attest</code> is not the whole write cost, and assuming it is is
     the easiest way to underestimate that arm.</strong> EAS's <code>Indexer</code> does
@@ -3559,10 +4111,11 @@ total                                                    = ${fmt(m.totalGas)} ga
     the adoption survey. Every EAS write figure on this page — the attest, the indexing write, the
     pointer write — is a measured row in ENG-3922's committed report, cited to that report and
     commit; the page carries no EAS write figure that is not backed by one.</p>
-    <p class="small">With the write side measured, this page now shows what it costs to WRITE a fact
-    on either arm. It gains its second arm <em>in full</em> when the read-side <code>price()</code>
-    gas lands — that, per the adoption survey, is the number that decides the fact-layer choice, and
-    it is the honest remaining gap in “what would EAS cost?”.</p></div>`;
+    <p class="small">With both sides measured, this page answers “what would EAS cost?” on the
+    dials rather than deferring it. What it still does <em>not</em> do is estimate: three terms of
+    the round-1 running-cost model have no measured EAS row — attribute writes, arm 2's
+    cycle-close lookup write, and a writer's first close — and the EAS dial excludes them by name
+    rather than filling them in. Its totals are therefore floors.</p></div>`;
 
   document.getElementById("method").innerHTML = `
     <h3>How the per-operation numbers were taken</h3>
@@ -3636,11 +4189,22 @@ total                                                    = ${fmt(m.totalGas)} ga
     assumed. <a href="https://linear.app/fabrica/issue/ENG-3922">ENG-3922</a> ran every read arm
     twice — once on a Sepolia fork with <code>vm.cool</code>, and once as a <strong>real Sepolia
     transaction</strong> through a probe contract that performs the read inside a transaction and
-    emits the gas it consumed. <strong>The two methods agree to within 0.7% on all four arms, and
-    to 0.2% on three of them.</strong> Evidence and transaction hashes are in that ticket's
-    Sepolia evidence report (fabrica-v3-contracts PR 42,
-    <code>bench-reports/eng3922-sepolia-evidence.md</code>) — it is their artifact, not this
-    page's, and it is cited rather than reproduced here.</p>
+    emits the gas it consumed. <strong>Three of the four arms agree to within
+    ${(() => { const xs = READ.arms.filter(a => READ.sepolia.probes[a.key] && a.key !== "arm1")
+      .map(a => Math.abs(pctDiff(READ.fork[a.key]["0"], READ.sepolia.probes[a.key].gas)));
+      return Math.max(...xs).toFixed(1); })()}%; the fourth, arm 1, diverges
+    ${pctCell(pctDiff(READ.fork.arm1["0"], READ.sepolia.probes.arm1.gas))} — and chasing that
+    divergence is what produced the append-only-growth finding.</strong> Like for like, at equal
+    cycle-close row depth, arm 1 lands at
+    ${pctCell(pctDiff(READ.growth.closeRow["3"], READ.sepolia.probes.arm1.gas))} with the rest.
+    The per-arm figures, the derivation and every transaction hash are in the <em>Read side</em>
+    panel above, from that ticket's merged reports.</p>
+    <p class="small"><strong>Correction, ENG-3944.</strong> This paragraph previously claimed the
+    two methods agreed “to within 0.7% on all four arms, and to 0.2% on three of them”. Against the
+    reports as merged at <code>${srcCommitShort()}</code> that is wrong in both halves, and it
+    flattered the method: the agreement is 1.0% at worst on three arms and 5.7% on the fourth. The
+    figures in this paragraph are now derived from the merged reports on every build rather than
+    written down, so the claim cannot go stale again.</p>
     <p class="small">This is a cross-check of the <em>method</em>, on the read path, by another
     lane. It is not a re-measurement of this page's write-side numbers, and it does not remove
     the write-1 discrepancy below.</p></div>
@@ -3700,9 +4264,13 @@ total                                                    = ${fmt(m.totalGas)} ga
       <li><strong>The 2022 peak was a 30M-gas-limit chain.</strong> It is kept because the ticket
         asks for a real historical peak and it is the honest ceiling, but it is not a forecast of
         what today's 60M chain would do under the same demand.</li>
-      <li><strong>Read gas is not here.</strong> This prices writing facts. What it costs a pool to
-        <em>read</em> them inside <code>price()</code> is ENG-3922's measurement, and per the
-        adoption survey it — not write gas — is the binding constraint on the fact-layer choice.</li>
+      <li><strong>The read side is a snapshot of one cycle, except where it says otherwise.</strong>
+        The per-arm <code>price()</code> figures at the top are a read at a given walk depth and
+        row depth. Arm 1's does not stay put — its two growth tables are the exception and the
+        finding. Nothing else on that panel is projected forward.</li>
+      <li><strong>The EAS running cost is a floor, not a forecast.</strong> Three terms of the
+        round-1 model have no measured EAS row and are excluded by name on that dial rather than
+        estimated: attribute writes, arm 2's cycle-close lookup write, and a writer's first close.</li>
     </ul>
 
     <h3>Reproducing the whole page</h3>
@@ -3794,7 +4362,10 @@ MAINNET_RPC_URL=... python3 bench/oracle-gas-model/collect-chain-data.py &gt; be
     `Generated ${CHAIN.generatedAtUtc} from <code>${META.commitShort}</code>.
      Sources: <code>bench/oracle-gas-model/reports/bench-rows.txt</code>,
      <code>reports/gas-report.txt</code>, <code>reports/deployed-vs-main.txt</code>,
-     <code>chain-data.json</code>. Terms follow the
+     <code>chain-data.json</code>, and ENG-3922's merged reports
+     <code>reports/eng3922-arms.txt</code>, <code>reports/eng3922-baseline.txt</code>,
+     <code>reports/eng3922-sepolia-evidence.md</code> @ <code>${srcCommitShort()}</code>.
+     Terms follow the
      <a href="https://linear.app/fabrica/document/fabrica-oracle-glossary-4aef17fa4e41">Fabrica Oracle Glossary</a>;
      “registration” appears only because it is the deployed contract's function name, and the
      glossary retires the concept.`;
@@ -3871,8 +4442,10 @@ function sync() {
          The Merkle root came out of round 2 at 18:47Z and is a round-3 candidate; when it lands
          it adds a write nobody has measured yet.`;
   document.getElementById("layer-hint").innerHTML = S.layer === "eas"
-    ? `<span class="pending">pending measurement</span> — ENG-3922 owns these numbers and this page
-       will not estimate them.`
+    ? `Measured on both sides (ENG-3922, <code>${srcCommitShort()}</code>): the read side in
+       <em>Read side</em>, the write side in <em>Batching</em>. Running cost is quoted for
+       ${BATCH.eas.arms.find(a => a.key === EAS_HEADLINE_ARM).label}, with the other arm on every
+       card, and excludes the terms EAS has no measured row for.`
     : `The custom fact store as deployed for round 1, measured on <code>main</code>.`;
   const a = CHAIN.gasAnchors.find(x => x.label === S.gasKey);
   document.getElementById("gas-hint").innerHTML = S.gasKey === "custom"
