@@ -106,15 +106,20 @@ INPUTS = [
     "reports/bench-rows.txt",
     "reports/deployed-vs-main.txt",
     "reports/gas-report.txt",
-    # ENG-3938: the write-side batch measurements for both arms, vendored verbatim from
-    # ENG-3922's committed arms report, plus the sidecar that pins the commit it came from.
-    # In INPUTS so the digest changes when the report is swapped for its final revision.
+    # ENG-3938: the write-side batch measurements for both arms, from ENG-3922's arms report,
+    # plus the provenance sidecar. ENG-3964 REGENERATED the arms report with this repo's harness
+    # at ENG-3922's pinned fork block, so it is no longer byte-identical to 55058ab0; the sidecar
+    # records that regeneration. Both in INPUTS so the digest tracks either one changing.
     "reports/eng3922-arms.txt",
     "reports/eng3922-source.txt",
     # ENG-3944: the read side. The arms report already carried the per-arm price() rows; the
     # baseline report carries the deployed aggregator's read, and the Sepolia evidence carries
-    # the four real-transaction probe receipts that corroborate the fork. All three are vendored
-    # verbatim from the same merged commit, and all three are in INPUTS so the digest tracks them.
+    # the four real-transaction probe receipts that corroborate the fork. These TWO are vendored
+    # verbatim and byte-identical to 55058ab0; the arms report above is not (see ENG-3964). All
+    # four eng3922-* files are in INPUTS so the digest tracks them.
+    #
+    # NOTE: this file is NOT in INPUTS. The digest is over what the page is built FROM, not the
+    # builder, so editing a comment here -- including this one -- does not move the digest.
     "reports/eng3922-baseline.txt",
     "reports/eng3922-sepolia-evidence.md",
 ]
@@ -122,6 +127,41 @@ INPUTS = [
 # ENG-3938: the batch-size dial drives the write-side per-item cost at these sizes. writePriceBatch
 # (bespoke) and multiAttest (EAS) are measured only to 100; batching is converged well before it.
 BATCH_SIZES = [1, 10, 100]
+
+
+def count_measured_rows(path):
+    """Count the measured `  label: <int>` lines in a forge report.
+
+    The row count is the one figure the provenance sidecar states about the report it describes,
+    and until ENG-3964 it was typed. It went stale within the hour: the count was taken after the
+    first regeneration and three more benches were added afterwards, leaving the sidecar 54 rows
+    light while still claiming to describe the committed file. Counting it here, and refusing when
+    the sidecar disagrees, is the same treatment every other derived figure in this directory gets.
+    """
+    return sum(1 for line in path.read_text().splitlines()
+               if re.match(r"\s{2}.+?: \d+$", line.rstrip()))
+
+
+def assert_sidecar_row_counts(meta, arms_path, base_rows):
+    """The sidecar's row accounting must match the report it ships beside.
+
+    `armsRowsAfter` is checked against the committed report; `armsRowsMoved` is not recomputed here
+    (it needs the base revision, which a committed file cannot reach) but IS asserted to be the
+    zero it claims, so a future regeneration that moves a row cannot keep the claim silently.
+    """
+    actual = count_measured_rows(arms_path)
+    claimed = meta.get("armsRowsAfter")
+    if claimed is None:
+        return
+    if int(claimed) != actual:
+        sys.exit("reports/eng3922-source.txt: armsRowsAfter says %s but %s holds %d measured rows. "
+                 "The sidecar describes the report it ships with, so update it -- or, if rows were "
+                 "added deliberately, re-run the row-by-row comparison against the base revision "
+                 "before changing the number" % (claimed, arms_path.name, actual))
+    before = meta.get("armsRowsBefore")
+    if before is not None and int(before) != base_rows:
+        sys.exit("reports/eng3922-source.txt: armsRowsBefore says %s but the vendored base is %d "
+                 "rows" % (before, base_rows))
 
 
 def parse_source(path):
@@ -143,6 +183,16 @@ def parse_source(path):
     for req in ("file", "commit", "status", "pr"):
         if req not in meta:
             sys.exit("%s: missing required provenance line %r" % (path, req))
+    # `armsRowsAfter` and `armsRowsBefore` are checked against the committed report. `armsRowsMoved`
+    # CANNOT be: recomputing it needs the base revision, and a committed file cannot reach git. All
+    # this can enforce is that a non-zero count carries its reason. The count itself is a claim a
+    # reviewer must verify by comparison, and the sidecar says so rather than letting the presence
+    # of a guard imply the number is covered.
+    moved = meta.get("armsRowsMoved")
+    if moved not in (None, "0") and not meta.get("armsRowsMovedReason", "").strip():
+        sys.exit("%s: armsRowsMoved is %r with no armsRowsMovedReason. A moved row means a figure "
+                 "this page renders has changed, so the provenance claim has to be REWRITTEN and "
+                 "the reason stated -- not the number bumped" % (path, moved))
     return meta
 
 
@@ -234,10 +284,17 @@ MARK_PRE_REGISTERED_ON = "2026-09-03"
 MARK_PUBLICATION_DIRECTED = "2026-09-04 16:18Z"
 
 
-def _read_int(text, pattern, path, what):
+def _read_int(text, pattern, path, what, side="read-side"):
+    """Pull one measured integer out of a report, or refuse to build.
+
+    `side` names which panel needs the row, because this helper serves both: the read-side panel
+    and (ENG-3964) the write-side running-cost terms. It defaulted to "the read-side panel needs
+    it" for every caller, which sent anyone debugging a missing write-side row to the wrong half
+    of the page.
+    """
     match = re.search(pattern, text)
     if not match:
-        sys.exit("%s: missing measured row for %s -- the read-side panel needs it" % (path, what))
+        sys.exit("%s: missing measured row for %s -- the %s needs it" % (path, what, side))
     return int(match.group(1).replace(",", ""))
 
 
@@ -307,23 +364,175 @@ def parse_heartbeat_variants(path):
     }
 
 
+# ENG-3964: the mainnet block gas limit the boundary search was run against. It is ALSO read from
+# chain into chain-data.json and rendered on the page; this constant is the figure the committed
+# bench measured against, and the build asserts the two agree rather than letting them drift.
+BLOCK_GAS_LIMIT = 60_000_000
+# The batch sizes ENG-3964 measured while locating that boundary. The decisive pair is the last
+# fitting size and the first non-fitting one; the rest are the search trace, kept so the boundary
+# is reproducible rather than asserted.
+BOUNDARY_SIZES = [80, 100, 200, 225, 230, 231, 250]
+# The decomposition the dial-1,000 card is composed from: 1000 = 4 x 230 + 80. Both are measured
+# sizes; parse_batch_boundary re-derives them from the rows and refuses if they disagree with these.
+DIAL_1000_BATCH = 230
+DIAL_1000_RESIDUAL = 80
+
+
 def parse_eas_close_write(path):
     """The EAS cycle-close WRITE rows the running-cost model charges under the EAS dial.
 
-    Arm 1's close is measured complete (attest + the Indexer write). Arm 2's close is measured only
-    as far as the attestation: the pointer write that would make a cycle-close row findable on that
-    arm was never measured, which is why the EAS running cost carries an explicit exclusion for it
-    rather than an estimate.
+    ENG-3944 charged arm 2's close at the attestation alone and excluded the pointer write that
+    makes the row findable, and charged no writer bootstrap at all because none was measured.
+    ENG-3964 measured both, in first AND repeat regimes, so nothing here is excluded:
+
+      attestFirst / attestSecond  the close attestation, first and second by the same writer
+      indexFirst  / indexRepeat   arm 1's Indexer write, first and later entries on that row
+      pointFirst  / pointRepeat   arm 2's pointer write, cold and warm slot
+
+    The bootstrap premium the page shows is the difference of two measured rows, never a rule about
+    storage. Every row is cooled on EVERY address its call touches -- EAS, the SchemaRegistry it
+    reads the schema from, and the Indexer or pointer being written -- in both halves of each pair.
     """
     text = path.read_text()
     return {
-        "attestOnly": _read_int(
+        # `attestOnly` and `arm1Indexed` were parsed here until ENG-3964 measured both arms' closes
+        # properly. Nothing reads them now, so nothing ships them: a payload field no template
+        # consumes is a figure that can go stale with no symptom.
+        "attestFirst": _read_int(
+            text, r"cycle close attestation FIRST by the writer -- WHOLE TRANSACTION: (\d+)",
+            path, "EAS cycle-close attestation, first by the writer", "write-side cycle-close term"),
+        "attestSecond": _read_int(
+            text, r"cycle close attestation SECOND by the same writer -- WHOLE TRANSACTION: (\d+)",
+            path, "EAS cycle-close attestation, second by the same writer", "write-side cycle-close term"),
+        "indexFirst": _read_int(
+            text, r"arm1 cycle close, Indexer write FIRST on the row -- WHOLE TRANSACTION: (\d+)",
+            path, "arm 1 cycle-close Indexer write, first on the row", "write-side cycle-close term"),
+        "indexRepeat": _read_int(
+            text, r"arm1 cycle close, Indexer write REPEAT on the row -- WHOLE TRANSACTION: (\d+)",
+            path, "arm 1 cycle-close Indexer write, repeat on the row", "write-side cycle-close term"),
+        "pointFirst": _read_int(
+            text, r"arm2 cycle close, pointer write FIRST on the row -- WHOLE TRANSACTION: (\d+)",
+            path, "arm 2 cycle-close pointer write, first on the row", "write-side cycle-close term"),
+        "pointRepeat": _read_int(
+            text, r"arm2 cycle close, pointer write REPEAT on the row -- WHOLE TRANSACTION: (\d+)",
+            path, "arm 2 cycle-close pointer write, repeat on the row", "write-side cycle-close term"),
+    }
+
+
+def assert_dial_1000_decomposition(path):
+    """The dial-1,000 split must agree with the boundary the rows actually show.
+
+    Run FIRST, before anything parses rows at those sizes. `parse_attribute_writes` reads the
+    attribute legs at DIAL_1000_BATCH and DIAL_1000_RESIDUAL, so if that constant moves without the
+    rows being re-measured, the attribute parser fails on a missing row and this check -- the one
+    that can explain what actually went wrong -- never runs. The build refused either way; it just
+    refused with the wrong reason, which sends the next person looking in the wrong place.
+    """
+    text = path.read_text()
+    attest = {}
+    for n in BOUNDARY_SIZES:
+        match = re.search(r"EAS multiAttest n=%d -- WHOLE TRANSACTION: (\d+)" % n, text)
+        if match:
+            attest[n] = int(match.group(1))
+    fits = sorted(n for n, g in attest.items() if g <= BLOCK_GAS_LIMIT)
+    if not fits:
+        return
+    n_max = fits[-1]
+    if n_max != DIAL_1000_BATCH or 1000 % n_max != DIAL_1000_RESIDUAL:
+        sys.exit("build-model-page.py: the measured boundary is n_max=%d with residual %d, but the "
+                 "dial-1,000 decomposition is set to %d + %d. Both write streams are composed at "
+                 "that split, so re-measure the price AND attribute legs at the new sizes before "
+                 "moving it" % (n_max, 1000 % n_max, DIAL_1000_BATCH, DIAL_1000_RESIDUAL))
+
+
+def parse_attribute_writes(path):
+    """ENG-3964 item 4: what an attribute write costs on each EAS arm.
+
+    Composed the way the price term is -- the attestation PLUS the write that makes it findable --
+    because a record the arm cannot find is a record it does not have. The lookup row is per
+    (token, attribute), so a token's FIRST attribute write pays a cold row and later ones do not;
+    both regimes are measured at the 100 batch so the model can charge them apart, exactly as it
+    does on the bespoke layer.
+    """
+    text = path.read_text()
+
+    def batch(label, sizes, suffix=""):
+        return {str(n): _read_int(
             text,
-            r"EAS arms, cycle close attestation WITHOUT root \(round 2\) -- WHOLE TRANSACTION: (\d+)",
-            path, "EAS round-2 cycle-close attestation"),
-        "arm1Indexed": _read_int(
-            text, r"arm1 cycle close, attest \+ index -- WHOLE TRANSACTIONS: (\d+)",
-            path, "arm 1 cycle close, attest + index"),
+            r"EAS attribute %s n=%d%s -- WHOLE TRANSACTION: (\d+)" % (label, n, suffix),
+            path, "attribute %s n=%d%s" % (label, n, suffix), "write-side attribute term") for n in sizes}
+
+    # The dial sizes, plus the two the dial-1,000 decomposition needs. The attribute stream is
+    # composed at the SAME 4 x nMax + residual split the price stream uses, so the two remain
+    # comparable on one dial; the attribute legs fit comfortably at that size and the build
+    # asserts it below rather than assuming it.
+    sizes = BATCH_SIZES + [DIAL_1000_RESIDUAL, DIAL_1000_BATCH]
+    out = {
+        "attest": batch("multiAttest", sizes),
+        "indexFirst": batch("indexAttestations", sizes, " FIRST on the row"),
+        "indexRepeat": batch("indexAttestations", sizes, " REPEAT on the row"),
+        "pointFirst": batch("pointBatch", sizes, " FIRST on the row"),
+        "pointRepeat": batch("pointBatch", sizes, " REPEAT on the row"),
+    }
+    for leg, rows in out.items():
+        over = rows[str(DIAL_1000_BATCH)]
+        if over > BLOCK_GAS_LIMIT:
+            sys.exit("%s: the attribute %s leg is %s at n=%d, over the %s block limit, so the "
+                     "dial-1,000 attribute composition would not be sendable"
+                     % (path, leg, f"{over:,}", DIAL_1000_BATCH, f"{BLOCK_GAS_LIMIT:,}"))
+    return out
+
+
+def parse_batch_boundary(path, chain_gas_limit):
+    """ENG-3964 item 3: the largest batch that fits in a block, located by MEASUREMENT.
+
+    The dial offers 1,000 and a single n=1,000 attestation does not fit in a block. Rather than
+    divide a per-item figure by the limit -- a projection, and one that came out a size too high --
+    the bench measures candidate sizes and this reads the boundary off them: n_max is the largest
+    MEASURED size that fits, and the build refuses unless the very next measured size is proven not
+    to fit, so the boundary is an adjacent measured pair and not an extrapolation.
+    """
+    if chain_gas_limit != BLOCK_GAS_LIMIT:
+        sys.exit("build-model-page.py: the bench measured against a %s gas block limit but "
+                 "chain-data.json reads %s from chain; the boundary would be wrong"
+                 % (f"{BLOCK_GAS_LIMIT:,}", f"{chain_gas_limit:,}"))
+    text = path.read_text()
+    attest = {n: _read_int(text, r"EAS multiAttest n=%d -- WHOLE TRANSACTION: (\d+)" % n, path,
+                           "multiAttest n=%d" % n) for n in BOUNDARY_SIZES}
+    fits = sorted(n for n, g in attest.items() if g <= BLOCK_GAS_LIMIT)
+    over = sorted(n for n, g in attest.items() if g > BLOCK_GAS_LIMIT)
+    if not fits or not over:
+        sys.exit("%s: the measured batch sizes do not bracket the block limit; the boundary cannot "
+                 "be read off them" % path)
+    n_max, first_over = fits[-1], over[0]
+    if first_over != n_max + 1:
+        sys.exit("%s: n_max=%d and the first size measured NOT to fit is %d. The boundary is only "
+                 "proven when those are ADJACENT -- measure n=%d, or the page is extrapolating"
+                 % (path, n_max, first_over, n_max + 1))
+    residual = 1000 % n_max
+    # Belt and braces: assert_dial_1000_decomposition() has already run and would have caught this,
+    # but the boundary is the thing this function exists to establish, so it checks its own premise.
+    if n_max != DIAL_1000_BATCH or residual != DIAL_1000_RESIDUAL:
+        sys.exit("%s: the measured boundary is n_max=%d with residual %d, but the dial-1,000 "
+                 "decomposition is set to %d + %d"
+                 % (path, n_max, residual, DIAL_1000_BATCH, DIAL_1000_RESIDUAL))
+    legs = {}
+    for key, label in (("index", "EAS indexAttestations"), ("point", "pointer pointBatch")):
+        legs[key] = {str(n): _read_int(
+            text, re.escape(label) + r" n=%d -- WHOLE TRANSACTION: (\d+)" % n, path,
+            "%s n=%d" % (label, n)) for n in (n_max, residual)}
+        if legs[key][str(n_max)] > BLOCK_GAS_LIMIT:
+            sys.exit("%s: the %s leg does not fit at n=%d either; n_max is not set by the attest "
+                     "leg and the page's wording would be wrong" % (path, label, n_max))
+    return {
+        "blockGasLimit": BLOCK_GAS_LIMIT,
+        "sizes": BOUNDARY_SIZES,
+        "attest": {str(n): g for n, g in attest.items()},
+        "nMax": n_max,
+        "firstOver": first_over,
+        "residual": residual,
+        "fullBatches": 1000 // n_max,
+        "legs": legs,
     }
 
 
@@ -465,8 +674,11 @@ def main():
     # the ENG-3913 first write measured in this repo (bench-rows.txt); the EAS arm has no ENG-3913
     # figure, so its baseline is ENG-3922's multiAttest at n=1, which is a single attest.
     arms_report = HERE / "reports" / "eng3922-arms.txt"
+    # FIRST, before any parser reads a row at the dial-1,000 decomposition sizes.
+    assert_dial_1000_decomposition(arms_report)
     ops = parse_arms_batch(arms_report)
     source = parse_source(HERE / "reports" / "eng3922-source.txt")
+    assert_sidecar_row_counts(source, arms_report, 128)
     batch = {
         "sizes": BATCH_SIZES,
         "source": source,
@@ -504,6 +716,9 @@ def main():
             # ENG-3944: the cycle-close WRITE the running-cost model charges under the EAS dial.
             # arm 1's is measured complete; arm 2's is measured only as far as the attestation.
             "close": parse_eas_close_write(arms_report),
+            # ENG-3964: the attribute term, and the batch-1,000 boundary the dial needs.
+            "attribute": parse_attribute_writes(arms_report),
+            "boundary": parse_batch_boundary(arms_report, chain["now"]["gasLimit"]),
         },
     }
     # Labels for the addend ops, so the table can name each measured row it sums.
@@ -539,8 +754,9 @@ def main():
             "preRegisteredOn": MARK_PRE_REGISTERED_ON,
             "publicationDirected": MARK_PUBLICATION_DIRECTED,
         },
-        # The paths these reports have on `main`, for citation. The vendored copies under
-        # reports/ are byte-identical to them at the commit in the provenance sidecar.
+        # The paths these reports have on `main`, for citation. The baseline and evidence copies
+        # under reports/ are byte-identical to them at the commit in the provenance sidecar; the
+        # arms copy is NOT -- ENG-3964 regenerated it, and the sidecar records that.
         "reports": {
             "arms": "bench-reports/eng3922-arms.txt",
             "baseline": "bench-reports/eng3922-baseline.txt",

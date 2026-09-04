@@ -404,6 +404,8 @@ function writeProfile(armKey) {
       closeFirst: G("heartbeat:first"),
       attrCum: (before, n) => attrCostForMonth(before, n),
       attrEach: G("writeAttribute:repeat, value changed"),
+      // One writeAttribute per attribute, sent individually.
+      attrTxnsFor: writes => writes,
       registration: true,
       excluded: [],
     };
@@ -411,29 +413,48 @@ function writeProfile(armKey) {
   const arm = BATCH.eas.arms.find(a => a.key === (armKey || EAS_HEADLINE_ARM));
   const [addA, addB] = arm.addends;
   const O = BATCH.ops;
+  const C = BATCH.eas.close;
+  const A = BATCH.eas.attribute;
+  const BD = BATCH.eas.boundary;
+  const isArm1 = arm.key === "arm1";
+  // ENG-3964 measured every term ENG-3944 had to exclude, so `excluded` is now empty on every dial
+  // state and the totals below are totals rather than floors. It is kept as a mechanism, not
+  // deleted, because the rule it enforces still stands: a term without a measured row is named and
+  // left out, never estimated. If a future dial or arm outruns the rows, this fills again.
+  const excluded = [];
   // Per fact = floor of the COMBINED two-transaction batch total / n, the same composition the
   // Batching panel shows, not the sum of two independently floored per-item figures.
   const measuredAtDial = BATCH.sizes.includes(S.batch);
+  // At a dial size no single transaction can carry, the cost is COMPOSED from measured rows:
+  // `fullBatches` transactions at the largest measured batch that fits a block, plus one residual
+  // batch, each a measured row. Nothing is extrapolated and nothing is dropped.
+  const composedAtDial = !measuredAtDial && S.batch === 1000;
+  const leg = isArm1 ? BD.legs.index : BD.legs.point;
+  const composedPrice = BD.fullBatches * (BD.attest[String(BD.nMax)] + leg[String(BD.nMax)])
+    + (BD.attest[String(BD.residual)] + leg[String(BD.residual)]);
   const perFact = measuredAtDial
-    ? Math.floor((O[addA][String(S.batch)].total + O[addB][String(S.batch)].total) / S.batch) : null;
-  const excluded = [];
-  if (!measuredAtDial) excluded.push(`price writes at batch ${fmt(S.batch)}: no measured EAS row —
-    the EAS write side is measured at ${BATCH.sizes.join(" / ")} only, and this term is excluded
-    rather than extrapolated from the ${fmt(BATCH.sizes[BATCH.sizes.length - 1])} row`);
-  // The cycle close. Arm 1's is measured complete (attest + the Indexer write). Arm 2's is
-  // measured only as far as the attestation: the pointer write that would make a cycle-close row
-  // findable was never measured, so the close is charged at the measured attestation and the
-  // missing lookup is declared instead of guessed.
-  const closeRepeat = arm.key === "arm1" ? BATCH.eas.close.arm1Indexed : BATCH.eas.close.attestOnly;
-  if (arm.key !== "arm1") excluded.push(`arm 2's cycle-close <em>lookup</em> write: not measured —
-    the close is charged at the measured attestation (${fmt(BATCH.eas.close.attestOnly)}) and the
-    pointer write that would make that row findable is excluded, so arm 2's close is a floor`);
-  excluded.push(`a writer's FIRST cycle close on EAS: not measured — the bespoke store has a
-    measured cold-slot bootstrap premium and EAS has no equivalent row, so no one-time bootstrap
-    is charged on this layer`);
-  if (S.attrs > 0) excluded.push(`attribute writes: not measured on EAS — ENG-3922 measured no
-    attribute attestation, so the ${fmt(S.attrs)} attribute write${S.attrs === 1 ? "" : "s"} per
-    token per cycle are excluded from every figure on this layer`);
+    ? Math.floor((O[addA][String(S.batch)].total + O[addB][String(S.batch)].total) / S.batch)
+    : composedAtDial ? Math.floor(composedPrice / 1000) : null;
+  // The attribute stream is composed the SAME way as the price stream, which at dial 1,000 means
+  // `fullBatches` batches of nMax plus the residual -- NOT one nMax batch divided by nMax. Dividing
+  // the 230 measurement by 230 quietly drops the residual and disagrees with the split the sidecar
+  // asserts both streams share; it also disagreed with this arm's own `attrTxnsFor`, which was
+  // already counting the composed transactions. (CodeRabbit, PR #47.)
+  const attrPerWrite = leg => measuredAtDial
+    ? Math.floor((A.attest[String(S.batch)] + A[leg][String(S.batch)]) / S.batch)
+    : composedAtDial
+      ? Math.floor((BD.fullBatches * (A.attest[String(BD.nMax)] + A[leg][String(BD.nMax)])
+                    + (A.attest[String(BD.residual)] + A[leg][String(BD.residual)])) / 1000)
+      : 0;
+  if (perFact === null) excluded.push(`price writes at batch ${fmt(S.batch)}: no measured EAS row
+    and no measured decomposition — the EAS write side is measured at
+    ${BATCH.sizes.join(" / ")} and composed at 1,000, and this term is excluded rather than
+    extrapolated`);
+  // The cycle close, both regimes measured (ENG-3964 items 1 and 2). Arm 1 pays the attestation
+  // plus its Indexer write; arm 2 pays the attestation plus the pointer write that makes the row
+  // findable -- the term ENG-3944 excluded, so arm 2's close is no longer a floor.
+  const closeFirst = C.attestFirst + (isArm1 ? C.indexFirst : C.pointFirst);
+  const closeRepeat = C.attestSecond + (isArm1 ? C.indexRepeat : C.pointRepeat);
   return {
     layer: "eas", arm: arm.key, armLabel: arm.label,
     // EAS has no history ring: an attestation creates a new record every time rather than pushing
@@ -441,22 +462,48 @@ function writeProfile(armKey) {
     // a row gets cheaper. The cost is flat in the write count.
     priceCum: n => perFact === null ? 0 : perFact * n,
     priceEach: perFact,
+    composedAtDial,
+    composition: composedAtDial
+      ? {batches: BD.fullBatches, batchSize: BD.nMax, residual: BD.residual, total: composedPrice,
+         txns: (BD.fullBatches + 1) * arm.addends.length}
+      : null,
     // EAS facts ship in BATCHES, and each batch is two transactions -- the attestation and the
     // write that makes it findable. A fact count is not a transaction count here, and the two
     // were being added together.
-    priceBatchesFor: writes => measuredAtDial ? Math.ceil(writes / S.batch) : 0,
+    priceBatchesFor: writes => measuredAtDial ? Math.ceil(writes / S.batch)
+      : composedAtDial ? Math.ceil(writes / 1000) * (BD.fullBatches + 1) : 0,
     // One transaction per addend per batch: the attestation, and the write that makes it findable.
+    // At a composed dial size a "batch" of 1,000 is itself several transactions, so the count
+    // follows the composition rather than the dial.
     priceTxnsFor: writes => measuredAtDial
-      ? Math.ceil(writes / S.batch) * arm.addends.length : 0,
+      ? Math.ceil(writes / S.batch) * arm.addends.length
+      : composedAtDial
+        ? Math.ceil(writes / 1000) * (BD.fullBatches + 1) * arm.addends.length : 0,
     addendCount: arm.addends.length,
-    // Arm 1's close is attest PLUS the Indexer write, measured together as two transactions.
-    // Arm 2's is the attestation alone, because its lookup write is the term we exclude.
-    closeTxnsEach: arm.key === "arm1" ? 2 : 1,
+    // Both arms' closes are now TWO transactions: the attestation, and the write that makes the
+    // close row findable (the Indexer on arm 1, the pointer on arm 2). Arm 2's was one only while
+    // that pointer write was the excluded term; measuring it moved the transaction count as well
+    // as the gas.
+    closeTxnsEach: 2,
     urgentPerWrite: () => perFact === null ? 0 : perFact,
     closeRepeat,
-    closeFirst: null,
-    attrCum: null,
-    attrEach: null,
+    closeFirst,
+    // Attribute writes, measured per arm under the same additive rule (ENG-3964 item 4). The
+    // lookup row is per (token, attribute), so a token's FIRST attribute write pays a cold row and
+    // later ones do not -- the same two regimes the bespoke store has, charged the same way.
+    attrCum: (before, n) => {
+      const firstEach = attrPerWrite(isArm1 ? "indexFirst" : "pointFirst");
+      const restEach = attrPerWrite(isArm1 ? "indexRepeat" : "pointRepeat");
+      const cum = k => k <= 0 ? 0 : firstEach * Math.min(k, 1) + restEach * Math.max(0, k - 1);
+      return cum(before + n) - cum(before);
+    },
+    attrEach: attrPerWrite(isArm1 ? "indexRepeat" : "pointRepeat"),
+    // Attributes batch on EAS exactly as prices do, so an attribute WRITE count is not a
+    // transaction count either -- the same distinction the price term draws.
+    attrTxnsFor: writes => measuredAtDial
+      ? Math.ceil(writes / S.batch) * arm.addends.length
+      : composedAtDial
+        ? Math.ceil(writes / 1000) * (BD.fullBatches + 1) * arm.addends.length : 0,
     registration: false,
     excluded,
   };
@@ -525,7 +572,7 @@ function model(armKey) {
   // Transactions actually sent, which on a batching layer is not the number of facts written.
   const priceTxns = P.priceTxnsFor(priceWrites);
   const priceBatches = P.priceBatchesFor(priceWrites);
-  const txnTotal = priceTxns + hbTxns * P.closeTxnsEach + attrWrites + regTxns;
+  const txnTotal = priceTxns + hbTxns * P.closeTxnsEach + P.attrTxnsFor(attrWrites) + regTxns;
   const totalGas = priceGas + hbGas + attrGas + regGas;
   const price = (S.gas + S.tip) * 1e-9;              // ETH per gas
   const toEth = g => g * price;
@@ -847,11 +894,16 @@ function renderReadSide() {
     arm 1 is the one that includes it.</p></div>`;
 
   document.getElementById("read-provenance").innerHTML = `
-    <p class="small">Every figure on this panel comes from ENG-3922's committed reports, vendored
-    verbatim into this directory and byte-identical to
-    <code>${READ.reports.arms}</code>, <code>${READ.reports.baseline}</code> and
-    <code>${READ.reports.evidence}</code> on <code>main</code> at
-    <code>${srcCommitShort()}</code> (PR #${READ.source.pr}), which is the commit that merged them.
+    <p class="small">Every figure on this panel comes from ENG-3922's committed reports, in this
+    directory. <code>${READ.reports.baseline}</code> and <code>${READ.reports.evidence}</code> are
+    vendored <strong>verbatim</strong> and byte-identical to their counterparts on <code>main</code>
+    at <code>${srcCommitShort()}</code> (PR #${READ.source.pr}), the commit that merged them.
+    <code>${READ.reports.arms}</code> is <strong>regenerated</strong> by the same harness at the
+    same pinned fork block, because ENG-3964 measured terms whose rows do not exist at that commit:
+    it holds ${fmt(+READ.source.armsRowsAfter)} measured rows against
+    ${fmt(+READ.source.armsRowsBefore)} there, ${fmt(+READ.source.armsRowsAfter - +READ.source.armsRowsBefore)}
+    added and ${fmt(+READ.source.armsRowsMoved)} corrected. The sidecar carries that accounting and
+    the reason for every correction.
     They are inputs to this page's digest, so <code>build-model-page.py --check</code> fails if any
     row is edited. The ratios, per-hop costs, percentages and projections are composed here from
     those rows by the formulas stated above and appear nowhere in the committed HTML — read them
@@ -893,16 +945,21 @@ function render() {
     deployed on Ethereum mainnet, so of the two arms this model prices, the pointer arm is the
     one that could ship there.</p>
     ${BATCH.eas.arms.some(a => easArmTotals[a.key].P.excluded.length) ? `<p><strong>Some terms of
-    the round-1 model have no measured EAS row, and are excluded rather than estimated</strong> —
-    the totals on this dial are floors, not forecasts. <em>The exclusions differ by arm</em>, so
-    they are listed per arm rather than applied to both:</p>
+    the round-1 model have no measured EAS row on these dials, and are excluded rather than
+    estimated</strong> — the totals on this dial are floors, not forecasts. <em>The exclusions
+    differ by arm</em>, so they are listed per arm:</p>
     ${BATCH.eas.arms.map(a => {
       const ex = easArmTotals[a.key].P.excluded;
       return `<p class="small" style="margin:8px 0 2px"><strong>${a.label}</strong> —
         ${ex.length === 0 ? "nothing excluded on these dials."
           : `${fmt(ex.length)} excluded:`}</p>${ex.length
           ? `<ul class="small">${ex.map(x => `<li>${x}</li>`).join("")}</ul>` : ""}`;
-    }).join("")}` : ""}
+    }).join("")}` : `<p><strong>Every term of the round-1 model is measured on this layer. Nothing
+    is excluded and nothing is estimated, so these are totals rather than floors.</strong> The four
+    terms this page used to footnote were measured by
+    <a href="https://linear.app/fabrica/issue/ENG-3964">ENG-3964</a>: a writer's first cycle close
+    (the attestation and its lookup write, both regimes), arm 2's cycle-close pointer write,
+    attribute writes on both arms, and the batch dial at 1,000.</p>`}
     <p class="small">Deliberate, and unchanged: nothing on this page is estimated. A term with a
     measured row is charged; a term without one is named and left out.</p></div>`;
 
@@ -928,6 +985,17 @@ function render() {
   const alt = isEas ? easArmTotals[otherEasArm.key] : null;
   // Bespoke prices a row through the history ring rather than from a flat per-fact figure, so it
   // has no `priceEach` by construction; only the EAS layer can be missing one.
+  //
+  // CONTINGENCY, and currently UNREACHABLE. `noTotal` was true at batch 1,000 until ENG-3964 gave
+  // that dial size a measured composition; every size the dial offers now yields a `priceEach`, so
+  // nothing below this line renders today — including ENG-3961's fix to the zero-closes crossover
+  // sentence, which is correct if reached and has never been exercised on a shipped page.
+  //
+  // Kept deliberately, for the same reason the empty `excluded` list above is kept: the rule it
+  // enforces still stands. A dial size or an arm with no measured row and no measured
+  // decomposition must refuse to show a total rather than show a partial one, and if the dial
+  // gains a size or an arm gains a leg the rows do not cover, this fills again. Do not delete it
+  // as dead, and do not read its presence as evidence that the path is tested.
   const noTotal = isEas && m.P.priceEach === null;
   const noTotalWhy = `no measured EAS write row at batch ${fmt(S.batch)} — measured at ${BATCH.sizes.join(" / ")}`;
   const withAlt = (sub, render) => noTotal ? noTotalWhy
@@ -1508,20 +1576,44 @@ total                                                    = ${noTotal ? "— not 
     with ENG-3922's independent measurement of the deployed contract to 0.2% on three of four
     regimes. That claim is <span class="pending">withdrawn</span>, and no replacement number is
     offered.</strong></p>
-    <p>Two reasons, either of which is sufficient. First, the quantities were taken from figures
-    relayed in conversation rather than from ENG-3922's committed report, and they do not match
-    it — against the committed baseline the agreements are 1.7–2.1%, not 0.2%, and the wrapped
-    regime is out by 11.7%, which is a different regime from the one this page named as the
-    outlier. Second, and decisive: <strong>that baseline report does not currently reproduce.</strong>
-    A reviewer re-running it at ENG-3922's own head, same forge and same pinned fork block, gets
-    materially different numbers, and this repo's <code>CLAUDE.md</code> measurement guard sides
-    with the re-run. That is an open finding on contracts#42.</p>
-    <p>So the source is unsettled in both directions, and substituting the committed values would
-    only move the error rather than remove it. The corroboration is marked
-    <span class="pending">pending: ENG-3922 baseline under re-measurement</span> and carries no
-    quantities until that report regenerates. <strong>Nothing on this page depends on it</strong>
-    — every figure here is measured by the benches in this repo, which reproduce exactly, and
-    none of them was derived from or reconciled against ENG-3922's baseline.</p>
+    <p>The quantities were taken from figures relayed in conversation rather than from ENG-3922's
+    committed report, and they do not match it — against the committed baseline the agreements are
+    1.7–2.1%, not 0.2%, and the wrapped regime is out by 11.7%, a different regime from the one
+    this page named as the outlier. That is why the claim is withdrawn, and it stays withdrawn.</p>
+    <div class="note ok"><p><strong>The second reason this paragraph used to give is now
+    retired.</strong> It said the baseline report "does not currently reproduce" and called that an
+    open finding on contracts#42. <a href="https://linear.app/fabrica/issue/ENG-3964">ENG-3964</a>
+    re-ran BOTH ENG-3922 reports from a clean worktree at the merged head, same forge (1.7.1,
+    commit <code>4072e48</code>) and same pinned fork block (11,628,000):
+    <strong>147 of 147 measured rows reproduced identically</strong> — 128 of 128 in the arms
+    report, 19 of 19 in the baseline, none moved. The baseline reproduces. What remains withdrawn
+    is the corroboration <em>figure</em>, because it never came from the artifact.</p>
+    <p class="small"><strong>Reproduces means row-wise, not byte-wise.</strong> Forge stamps each
+    run's wall-clock timings into the report and does not fix the order it emits suites in, so a
+    clean re-run differs from the committed file on the order of a hundred lines while every
+    measured row is identical. A naive <code>diff</code> is therefore not evidence of
+    non-reproduction — compare the <em>rows</em>, which is what the 147-of-147 above counts, and
+    what <code>--check</code> tests by hashing the report as an input rather than re-running it.</p>
+    <p class="small"><strong>One measurement was corrected rather than annotated.</strong> Every
+    bench here cools the contract under test before measuring; several also read a SECOND contract
+    that the harness leaves warm, and cooling only the entry point charges that read at warm prices.
+    ENG-3964 found it in two places and they came out very differently.
+    <strong>The attest path</strong> reads the schema from the registry: cooling it changed
+    <code>multiAttest</code> by nothing at any batch size, and cost 54 gas (0.02%) on the
+    cycle-close attestation, where a priming call inside the test had warmed it.
+    <strong>The index path</strong> was not so small. <code>indexAttestations</code> reads every
+    attestation back out of EAS, and the bench primed it with a <code>multiAttest</code> in the same
+    test — so the measured call read those slots warm. It cannot: a publisher does not know the uids
+    until the attest transaction returns, so indexing is always a separate transaction and always
+    pays cold access. Correcting it moved every <code>indexAttestations</code> row
+    <strong>+26,000 gas per item</strong> and took arm 1's per-fact write from 425,339 to
+    <strong>451,339</strong>. The old figure measured a state that cannot occur; this one is on the
+    page.</p>
+    <p class="small">What is left, and deliberately: <code>multiRevoke</code> still cools EAS alone
+    and so still carries the small registry warmth. It is shown for context and is not part of any
+    composed figure on this page, so it was not re-measured. The report-accuracy record for
+    ENG-3922's own documents is
+    <a href="https://linear.app/fabrica/issue/ENG-3950">ENG-3950</a>.</p></div>
     <p class="small">The lesson, kept here deliberately: the withdrawn numbers came from a peer's
     chat messages rather than from the artifact a reader would check. Corroboration is only worth
     stating against a committed artifact, and only when that artifact regenerates.</p></div>
@@ -1749,12 +1841,18 @@ function sync() {
       : a ? `Block ${fmt(a.block)}, ${a.timeUtc}. ${a.why}` : "";
   document.getElementById("eth-hint").innerHTML =
     `Default ${usd(CHAIN.ethUsd.price)} from Chainlink ETH/USD on mainnet, updated ${CHAIN.ethUsd.updatedAtUtc}.`;
-  document.getElementById("batch-hint").innerHTML =
-    `Drives the write-side per-item cost of the selected arm — <code>writePriceBatch</code> on the
-     bespoke store, attest + its lookup write (<code>indexAttestations</code> or the pointer) on
-     EAS — measured at 1/10/100 (ENG-3922), and round-1 registration on the bespoke store (measured
-     to 1,000). 1,000 is registration-only; the write side is measured to 100, where batching has
-     converged.`;
+  document.getElementById("batch-hint").innerHTML = (() => {
+    const BD = BATCH.eas.boundary;
+    const per = n => Math.floor(BD.attest[String(n)] / n);
+    return `Drives the write-side per-item cost of the selected arm — <code>writePriceBatch</code>
+     on the bespoke store, attest + its lookup write (<code>indexAttestations</code> or the
+     pointer) on EAS — measured at ${BATCH.sizes.join("/")} (ENG-3922) and composed at 1,000
+     (ENG-3964), plus round-1 registration on the bespoke store (measured to 1,000).
+     <strong>On EAS, batching does not merely converge past ${fmt(BATCH.sizes[BATCH.sizes.length - 1])};
+     it reverses.</strong> Per-item attest cost measured at ${fmt(per(100))} at 100,
+     ${fmt(per(200))} at 200 and ${fmt(per(BD.firstOver))} at ${fmt(BD.firstOver)} — larger batches
+     cost slightly more per fact, not less. The effect is measured; its cause is not claimed here.`;
+  })();
   document.getElementById("reg-hint").innerHTML =
     `A one-time cost at launch, counted in month 1 only. Round 2 deletes the per-token gate
      (<a href="https://linear.app/fabrica/issue/ENG-3924">ENG-3924</a>, “there is no registry of
