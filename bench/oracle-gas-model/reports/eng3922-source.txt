@@ -1,18 +1,27 @@
-# Provenance of reports/eng3922-arms.txt — the ENG-3922 write-side measurements
-# this page's batch dial reads for the EAS arm and for the bespoke store's batched write.
+# Provenance of the three reports/eng3922-* files — ENG-3922's measurements, as this page reads
+# them: the write-side batch rows the batch dial uses for the EAS arm and for the bespoke store's
+# batched write, and (ENG-3944) the read-side rows the Read side panel renders.
 #
-# The file is vendored VERBATIM from ENG-3922's committed report so that every batch number on
-# this page traces to a measured row in a named report at a named commit. It is not re-measured
-# here. PR #42 has merged to main (squash commit 55058ab0), so this report is now on main and the
-# figures are final.
+# All three are vendored VERBATIM from ENG-3922's committed reports so that every ENG-3922 number
+# on this page traces to a measured row in a named report at a named commit. None is re-measured
+# here. PR #42 has merged to main (squash commit 55058ab0), so these reports are now on main and
+# the figures are final.
+#
+# `file` names the arms report for backward compatibility; `files` lists all three. Each is
+# byte-identical to its bench-reports/ counterpart at the commit below.
 #
 file:   bench-reports/eng3922-arms.txt
+files:  bench-reports/eng3922-arms.txt, bench-reports/eng3922-baseline.txt, bench-reports/eng3922-sepolia-evidence.md
 repo:   fabrica-land/fabrica-v3-contracts
 pr:     42
 branch: sebadas/eng-3922-fact-layer-bench
 commit: 55058ab0c9ec6bce5d9ef3779f9dafe22ec10552
 status: final
-# reports/eng3922-arms.txt is byte-identical to bench-reports/eng3922-arms.txt at the merged
-# commit 55058ab0 (md5 c88f7b824eeb93f00948b2939b677925, 17,695 B). The write-side rows the dial
-# reads are unchanged from the earlier 516026c revision this lane first vendored; 55058ab0 differs
-# from 516026c only in read-side test output, which the page does not consume.
+# Byte-identity against bench-reports/ at the merged commit 55058ab0, re-derived on 2026-09-04:
+#   eng3922-arms.txt           md5 c88f7b824eeb93f00948b2939b677925   17,695 B
+#   eng3922-baseline.txt       md5 3675db2610be82c48a972f6cb60ec3e2    3,133 B
+#   eng3922-sepolia-evidence.md  md5 396077400c05554a8e865e50e300a729  18,287 B
+# The write-side rows the batch dial reads are unchanged from the earlier 516026c revision the
+# ENG-3938 lane first vendored; 55058ab0 differs from 516026c only in read-side test output. That
+# read-side output is exactly what ENG-3944 now consumes, which is why the read side is vendored
+# from the MERGED commit and never from 516026c.
