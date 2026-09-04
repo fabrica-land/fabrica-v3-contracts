@@ -2880,10 +2880,10 @@ const DATA = {
   }
  ],
  "meta": {
-  "commit": "a841f92a6971a0bec2958752474a421bae911c12",
-  "commitShort": "a841f92",
+  "commit": "44cfad791c8858b6228d63ca6473c6803d5cccd3",
+  "commitShort": "44cfad7",
   "historyDepth": 48,
-  "inputDigest": "d56f407452d3d196",
+  "inputDigest": "e51ecfc3925f7480",
   "reportHeader": "# ENG-3913 \u2014 per-scenario gas bench, literal output\n#\n# repo:    fabrica-v3-contracts\n# base:    origin/main @ 4b9201d17d78c7296545a6bd5ef6ac8da1d5a86e\n# branch:  tozzetto/eng-3913-oracle-gas-model\n# command: forge test --match-path test/Eng3913OracleGasBench.t.sol -vv\n# forge:   forge Version: 1.7.1 (Commit SHA: 4072e48705af9d93e3c0f6e29e93b5e9a40caed8)\n# profile: optimizer=true, optimizer_runs=1, via_ir=false (foundry.toml [profile.default])\n# knobs:   FabricaAttributeOracle.defaultKnobs() \u2014 the config\n#          script/FabricaAttributeOracleDeploy.s.sol deploys with.\n#\n# \u26a0 RUN THIS WITHOUT --gas-report.\n#   Foundry's gas-report instrumentation inflates the gasleft() deltas these benches\n#   read, and the codeless-control subtraction absorbs most but not all of it. The CSV\n#   rows here are valid ONLY from a plain -vv run. Under --gas-report the steady-state\n#   writePrice row reads 72,268 instead of 73,812."
  },
  "read": {
@@ -3554,7 +3554,6 @@ const verdictCell = v => v === "FAIL"
    is the same defect the reports themselves were regenerated to prevent. */
 const READ_CMP = (() => {
   const easArms = READ.arms.filter(a => a.family === "eas");
-  const easGas = easArms.map(a => READ.fork[a.key]["0"]);
   const byGas = [...easArms].sort((x, y) => READ.fork[x.key]["0"] - READ.fork[y.key]["0"]);
   const probed = READ.arms.filter(a => READ.sepolia.probes[a.key])
     .map(a => ({arm: a, pct: pctDiff(READ.fork[a.key]["0"], READ.sepolia.probes[a.key].gas)}));
@@ -3573,7 +3572,7 @@ const READ_CMP = (() => {
          : `${failWord} on ${failed} of the ${verdicts.length} ${noun} arms`;
   };
   return {
-    easArms, easGas, byGas, cheapest: byGas[0], dearest: byGas[byGas.length - 1],
+    easArms, cheapest: byGas[0], dearest: byGas[byGas.length - 1],
     probed, outlier, agreeing, probedCloseDepth,
     worstAgreeing: Math.max(...agreeing.map(x => Math.abs(x.pct))),
     likeForLike: pctDiff(READ.growth.closeRow[String(probedCloseDepth)],
@@ -3988,9 +3987,12 @@ total                                                    = ${noTotal ? "— not 
   const coBody = noTotal
     ? `<strong>Not computable on these dials.</strong> The crossover is the token count at which
        the price writes overtake the cycle close, and ${noTotalWhy} — so there is nothing to
-       compare the close against. The ${fmt(m.hbCount, 1)} close${m.hbCount === 1 ? "" : "s"} this
-       month ${m.hbCount === 1 ? "is" : "are"} charged at a measured row and shown in the table
-       above; what share of the bill they represent is exactly what cannot be said here.`
+       compare the close against.${m.hbCount > 0
+        ? ` The ${fmt(m.hbCount, 1)} close${m.hbCount === 1 ? "" : "s"} this month
+           ${m.hbCount === 1 ? "is" : "are"} charged at a measured row and shown in the table
+           above; what share of the bill they represent is exactly what cannot be said here.`
+        : ` No closes are charged on these dials either, so the table above is empty of everything
+           but its excluded rows.`}`
     : co === null
     ? `<strong>On these dials the question does not arise: there are no bare cycle closes to pay
        for.</strong> The write cadence (${S.cadence} day) is inside the cycle-close window
