@@ -126,6 +126,18 @@ Filled in by the as-shipped Sepolia run; see the PR for transaction hashes and `
 
 | Contract | Network | Address |
 | -- | -- | -- |
-| `FabricaFactStore` | Sepolia | _pending_ |
+| `FabricaFactStore` | Sepolia | [`0x89895c2fCC975c16AeAd2e213d2076dbF0aeb8b8`](https://sepolia.etherscan.io/address/0x89895c2fcc975c16aead2e213d2076dbf0aeb8b8) |
+
+Deployed 2026-09-04 in block **11634761**, transaction
+[`0x8ddf1c27…b45b2`](https://sepolia.etherscan.io/tx/0x8ddf1c2760e796803f6117b5ae2723aeb504e3558daa13a9ae44c92bc2bb45b2),
+**1,356,795 gas**, Etherscan-verified, `historyDepth = 48`. Deployed from a throwaway lane EOA; the
+round-1 deployer key `0xBF03…69dF` was deliberately not used, because the live ENG-3895 cycle-close
+runner owns that key's nonce.
+
+`owner()` reverts on the deployed bytecode — there is no owner to call. The deployer address holds no
+privilege over any writer's row, and the as-shipped run demonstrates that by having the deployer
+itself play the third address that gets refused.
+
+Transaction hashes and `cast call` output for the four verification clauses are in the PR.
 
 <!-- /DEPLOYMENT:sepolia -->
