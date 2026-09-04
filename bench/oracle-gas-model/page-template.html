@@ -623,7 +623,6 @@ const verdictCell = v => v === "FAIL"
    is the same defect the reports themselves were regenerated to prevent. */
 const READ_CMP = (() => {
   const easArms = READ.arms.filter(a => a.family === "eas");
-  const easGas = easArms.map(a => READ.fork[a.key]["0"]);
   const byGas = [...easArms].sort((x, y) => READ.fork[x.key]["0"] - READ.fork[y.key]["0"]);
   const probed = READ.arms.filter(a => READ.sepolia.probes[a.key])
     .map(a => ({arm: a, pct: pctDiff(READ.fork[a.key]["0"], READ.sepolia.probes[a.key].gas)}));
@@ -642,7 +641,7 @@ const READ_CMP = (() => {
          : `${failWord} on ${failed} of the ${verdicts.length} ${noun} arms`;
   };
   return {
-    easArms, easGas, byGas, cheapest: byGas[0], dearest: byGas[byGas.length - 1],
+    easArms, cheapest: byGas[0], dearest: byGas[byGas.length - 1],
     probed, outlier, agreeing, probedCloseDepth,
     worstAgreeing: Math.max(...agreeing.map(x => Math.abs(x.pct))),
     likeForLike: pctDiff(READ.growth.closeRow[String(probedCloseDepth)],
@@ -1052,9 +1051,12 @@ total                                                    = ${noTotal ? "— not 
   const coBody = noTotal
     ? `<strong>Not computable on these dials.</strong> The crossover is the token count at which
        the price writes overtake the cycle close, and ${noTotalWhy} — so there is nothing to
-       compare the close against. The ${fmt(m.hbCount, 1)} close${m.hbCount === 1 ? "" : "s"} this
-       month ${m.hbCount === 1 ? "is" : "are"} charged at a measured row and shown in the table
-       above; what share of the bill they represent is exactly what cannot be said here.`
+       compare the close against.${m.hbCount > 0
+        ? ` The ${fmt(m.hbCount, 1)} close${m.hbCount === 1 ? "" : "s"} this month
+           ${m.hbCount === 1 ? "is" : "are"} charged at a measured row and shown in the table
+           above; what share of the bill they represent is exactly what cannot be said here.`
+        : ` No closes are charged on these dials either, so the table above is empty of everything
+           but its excluded rows.`}`
     : co === null
     ? `<strong>On these dials the question does not arise: there are no bare cycle closes to pay
        for.</strong> The write cadence (${S.cadence} day) is inside the cycle-close window
