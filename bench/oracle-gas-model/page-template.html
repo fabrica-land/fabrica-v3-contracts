@@ -692,7 +692,7 @@ total                                                    = ${fmt(m.totalGas)} ga
   const vsCell = (per, base) => per === base ? "—"
     : (per < base ? "−" : "+") + Math.abs(100 * (1 - per / base)).toFixed(1) + "%";
   const srcCommit = BATCH.source.commit.slice(0, 10);
-  const provisional = BATCH.source.status === "PROVISIONAL";
+  const provisional = BATCH.source.status.toLowerCase() === "provisional";
   const provTag = provisional
     ? ` <span class="pending">provisional</span> until PR #${BATCH.source.pr} merges` : "";
 

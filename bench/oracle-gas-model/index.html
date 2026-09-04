@@ -2770,10 +2770,10 @@ const DATA = {
   }
  ],
  "meta": {
-  "commit": "2f8173604245251c420f607c909877c789e962f2",
-  "commitShort": "2f81736",
+  "commit": "c8b413473ff7aa555ca55228e94cb2650d041d0f",
+  "commitShort": "c8b4134",
   "historyDepth": 48,
-  "inputDigest": "eb9571edce7a54dc",
+  "inputDigest": "b6745446475790cf",
   "reportHeader": "# ENG-3913 \u2014 per-scenario gas bench, literal output\n#\n# repo:    fabrica-v3-contracts\n# base:    origin/main @ 4b9201d17d78c7296545a6bd5ef6ac8da1d5a86e\n# branch:  tozzetto/eng-3913-oracle-gas-model\n# command: forge test --match-path test/Eng3913OracleGasBench.t.sol -vv\n# forge:   forge Version: 1.7.1 (Commit SHA: 4072e48705af9d93e3c0f6e29e93b5e9a40caed8)\n# profile: optimizer=true, optimizer_runs=1, via_ir=false (foundry.toml [profile.default])\n# knobs:   FabricaAttributeOracle.defaultKnobs() \u2014 the config\n#          script/FabricaAttributeOracleDeploy.s.sol deploys with.\n#\n# \u26a0 RUN THIS WITHOUT --gas-report.\n#   Foundry's gas-report instrumentation inflates the gasleft() deltas these benches\n#   read, and the codeless-control subtraction absorbs most but not all of it. The CSV\n#   rows here are valid ONLY from a plain -vv run. Under --gas-report the steady-state\n#   writePrice row reads 72,268 instead of 73,812."
  },
  "rows": {
@@ -3333,7 +3333,7 @@ total                                                    = ${fmt(m.totalGas)} ga
   const vsCell = (per, base) => per === base ? "—"
     : (per < base ? "−" : "+") + Math.abs(100 * (1 - per / base)).toFixed(1) + "%";
   const srcCommit = BATCH.source.commit.slice(0, 10);
-  const provisional = BATCH.source.status === "PROVISIONAL";
+  const provisional = BATCH.source.status.toLowerCase() === "provisional";
   const provTag = provisional
     ? ` <span class="pending">provisional</span> until PR #${BATCH.source.pr} merges` : "";
 
