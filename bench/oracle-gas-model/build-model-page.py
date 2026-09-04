@@ -178,10 +178,11 @@ def parse_source(path):
     for req in ("file", "commit", "status", "pr"):
         if req not in meta:
             sys.exit("%s: missing required provenance line %r" % (path, req))
-    if meta.get("armsRowsMoved") not in (None, "0"):
-        sys.exit("%s: armsRowsMoved is %r. The page's provenance rests on the regeneration having "
-                 "MOVED no measured row; if one moved, that claim has to be rewritten rather than "
-                 "the number bumped" % (path, meta["armsRowsMoved"]))
+    moved = meta.get("armsRowsMoved")
+    if moved not in (None, "0") and not meta.get("armsRowsMovedReason", "").strip():
+        sys.exit("%s: armsRowsMoved is %r with no armsRowsMovedReason. A moved row means a figure "
+                 "this page renders has changed, so the provenance claim has to be REWRITTEN and "
+                 "the reason stated -- not the number bumped" % (path, moved))
     return meta
 
 

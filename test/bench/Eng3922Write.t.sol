@@ -646,7 +646,9 @@ contract Eng3922WriteTest is Eng3922HarnessBase {
         MultiAttestationRequest[] memory req = new MultiAttestationRequest[](1);
         req[0] = MultiAttestationRequest({schema: priceSchema, data: data});
         bytes memory cd = abi.encodeCall(IEAS.multiAttest, (req));
-        vm.cool(EAS);
+        // `attest` reads the schema from the registry, which `setUp` leaves warm. Cooling EAS alone
+        // charged that read at warm prices on every row this helper emits.
+        _coolAttestPath();
         vm.prank(writers[0]);
         uint256 g = gasleft();
         eas.multiAttest(req);
@@ -704,6 +706,9 @@ contract Eng3922WriteTest is Eng3922HarnessBase {
         vm.prank(writers[0]);
         bytes32[] memory uids = eas.multiAttest(areq);
         bytes memory cd = abi.encodeCall(IEASIndexer.indexAttestations, (uids));
+        // The index write reads every attestation back out of EAS, which the priming multiAttest
+        // above leaves warm. Cool both, as the pair helpers do.
+        _coolAttestPath();
         vm.cool(EAS_INDEXER);
         vm.prank(writers[0]);
         uint256 g = gasleft();

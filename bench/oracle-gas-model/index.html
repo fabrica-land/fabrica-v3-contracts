@@ -402,8 +402,8 @@ const DATA = {
     "fullBatches": 4,
     "legs": {
      "index": {
-      "230": 38077042,
-      "80": 13262299
+      "230": 44057042,
+      "80": 15342299
      },
      "point": {
       "230": 6119762,
@@ -446,16 +446,16 @@ const DATA = {
   "ops": {
    "indexAttestations": {
     "1": {
-     "perItem": 236454,
-     "total": 236454
+     "perItem": 262454,
+     "total": 262454
     },
     "10": {
-     "perItem": 171889,
-     "total": 1718892
+     "perItem": 197889,
+     "total": 1978892
     },
     "100": {
-     "perItem": 165647,
-     "total": 16564734
+     "perItem": 191647,
+     "total": 19164734
     }
    },
    "multiAttest": {
@@ -524,7 +524,8 @@ const DATA = {
    "armsRegeneratedBy": "ENG-3964",
    "armsRowsAfter": "293",
    "armsRowsBefore": "128",
-   "armsRowsMoved": "0",
+   "armsRowsMoved": "8",
+   "armsRowsMovedReason": "cassatine W1 on PR #47 -- _easIndexBatch cooled the Indexer alone, leaving EAS warm from the priming multiAttest inside the same test. indexAttestations is necessarily a SEPARATE transaction (a publisher cannot know the uids until the attest transaction returns, ENG-3922's own evidence report says so), so in reality it reads those attestations cold. The 8 indexAttestations rows are +26,000 gas per item as a result. The correction makes arm 1 dearer, not cheaper.",
    "branch": "sebadas/eng-3922-fact-layer-bench",
    "commit": "55058ab0c9ec6bce5d9ef3779f9dafe22ec10552",
    "file": "bench-reports/eng3922-arms.txt",
@@ -2879,10 +2880,10 @@ const DATA = {
   }
  ],
  "meta": {
-  "commit": "7f9e59e3a85a63c5d40a6af845543c6e67648bf0",
-  "commitShort": "7f9e59e",
+  "commit": "14f34c065f3946f934d614fc586f408afc6c1d39",
+  "commitShort": "14f34c0",
   "historyDepth": 48,
-  "inputDigest": "4ed95763ecb4fb58",
+  "inputDigest": "f185563edf18ec92",
   "reportHeader": "# ENG-3913 \u2014 per-scenario gas bench, literal output\n#\n# repo:    fabrica-v3-contracts\n# base:    origin/main @ 4b9201d17d78c7296545a6bd5ef6ac8da1d5a86e\n# branch:  tozzetto/eng-3913-oracle-gas-model\n# command: forge test --match-path test/Eng3913OracleGasBench.t.sol -vv\n# forge:   forge Version: 1.7.1 (Commit SHA: 4072e48705af9d93e3c0f6e29e93b5e9a40caed8)\n# profile: optimizer=true, optimizer_runs=1, via_ir=false (foundry.toml [profile.default])\n# knobs:   FabricaAttributeOracle.defaultKnobs() \u2014 the config\n#          script/FabricaAttributeOracleDeploy.s.sol deploys with.\n#\n# \u26a0 RUN THIS WITHOUT --gas-report.\n#   Foundry's gas-report instrumentation inflates the gasleft() deltas these benches\n#   read, and the codeless-control subtraction absorbs most but not all of it. The CSV\n#   rows here are valid ONLY from a plain -vv run. Under --gas-report the steady-state\n#   writePrice row reads 72,268 instead of 73,812."
  },
  "read": {
@@ -3033,7 +3034,8 @@ const DATA = {
    "armsRegeneratedBy": "ENG-3964",
    "armsRowsAfter": "293",
    "armsRowsBefore": "128",
-   "armsRowsMoved": "0",
+   "armsRowsMoved": "8",
+   "armsRowsMovedReason": "cassatine W1 on PR #47 -- _easIndexBatch cooled the Indexer alone, leaving EAS warm from the priming multiAttest inside the same test. indexAttestations is necessarily a SEPARATE transaction (a publisher cannot know the uids until the attest transaction returns, ENG-3922's own evidence report says so), so in reality it reads those attestations cold. The 8 indexAttestations rows are +26,000 gas per item as a result. The correction makes arm 1 dearer, not cheaper.",
    "branch": "sebadas/eng-3922-fact-layer-bench",
    "commit": "55058ab0c9ec6bce5d9ef3779f9dafe22ec10552",
    "file": "bench-reports/eng3922-arms.txt",
@@ -4452,6 +4454,12 @@ total                                                    = ${noTotal ? "— not 
     <strong>147 of 147 measured rows reproduced identically</strong> — 128 of 128 in the arms
     report, 19 of 19 in the baseline, none moved. The baseline reproduces. What remains withdrawn
     is the corroboration <em>figure</em>, because it never came from the artifact.</p>
+    <p class="small"><strong>Reproduces means row-wise, not byte-wise.</strong> Forge stamps each
+    run's wall-clock timings into the report and does not fix the order it emits suites in, so a
+    clean re-run differs from the committed file on the order of a hundred lines while every
+    measured row is identical. A naive <code>diff</code> is therefore not evidence of
+    non-reproduction — compare the <em>rows</em>, which is what the 147-of-147 above counts, and
+    what <code>--check</code> tests by hashing the report as an input rather than re-running it.</p>
     <p class="small"><strong>Known systematic bias, stated rather than corrected.</strong> ENG-3922's
     EAS write rows cool the EAS contract alone before measuring, so the SchemaRegistry the attest
     path reads is left warm by the harness and those rows sit slightly low — measured at 54 gas

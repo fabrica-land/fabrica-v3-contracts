@@ -1565,6 +1565,12 @@ total                                                    = ${noTotal ? "— not 
     <strong>147 of 147 measured rows reproduced identically</strong> — 128 of 128 in the arms
     report, 19 of 19 in the baseline, none moved. The baseline reproduces. What remains withdrawn
     is the corroboration <em>figure</em>, because it never came from the artifact.</p>
+    <p class="small"><strong>Reproduces means row-wise, not byte-wise.</strong> Forge stamps each
+    run's wall-clock timings into the report and does not fix the order it emits suites in, so a
+    clean re-run differs from the committed file on the order of a hundred lines while every
+    measured row is identical. A naive <code>diff</code> is therefore not evidence of
+    non-reproduction — compare the <em>rows</em>, which is what the 147-of-147 above counts, and
+    what <code>--check</code> tests by hashing the report as an input rather than re-running it.</p>
     <p class="small"><strong>Known systematic bias, stated rather than corrected.</strong> ENG-3922's
     EAS write rows cool the EAS contract alone before measuring, so the SchemaRegistry the attest
     path reads is left warm by the harness and those rows sit slightly low — measured at 54 gas

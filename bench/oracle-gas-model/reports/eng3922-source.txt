@@ -17,7 +17,8 @@ files:  bench-reports/eng3922-arms.txt, bench-reports/eng3922-baseline.txt, benc
 armsRegeneratedBy: ENG-3964
 armsRowsBefore: 128
 armsRowsAfter: 293
-armsRowsMoved: 0
+armsRowsMoved: 8
+armsRowsMovedReason: cassatine W1 on PR #47 -- _easIndexBatch cooled the Indexer alone, leaving EAS warm from the priming multiAttest inside the same test. indexAttestations is necessarily a SEPARATE transaction (a publisher cannot know the uids until the attest transaction returns, ENG-3922's own evidence report says so), so in reality it reads those attestations cold. The 8 indexAttestations rows are +26,000 gas per item as a result. The correction makes arm 1 dearer, not cheaper.
 repo:   fabrica-land/fabrica-v3-contracts
 pr:     42
 branch: sebadas/eng-3922-fact-layer-bench
@@ -34,7 +35,10 @@ status: final
 #                                Was md5 c88f7b824eeb93f00948b2939b677925, 17,695 B at 55058ab0.
 #
 # The regeneration ADDS rows and MOVES none. Verified row by row against the 55058ab0 copy:
-#   128 measured rows before -> 293 after; 165 added, 0 moved, 0 removed.
+#   128 measured rows before -> 293 after; 165 added, 8 MOVED, 0 removed.
+# The 8 are every indexAttestations row, corrected upward by 26,000 gas per item -- see
+# armsRowsMovedReason. Nothing else moved: multiAttest, pointBatch, multiRevoke, the ownerless
+# store rows and every read row are unchanged from 55058ab0.
 # build-model-page.py counts the rows in the committed report and REFUSES if armsRowsAfter
 # disagrees, because this number was typed once and went stale within the hour: it was taken after
 # the first regeneration and three further benches were added afterwards.
