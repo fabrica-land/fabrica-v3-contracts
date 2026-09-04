@@ -1,0 +1,18 @@
+# Provenance of reports/eng3922-arms.txt — the ENG-3922 write-side measurements
+# this page's batch dial reads for the EAS arm and for the bespoke store's batched write.
+#
+# The file is vendored VERBATIM from ENG-3922's committed report so that every batch number on
+# this page traces to a measured row in a named report at a named commit. It is not re-measured
+# here. PR #42 has merged to main (squash commit 55058ab0), so this report is now on main and the
+# figures are final.
+#
+file:   bench-reports/eng3922-arms.txt
+repo:   fabrica-land/fabrica-v3-contracts
+pr:     42
+branch: sebadas/eng-3922-fact-layer-bench
+commit: 55058ab0c9ec6bce5d9ef3779f9dafe22ec10552
+status: final
+# reports/eng3922-arms.txt is byte-identical to bench-reports/eng3922-arms.txt at the merged
+# commit 55058ab0 (md5 c88f7b824eeb93f00948b2939b677925, 17,695 B). The write-side rows the dial
+# reads are unchanged from the earlier 516026c revision this lane first vendored; 55058ab0 differs
+# from 516026c only in read-side test output, which the page does not consume.
