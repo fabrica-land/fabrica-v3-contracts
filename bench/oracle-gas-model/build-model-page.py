@@ -106,7 +106,77 @@ INPUTS = [
     "reports/bench-rows.txt",
     "reports/deployed-vs-main.txt",
     "reports/gas-report.txt",
+    # ENG-3938: the write-side batch measurements for both arms, vendored verbatim from
+    # ENG-3922's committed arms report, plus the sidecar that pins the commit it came from.
+    # In INPUTS so the digest changes when the report is swapped for its final revision.
+    "reports/eng3922-arms.txt",
+    "reports/eng3922-source.txt",
 ]
+
+# ENG-3938: the batch-size dial drives the write-side per-item cost at these sizes. writePriceBatch
+# (bespoke) and multiAttest (EAS) are measured only to 100; batching is converged well before it.
+BATCH_SIZES = [1, 10, 100]
+
+
+def parse_source(path):
+    """Read reports/eng3922-source.txt: the provenance of the vendored ENG-3922 arms report.
+
+    Lines are `key: value`; comment lines start with `#`. The commit and status travel onto the
+    page so a reader sees exactly which report revision every batch number came from, and whether
+    it is still provisional.
+    """
+    meta = {}
+    for line in path.read_text().splitlines():
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        if ":" not in line:
+            sys.exit("%s: line is neither a comment nor key:value:\n  %s" % (path, line))
+        k, v = line.split(":", 1)
+        meta[k.strip()] = v.strip()
+    for req in ("file", "commit", "status", "pr"):
+        if req not in meta:
+            sys.exit("%s: missing required provenance line %r" % (path, req))
+    return meta
+
+
+def parse_arms_batch(path):
+    """Extract whole-transaction gas for the batched write ops the dial needs, at n=1/10/100.
+
+    Lines in the arms report look like:
+      ownerless writePriceBatch n=10 -- WHOLE TRANSACTION: 794583
+      ownerless writePriceBatch n=10 -- WHOLE TRANSACTION per item: 79458
+      EAS multiAttest n=1 -- WHOLE TRANSACTION: 312052    (n=1 prints no per-item line)
+
+    The WHOLE TRANSACTION figure is the authoritative measured number. Per item is floor(total/n),
+    computed here rather than trusted from the report, and where the report DOES print a per-item
+    line it is asserted equal to that floor -- so a report reformat cannot silently feed the page a
+    number that no longer matches its own total. A missing row is a hard error: the dial needs it.
+    """
+    text = path.read_text()
+    ops = {
+        "ownerless writePriceBatch": "writePriceBatch",
+        "EAS multiAttest": "multiAttest",
+        "EAS multiRevoke": "multiRevoke",
+        "pointer pointBatch": "pointBatch",
+    }
+    out = {}
+    for label, key in ops.items():
+        sizes = {}
+        for n in BATCH_SIZES:
+            m = re.search(re.escape(label) + r" n=%d -- WHOLE TRANSACTION: (\d+)" % n, text)
+            if not m:
+                sys.exit("%s: missing measured row %r at n=%d -- the batch dial needs it"
+                         % (path, label + " -- WHOLE TRANSACTION", n))
+            total = int(m.group(1))
+            per_item = total // n
+            pm = re.search(re.escape(label) + r" n=%d -- WHOLE TRANSACTION per item: (\d+)" % n, text)
+            if pm and int(pm.group(1)) != per_item:
+                sys.exit("%s: %r n=%d per-item %s does not equal floor(total/n)=%d"
+                         % (path, label, n, pm.group(1), per_item))
+            sizes[str(n)] = {"total": total, "perItem": per_item}
+        out[key] = sizes
+    return out
 
 
 def git(*args):
@@ -164,6 +234,34 @@ def main():
         sys.exit("missing measured scenarios, refusing to build a page with holes:\n  "
                  + "\n  ".join(missing))
 
+    # ENG-3938: the write-side batch figures for both arms. The bespoke single-write baseline is
+    # the ENG-3913 first write measured in this repo (bench-rows.txt); the EAS arm has no ENG-3913
+    # figure, so its baseline is ENG-3922's multiAttest at n=1, which is a single attest.
+    arms = parse_arms_batch(HERE / "reports" / "eng3922-arms.txt")
+    source = parse_source(HERE / "reports" / "eng3922-source.txt")
+    batch = {
+        "sizes": BATCH_SIZES,
+        "source": source,
+        "ops": arms,
+        # The primary "write" the dial prices per arm, compared against `single`.
+        "primary": {"bespoke": "writePriceBatch", "eas": "multiAttest"},
+        # Other batched writes on the EAS family, shown as context on that arm.
+        "easRelated": ["multiRevoke", "pointBatch"],
+        # The single-write cost each arm's per-item is read against.
+        "single": {
+            "bespoke": {
+                "scenario": "writePrice:first",
+                "gas": rows["writePrice:first"]["txTotal"],
+                "source": "reports/bench-rows.txt (ENG-3913)",
+            },
+            "eas": {
+                "scenario": "EAS multiAttest n=1",
+                "gas": arms["multiAttest"]["1"]["total"],
+                "source": source["file"] + " (ENG-3922, n=1)",
+            },
+        },
+    }
+
     meta = {
         "commit": git("rev-parse", "HEAD"),
         "commitShort": git("rev-parse", "--short", "HEAD"),
@@ -174,7 +272,7 @@ def main():
     meta["inputDigest"] = input_digest()
 
     payload = json.dumps(
-        {"rows": rows, "compare": compare, "chain": chain, "meta": meta},
+        {"rows": rows, "compare": compare, "chain": chain, "meta": meta, "batch": batch},
         indent=1, sort_keys=True)
     # The payload is embedded inside a <script> block, so two sequences must not survive
     # verbatim: `</script` would end the block early, and a bare `&` is ambiguous to an HTML
