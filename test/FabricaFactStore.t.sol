@@ -502,10 +502,24 @@ contract FabricaFactStoreTest is Test {
     // The absence of a privileged surface — the point of the redeploy
     // -------------------------------------------------------------------------
 
-    function test_noPrivilegedSurface_ownerAndAdminSelectorsDoNotExist() public view {
-        // ENG-3523 asserted the round-1 owner could tighten knobs instantly. Round 2's assertion is
-        // that there is no owner to ask, checked against the deployed bytecode rather than source.
-        string[8] memory absent = [
+    /// @notice Round 1's whole admin surface must be ABSENT from the deployed bytecode.
+    /// @dev ENG-3523 asserted the round-1 owner could tighten knobs instantly; round 2's assertion
+    ///      is that there is no owner to ask, checked against the bytecode rather than the source.
+    ///
+    ///      The first version of this probe could not actually prove that. It sent each selector
+    ///      with NO arguments over `staticcall` and asserted only `!ok`, so a selector that existed
+    ///      but reverted — on authorisation, on argument decoding, or because `staticcall` forbids
+    ///      its state write — was indistinguishable from a selector that was never there. It would
+    ///      have passed against a store that had every one of these functions.
+    ///
+    ///      So each probe now carries VALID arguments, goes over `call` rather than `staticcall` so
+    ///      a state-changing function is not rejected for the wrong reason, and the verdict reads
+    ///      the revert payload: this contract declares no `fallback`, so an absent selector reverts
+    ///      with EMPTY return data, while an implemented function that reverts carries a reason.
+    ///      `historyDepth()` is the positive control — without it, "everything reverted" would also
+    ///      be satisfied by probing the wrong address.
+    function test_noPrivilegedSurface_ownerAndAdminSelectorsDoNotExist() public {
+        string[8] memory names = [
             "owner()",
             "renounceOwnership()",
             "transferOwnership(address)",
@@ -515,10 +529,45 @@ contract FabricaFactStoreTest is Test {
             "setRecoveryWriter(uint256,address,bool)",
             "register(uint256,uint256)"
         ];
-        for (uint256 i; i < absent.length; ++i) {
-            (bool ok,) = address(store).staticcall(abi.encodeWithSignature(absent[i]));
-            assertFalse(ok, string.concat("selector must not exist: ", absent[i]));
+        bytes[] memory probes = new bytes[](8);
+        probes[0] = abi.encodeWithSignature("owner()");
+        probes[1] = abi.encodeWithSignature("renounceOwnership()");
+        probes[2] = abi.encodeWithSignature("transferOwnership(address)", prycd);
+        probes[3] = abi.encodeWithSignature(
+            "setKnobs(uint16,uint16,uint128,uint64,uint64,uint64,uint128)",
+            uint16(1500),
+            uint16(5000),
+            uint128(50_000_000e6),
+            uint64(1 days),
+            uint64(1 hours),
+            uint64(1 days),
+            uint128(50_000_000e6)
+        );
+        probes[4] = abi.encodeWithSignature("setSourceEnabled(uint8,bool)", uint8(0), true);
+        probes[5] = abi.encodeWithSignature("setPricePublisher(uint256,address,bool)", uint256(1), prycd, true);
+        probes[6] = abi.encodeWithSignature("setRecoveryWriter(uint256,address,bool)", uint256(1), prycd, true);
+        probes[7] = abi.encodeWithSignature("register(uint256,uint256)", uint256(1), TOKEN);
+        // Positive control first, and deliberately NOT owner(): if the probe cannot see a function
+        // that IS present, then "everything reverted" proves nothing and would also be satisfied by
+        // probing an empty address.
+        (bool controlOk, bytes memory controlRet) = address(store).call(abi.encodeWithSignature("historyDepth()"));
+        assertTrue(controlOk, "positive control: historyDepth() must dispatch on this address");
+        assertEq(abi.decode(controlRet, (uint8)), HISTORY_DEPTH, "positive control returns the deployed value");
+        // Offenders are collected rather than asserted one at a time, so a failing run names the
+        // whole privileged surface it found instead of stopping at the first selector.
+        string memory found = "";
+        uint256 offenders;
+        for (uint256 i; i < probes.length; ++i) {
+            (bool ok, bytes memory ret) = address(store).call(probes[i]);
+            // Absent dispatch: this contract declares no fallback, so an unknown selector reverts
+            // with EMPTY return data. Anything else means the selector is implemented — whether it
+            // succeeded, reverted on authorisation, or reverted inside the ABI decoder.
+            if (ok || ret.length != 0) {
+                offenders++;
+                found = string.concat(found, " | ", names[i], ok ? " (SUCCEEDED)" : " (reverted WITH data)");
+            }
         }
+        assertEq(offenders, 0, string.concat("privileged selectors present on the store:", found));
     }
 
     function test_noPrivilegedSurface_anyAddressMayWriteItsOwnRowWithNoAuthorization() public {

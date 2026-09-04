@@ -40,7 +40,12 @@ contract Eng3924FuzzProbe is Test {
             // Deliberate truncation: the first four bytes of revert data ARE the selector.
             // forge-lint: disable-next-line(unsafe-typecast)
             bytes4 sel = bytes4(err);
-            assertEq(sel, FabricaFactStore.BandExceeded.selector, "only BandExceeded may reject");
+            // forge-std has no bytes4 assertEq overload, so a bare `assertEq(sel, ...selector)`
+            // binds to assertEq(bytes32, bytes32, string) by implicit widening. That comparison is
+            // sound — both sides widen identically, right-padded — but it is invisible at the call
+            // site and a reader has to know the overload set to see what is being compared. The
+            // widening is written out instead of inferred.
+            assertEq(bytes32(sel), bytes32(FabricaFactStore.BandExceeded.selector), "only BandExceeded may reject");
             // Reaching a zero baseline is not enough to catch the bug it was added for: a
             // zero-baseline rejection IS a BandExceeded, so the assertion above is satisfied by
             // the very behaviour that is wrong. A zero baseline must not reject AT ALL.

@@ -146,9 +146,12 @@ ALLOWED = {
     "3,000": "fact count in the projection",
     # Chain facts, not measurements of this bench: the receipts the bench is cross-checked against.
     # These cannot be regenerated, so each carries the transaction that produced it.
-    "97,703": "receipt gasUsed, writeFact fresh row, tx 0x94741402...280f",
-    "46,539": "receipt gasUsed, setLock, tx 0x50a0b480...8a0b",
-    "48,649": "receipt gasUsed, closeCycle first, tx 0xba6e299e...6619",
+    # Full 66-character transaction hashes for these three live in the RECEIPTS:crosscheck table of
+    # the artifact, which is committed evidence; abbreviating them here would put a hash that
+    # cannot be looked up into a script comment.
+    "97,703": "receipt gasUsed, writeFact fresh row - see RECEIPTS:crosscheck in " + doc,
+    "46,539": "receipt gasUsed, setLock - see RECEIPTS:crosscheck in " + doc,
+    "48,649": "receipt gasUsed, closeCycle first - see RECEIPTS:crosscheck in " + doc,
 }
 
 section = candidate[candidate.index("## Measured write cost"):candidate.index("## Deployed addresses")]

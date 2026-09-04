@@ -57,6 +57,8 @@ in ENG-3922's review. Losing one of these silently is the failure ENG-3924 exist
 > stored value; an aggregator that wants the stronger claim must reconstruct it from the event
 > stream, or not rely on it.
 
+A second consumer-facing caveat, same audience:
+
 > **`lastCycleClose` does not fold in the writer's floor.** `closeCycle` refuses a cycle below the
 > writer's `minValidCycle` at the time of the call, but a writer can raise its floor afterwards, and
 > raising the floor does not rewrite or invalidate an already-recorded close. So
@@ -152,11 +154,16 @@ The corrected bench now agrees with the chain. Cross-check against real Sepolia 
 
 <!-- RECEIPTS:crosscheck -->
 
-| Scenario | Bench | Real Sepolia receipt | Delta |
-| -- | -- | -- | -- |
-| `writeFact`, fresh row | 98,668 | 97,703 | +965 (+1.0%) |
-| `setLock` | 47,109 | 46,539 | +570 (+1.2%) |
-| `closeCycle`, first close | 49,216 | 48,649 | +567 (+1.2%) |
+| Scenario | Bench | Real Sepolia receipt | Delta | Transaction |
+| -- | -- | -- | -- | -- |
+| `writeFact`, fresh row | 98,668 | 97,703 | +965 (+1.0%) | [`0x94741402a2509d9a7ffa9c119296702f25fb3c8de3291a1ca8c5340bf571280f`](https://sepolia.etherscan.io/tx/0x94741402a2509d9a7ffa9c119296702f25fb3c8de3291a1ca8c5340bf571280f) |
+| `setLock` | 47,109 | 46,539 | +570 (+1.2%) | [`0x50a0b48079dac789ea676d318b42edd6f8bc1844d8a6c26154f19ffe03a08a0b`](https://sepolia.etherscan.io/tx/0x50a0b48079dac789ea676d318b42edd6f8bc1844d8a6c26154f19ffe03a08a0b) |
+| `closeCycle`, first close | 49,216 | 48,649 | +567 (+1.2%) | [`0xba6e299e1d283739118ddbe74af263087d8dafa5a26951bfe4cbe4c6ce5a6619`](https://sepolia.etherscan.io/tx/0xba6e299e1d283739118ddbe74af263087d8dafa5a26951bfe4cbe4c6ce5a6619) |
+
+Each receipt figure is `gasUsed` from the transaction named on its row, all three against the live
+store `0xa81f30b0EC22DbE4b25239883850367EDB6f3Edd`. `bench-reports/eng3924-regenerate.sh` allow-lists
+these three values as non-measurements and points here for their provenance, so the full hashes live
+in committed evidence rather than abbreviated in a script comment.
 
 <!-- /RECEIPTS:crosscheck -->
 
