@@ -154,7 +154,9 @@ The corrected bench now agrees with the chain. Cross-check against real Sepolia 
 
 | Scenario | Bench | Real Sepolia receipt | Delta |
 | -- | -- | -- | -- |
-| _pending re-deploy_ | | | |
+| `writeFact`, fresh row | 98,668 | 97,703 | +965 (+1.0%) |
+| `setLock` | 47,109 | 46,539 | +570 (+1.2%) |
+| `closeCycle`, first close | 49,216 | 48,649 | +567 (+1.2%) |
 
 <!-- /RECEIPTS:crosscheck -->
 
@@ -191,11 +193,11 @@ Filled in by the as-shipped Sepolia run; see the PR for transaction hashes and `
 
 | Contract | Network | Address |
 | -- | -- | -- |
-| `FabricaFactStore` | Sepolia | [`0x89895c2fCC975c16AeAd2e213d2076dbF0aeb8b8`](https://sepolia.etherscan.io/address/0x89895c2fcc975c16aead2e213d2076dbf0aeb8b8) |
+| `FabricaFactStore` | Sepolia | [`0xa81f30b0EC22DbE4b25239883850367EDB6f3Edd`](https://sepolia.etherscan.io/address/0xa81f30b0ec22dbe4b25239883850367edb6f3edd) |
 
-Deployed 2026-09-04 in block **11634761**, transaction
-[`0x8ddf1c27…b45b2`](https://sepolia.etherscan.io/tx/0x8ddf1c2760e796803f6117b5ae2723aeb504e3558daa13a9ae44c92bc2bb45b2),
-**1,356,795 gas**, Etherscan-verified, `historyDepth = 48`. Deployed from a throwaway lane EOA; the
+Deployed 2026-09-04 in block **11634895**, transaction
+[`0x6289dcaf…e435`](https://sepolia.etherscan.io/tx/0x6289dcaf9c73a6b4f3f4cd219551bae0f6a02898d7cfb2fde420e0593e6ee435),
+**1,359,833 gas**, Etherscan-verified, `historyDepth = 48`. Deployed from a throwaway lane EOA; the
 round-1 deployer key `0xBF03…69dF` was deliberately not used, because the live ENG-3895 cycle-close
 runner owns that key's nonce.
 
@@ -203,6 +205,11 @@ runner owns that key's nonce.
 privilege over any writer's row, and the as-shipped run demonstrates that by having the deployer
 itself play the third address that gets refused.
 
-Transaction hashes and `cast call` output for the four verification clauses are in the PR.
+**Superseded:** `0x89895c2fCC975c16AeAd2e213d2076dbF0aeb8b8` (block 11634761) was the first
+deployment of this contract and carried the zero-baseline band bug described under guard 10. It is
+**dead and must not be used or referenced by any consumer**; it is recorded here only so the two
+addresses appearing in this PR's history are not mistaken for two live stores.
+
+Transaction hashes and `cast call` output for the verification clauses are in the PR.
 
 <!-- /DEPLOYMENT:sepolia -->

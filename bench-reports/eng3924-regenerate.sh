@@ -136,6 +136,11 @@ ALLOWED = {
     "61,500": "combined per-write overstatement",
     "1,000": "token count in the projection",
     "3,000": "fact count in the projection",
+    # Chain facts, not measurements of this bench: the receipts the bench is cross-checked against.
+    # These cannot be regenerated, so each carries the transaction that produced it.
+    "97,703": "receipt gasUsed, writeFact fresh row, tx 0x94741402...280f",
+    "46,539": "receipt gasUsed, setLock, tx 0x50a0b480...8a0b",
+    "48,649": "receipt gasUsed, closeCycle first, tx 0xba6e299e...6619",
 }
 
 body = open(doc, encoding="utf-8").read()
