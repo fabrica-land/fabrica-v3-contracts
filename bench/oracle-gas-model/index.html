@@ -2880,10 +2880,10 @@ const DATA = {
   }
  ],
  "meta": {
-  "commit": "14f34c065f3946f934d614fc586f408afc6c1d39",
-  "commitShort": "14f34c0",
+  "commit": "a841f92a6971a0bec2958752474a421bae911c12",
+  "commitShort": "a841f92",
   "historyDepth": 48,
-  "inputDigest": "f185563edf18ec92",
+  "inputDigest": "d56f407452d3d196",
   "reportHeader": "# ENG-3913 \u2014 per-scenario gas bench, literal output\n#\n# repo:    fabrica-v3-contracts\n# base:    origin/main @ 4b9201d17d78c7296545a6bd5ef6ac8da1d5a86e\n# branch:  tozzetto/eng-3913-oracle-gas-model\n# command: forge test --match-path test/Eng3913OracleGasBench.t.sol -vv\n# forge:   forge Version: 1.7.1 (Commit SHA: 4072e48705af9d93e3c0f6e29e93b5e9a40caed8)\n# profile: optimizer=true, optimizer_runs=1, via_ir=false (foundry.toml [profile.default])\n# knobs:   FabricaAttributeOracle.defaultKnobs() \u2014 the config\n#          script/FabricaAttributeOracleDeploy.s.sol deploys with.\n#\n# \u26a0 RUN THIS WITHOUT --gas-report.\n#   Foundry's gas-report instrumentation inflates the gasleft() deltas these benches\n#   read, and the codeless-control subtraction absorbs most but not all of it. The CSV\n#   rows here are valid ONLY from a plain -vv run. Under --gas-report the steady-state\n#   writePrice row reads 72,268 instead of 73,812."
  },
  "read": {
@@ -4460,14 +4460,25 @@ total                                                    = ${noTotal ? "— not 
     measured row is identical. A naive <code>diff</code> is therefore not evidence of
     non-reproduction — compare the <em>rows</em>, which is what the 147-of-147 above counts, and
     what <code>--check</code> tests by hashing the report as an input rather than re-running it.</p>
-    <p class="small"><strong>Known systematic bias, stated rather than corrected.</strong> ENG-3922's
-    EAS write rows cool the EAS contract alone before measuring, so the SchemaRegistry the attest
-    path reads is left warm by the harness and those rows sit slightly low — measured at 54 gas
-    (0.02%) on the cycle-close row. ENG-3964's new rows cool every address the measured call
-    touches, in both halves of every pair. The older rows were NOT re-measured: the bias is two
-    orders of magnitude below the resolution of any figure on this page, and re-running them would
-    churn every cell for nothing. Recorded here so it is known rather than rediscovered; the
-    report-accuracy record for ENG-3922's own documents is
+    <p class="small"><strong>One measurement was corrected rather than annotated.</strong> Every
+    bench here cools the contract under test before measuring; several also read a SECOND contract
+    that the harness leaves warm, and cooling only the entry point charges that read at warm prices.
+    ENG-3964 found it in two places and they came out very differently.
+    <strong>The attest path</strong> reads the schema from the registry: cooling it changed
+    <code>multiAttest</code> by nothing at any batch size, and cost 54 gas (0.02%) on the
+    cycle-close attestation, where a priming call inside the test had warmed it.
+    <strong>The index path</strong> was not so small. <code>indexAttestations</code> reads every
+    attestation back out of EAS, and the bench primed it with a <code>multiAttest</code> in the same
+    test — so the measured call read those slots warm. It cannot: a publisher does not know the uids
+    until the attest transaction returns, so indexing is always a separate transaction and always
+    pays cold access. Correcting it moved every <code>indexAttestations</code> row
+    <strong>+26,000 gas per item</strong> and took arm 1's per-fact write from 425,339 to
+    <strong>451,339</strong>. The old figure measured a state that cannot occur; this one is on the
+    page.</p>
+    <p class="small">What is left, and deliberately: <code>multiRevoke</code> still cools EAS alone
+    and so still carries the small registry warmth. It is shown for context and is not part of any
+    composed figure on this page, so it was not re-measured. The report-accuracy record for
+    ENG-3922's own documents is
     <a href="https://linear.app/fabrica/issue/ENG-3950">ENG-3950</a>.</p></div>
     <p class="small">The lesson, kept here deliberately: the withdrawn numbers came from a peer's
     chat messages rather than from the artifact a reader would check. Corroboration is only worth
