@@ -142,14 +142,18 @@ Two things about how it is carried:
    `coverage=none` control) agree on all five arms.
 
 **The pass mark was pre-registered on ENG-3922 on 2026-09-03, before any arm was built or measured**,
-on Fede's bias concern, and was never moved. It was held unpublished until acknowledged for exactly
-that reason. Tim directed publication on 2026-09-04 16:18Z. Pass mark A — the all-EAS three-source
-`price()` within 1.5x the custom store's at the same walk depth — fails on every EAS arm. Pass mark
-B passes on every arm and therefore separates nothing, which is a fact about the bar rather than
-about the arms. The full write-up is the ENG-3922 results document in Linear.
+on Fede's bias concern, and was never moved. Mark A is the all-EAS three-source `price()` within
+1.5x the custom store's at the same walk depth; mark B is 350,000 gas absolute at the operating
+point.
 
-The mark was never moved and it was never formally acknowledged either: it was held unpublished
-pending that acknowledgement, and Tim directed publication on 2026-09-04 16:18Z — *"I want to share
-the full model when all the numbers we asked for are populated"* — which supersedes the hold without
-touching the bar. Both facts are recorded on the page and in the results document, because a verdict
-published under a pre-registered mark is only worth what its provenance is.
+It was never formally acknowledged either: it was held unpublished pending that acknowledgement,
+and Tim directed publication on 2026-09-04 16:18Z — *"I want to share the full model when all the
+numbers we asked for are populated"* — which supersedes the hold **without touching the bar**. Both
+facts are on the page and in the results document, because a verdict published under a
+pre-registered mark is only worth what its provenance is.
+
+**The verdict itself is deliberately not written down here.** The page tallies both marks from the
+measured rows on every build, so restating the outcome in this file would be a copy that can go
+stale — which is the defect three review rounds on this work were spent removing. Read it off the
+*Read side* panel, or from the ENG-3922 results document in Linear, which is regenerated from the
+same reports.

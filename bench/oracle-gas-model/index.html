@@ -2797,10 +2797,10 @@ const DATA = {
   }
  ],
  "meta": {
-  "commit": "ced8cfbf03487849f127ac18c04afa12b4dcc066",
-  "commitShort": "ced8cfb",
+  "commit": "7d8c42a8c993c31b1fb5f8946157c6ea3ccb598b",
+  "commitShort": "7d8c42a",
   "historyDepth": 48,
-  "inputDigest": "5ae22ee72bc20bef",
+  "inputDigest": "96a63bb5ecae32f8",
   "reportHeader": "# ENG-3913 \u2014 per-scenario gas bench, literal output\n#\n# repo:    fabrica-v3-contracts\n# base:    origin/main @ 4b9201d17d78c7296545a6bd5ef6ac8da1d5a86e\n# branch:  tozzetto/eng-3913-oracle-gas-model\n# command: forge test --match-path test/Eng3913OracleGasBench.t.sol -vv\n# forge:   forge Version: 1.7.1 (Commit SHA: 4072e48705af9d93e3c0f6e29e93b5e9a40caed8)\n# profile: optimizer=true, optimizer_runs=1, via_ir=false (foundry.toml [profile.default])\n# knobs:   FabricaAttributeOracle.defaultKnobs() \u2014 the config\n#          script/FabricaAttributeOracleDeploy.s.sol deploys with.\n#\n# \u26a0 RUN THIS WITHOUT --gas-report.\n#   Foundry's gas-report instrumentation inflates the gasleft() deltas these benches\n#   read, and the codeless-control subtraction absorbs most but not all of it. The CSV\n#   rows here are valid ONLY from a plain -vv run. Under --gas-report the steady-state\n#   writePrice row reads 72,268 instead of 73,812."
  },
  "read": {
@@ -3194,6 +3194,12 @@ function writeProfile(armKey) {
       layer: "bespoke", arm: null, armLabel: "the custom fact store",
       priceCum: n => costOfFirstNWrites(n, c),
       priceEach: null,
+      // One writePrice per row, sent individually: the monthly model does not batch the bespoke
+      // price writes (the batch dial drives registration and the Batching panel, not this term).
+      priceTxnsFor: writes => writes,
+      priceBatchesFor: () => 0,
+      addendCount: 1,
+      closeTxnsEach: 1,
       urgentPerWrite: reached => reached >= HISTORY_DEPTH ? c.r4 : c.r3,
       closeRepeat: G("heartbeat:repeat"),
       closeFirst: G("heartbeat:first"),
@@ -3236,6 +3242,17 @@ function writeProfile(armKey) {
     // a row gets cheaper. The cost is flat in the write count.
     priceCum: n => perFact === null ? 0 : perFact * n,
     priceEach: perFact,
+    // EAS facts ship in BATCHES, and each batch is two transactions -- the attestation and the
+    // write that makes it findable. A fact count is not a transaction count here, and the two
+    // were being added together.
+    priceBatchesFor: writes => measuredAtDial ? Math.ceil(writes / S.batch) : 0,
+    // One transaction per addend per batch: the attestation, and the write that makes it findable.
+    priceTxnsFor: writes => measuredAtDial
+      ? Math.ceil(writes / S.batch) * arm.addends.length : 0,
+    addendCount: arm.addends.length,
+    // Arm 1's close is attest PLUS the Indexer write, measured together as two transactions.
+    // Arm 2's is the attestation alone, because its lookup write is the term we exclude.
+    closeTxnsEach: arm.key === "arm1" ? 2 : 1,
     urgentPerWrite: () => perFact === null ? 0 : perFact,
     closeRepeat,
     closeFirst: null,
@@ -3306,6 +3323,10 @@ function model(armKey) {
   const regGas = (P.registration && S.reg && S.month === 1) ? S.tokens * perItemReg : 0;
   const regTxns = regGas > 0 ? Math.ceil(S.tokens / S.batch) : 0;
 
+  // Transactions actually sent, which on a batching layer is not the number of facts written.
+  const priceTxns = P.priceTxnsFor(priceWrites);
+  const priceBatches = P.priceBatchesFor(priceWrites);
+  const txnTotal = priceTxns + hbTxns * P.closeTxnsEach + attrWrites + regTxns;
   const totalGas = priceGas + hbGas + attrGas + regGas;
   const price = (S.gas + S.tip) * 1e-9;              // ETH per gas
   const toEth = g => g * price;
@@ -3364,6 +3385,7 @@ function model(armKey) {
   yearGas += regGas + bootstrapGas;
 
   return {P, rows, writesPerRowPerMonth, cadenceWritesPerRowPerMonth, perRow, priceGas, priceWrites,
+          priceTxns, priceBatches, txnTotal,
           hbInterval, hbCount, hbGas, hbTxns, bootstrapCount, bootstrapGas,
           coveredByWrites, attrGas, attrWrites, regGas, regTxns, perItemReg, totalGas, toEth, toUsd,
           moverShare, hbPerWriterPerMonth,
@@ -3481,7 +3503,7 @@ function renderReadSide() {
 
   document.getElementById("read-verdict").innerHTML = `
     <div class="note ${isEas ? "bad" : "ok"}"><p><strong>Pass mark A — the go/no-go —
-    ${READ_CMP.aSummary.replace("FAIL", "fails").replace("pass", "passes")}, at
+    ${READ_CMP.aSummary.replace("FAIL on", "fails on").replace("pass on", "passes on")}, at
     ${Math.min(...easRatios).toFixed(2)}× to ${Math.max(...easRatios).toFixed(2)}×
     against a ${READ.marks.aCeiling}× ceiling.</strong> The mark was registered on
     <a href="https://linear.app/fabrica/issue/ENG-3922">ENG-3922</a> on
@@ -3491,8 +3513,8 @@ function renderReadSide() {
     (≤ ${fmt(READ.marks.bAbsolute)} gas) ${READ_CMP.bSummary.startsWith("pass on every")
       ? `passes on every measured arm including the dearest (${fmt(worst)}), so it discriminates
          nothing — which is a fact about the bar, not about the arms`
-      : `is ${READ_CMP.bSummary.replace("FAIL", "failed").replace("pass", "passed")}, so unlike A
-         it does separate them`}.</p>
+      : `${READ_CMP.bSummary.replace("FAIL on", "is failed by").replace("pass on", "is passed by")},
+         so unlike A it does separate them`}.</p>
     <p class="small">The margin is narrower than it was. Review found the EAS arms re-resolving and
     re-reading the same head attestation three times per oracle source where the store arms read a
     packed struct twice — a real bias <em>against</em> EAS in every figure published before
@@ -3672,11 +3694,17 @@ function render() {
       ? `, with ${otherEasArm.label} on every card` : ""}: EAS's <code>Indexer</code> is not
     deployed on Ethereum mainnet, so of the two arms this model prices, the pointer arm is the
     one that could ship there.</p>
-    ${m.P.excluded.length ? `<p><strong>${m.P.excluded.length === 1
-      ? "One term of the round-1 model has" : `${fmt(m.P.excluded.length)} terms of the round-1
-    model have`} no measured EAS row on these dials, and ${m.P.excluded.length === 1
-      ? "is" : "are"} excluded rather than estimated</strong> — the totals on this dial are
-    floors, not forecasts:</p><ul class="small">${m.P.excluded.map(x => `<li>${x}</li>`).join("")}</ul>` : ""}
+    ${BATCH.eas.arms.some(a => easArmTotals[a.key].P.excluded.length) ? `<p><strong>Some terms of
+    the round-1 model have no measured EAS row, and are excluded rather than estimated</strong> —
+    the totals on this dial are floors, not forecasts. <em>The exclusions differ by arm</em>, so
+    they are listed per arm rather than applied to both:</p>
+    ${BATCH.eas.arms.map(a => {
+      const ex = easArmTotals[a.key].P.excluded;
+      return `<p class="small" style="margin:8px 0 2px"><strong>${a.label}</strong> —
+        ${ex.length === 0 ? "nothing excluded on these dials."
+          : `${fmt(ex.length)} excluded:`}</p>${ex.length
+          ? `<ul class="small">${ex.map(x => `<li>${x}</li>`).join("")}</ul>` : ""}`;
+    }).join("")}` : ""}
     <p class="small">Deliberate, and unchanged: nothing on this page is estimated. A term with a
     measured row is charged; a term without one is named and left out.</p></div>`;
 
@@ -3705,11 +3733,16 @@ function render() {
   const noTotal = isEas && m.P.priceEach === null;
   const noTotalWhy = `no measured EAS write row at batch ${fmt(S.batch)} — measured at ${BATCH.sizes.join(" / ")}`;
   const withAlt = (sub, render) => noTotal ? noTotalWhy
-    : alt ? `${sub} · ${otherEasArm.label}: ${render(alt)}` : sub;
+    : alt ? `${sub} · ${otherEasArm.label}: ${render(alt)}${partialFor(alt)}` : sub;
   const cardVal = v => noTotal ? "—" : v;
-  const partial = m.P.excluded.length ? " · partial: see the exclusions above" : "";
+  // The marker names the arm it qualifies: the headline card carries the quoted arm's figure and
+  // the other arm's on its sub-line, and the two do not always exclude the same terms.
+  const partialFor = x => x.P.excluded.length
+    ? ` · partial (${fmt(x.P.excluded.length)} excluded)` : "";
+  const partial = partialFor(m);
   cards.push(["Gas per month", cardVal(fmt(m.totalGas)),
-              withAlt(`${fmt(m.priceWrites + m.hbTxns + m.attrWrites + m.regTxns, 0)} transactions${partial}`,
+              withAlt(`${fmt(m.txnTotal, 0)} transaction${m.txnTotal === 1 ? "" : "s"}${isEas
+                ? `, carrying ${fmt(m.priceWrites, 0)} facts` : ""}${partial}`,
                       x => fmt(x.totalGas))]);
   cards.push(["ETH per month", cardVal(eth(m.toEth(m.totalGas))),
               withAlt(`at ${gwei(S.gas)} + ${gwei(S.tip)} gwei`, x => eth(x.toEth(x.totalGas)))]);
@@ -3767,43 +3800,63 @@ total                                                    = ${noTotal ? "— not 
     ["Registration (one-time)", m.regGas, "#8a5a00"],
   ].filter(p => p[1] > 0);
   const tot = parts.reduce((a, p) => a + p[1], 0) || 1;
-  document.getElementById("sharebar").innerHTML =
+  // When a term is excluded there is no denominator: dividing by the measured remainder turns the
+  // cycle close into "100% of the bill" while every other panel says the dominant term is missing.
+  // Same treatment as the congestion panel -- say it cannot be computed rather than renormalise.
+  const share = v => noTotal ? "—" : (100 * v / tot).toFixed(1) + "%";
+  document.getElementById("sharebar").innerHTML = noTotal ? "" :
     parts.map(p => `<span style="flex:${p[1] / tot};background:${p[2]}" title="${p[0]}"></span>`).join("");
-  document.getElementById("sharelegend").innerHTML =
-    parts.map(p => `<span><i style="background:${p[2]}"></i>${p[0]} — ${(100 * p[1] / tot).toFixed(1)}%</span>`).join("");
+  document.getElementById("sharelegend").innerHTML = noTotal
+    ? `<span class="src">Shares are not computable on these dials: ${noTotalWhy}, so there is no
+       total to take a share of. The measured components are still listed below.</span>`
+    : parts.map(p => `<span><i style="background:${p[2]}"></i>${p[0]} — ${(100 * p[1] / tot).toFixed(1)}%</span>`).join("");
 
   document.getElementById("breakdown").innerHTML = `
-    <thead><tr><th>Component</th><th class="n">Transactions</th><th class="n">Gas each</th>
+    <thead><tr><th>Component</th><th class="n">${isEas ? "Writes" : "Transactions"}</th>
+      <th class="n">Gas each</th>
       <th class="n">Gas total</th><th class="n">USD</th><th class="n">Share</th></tr></thead>
     <tbody>
       <tr><td>Price writes${noTotal
-          ? ` <span class="src">${noTotalWhy} — excluded</span>` : ""}</td>
+          ? ` <span class="src">${noTotalWhy} — excluded</span>`
+          : isEas ? ` <span class="src">facts, batched ${fmt(S.batch)} at a time — they ship in
+              ${fmt(m.priceTxns, 0)} transactions (${fmt(m.priceBatches, 0)} batches ×
+              ${m.P.addendCount} writes each); the gas beside them is per fact</span>` : ""}</td>
         <td class="n">${fmt(m.priceWrites, 0)}</td>
         <td class="n">${noTotal ? "—" : m.writesPerRowPerMonth > 0 ? fmt(m.perRow / m.writesPerRowPerMonth, 0) : "—"}</td>
         <td class="n">${noTotal ? "—" : fmt(m.priceGas)}</td>
         <td class="n">${noTotal ? "—" : usd(m.toUsd(m.priceGas))}</td>
-        <td class="n">${noTotal ? "—" : (100 * m.priceGas / tot).toFixed(1) + "%"}</td></tr>
+        <td class="n">${share(m.priceGas)}</td></tr>
       <tr><td>Cycle close${m.bootstrapGas ? " <span class=\"src\">incl. one-time writer bootstrap</span>" : ""}</td>
         <td class="n">${fmt(m.hbTxns, 1)}</td>
         <td class="n">${m.hbCount > 0 ? fmt(m.P.closeRepeat) : m.bootstrapGas ? fmt(m.P.closeFirst) : "—"}</td>
         <td class="n">${fmt(m.hbGas)}</td><td class="n">${usd(m.toUsd(m.hbGas))}</td>
-        <td class="n">${(100 * m.hbGas / tot).toFixed(1)}%</td></tr>
+        <td class="n">${share(m.hbGas)}</td></tr>
       <tr><td>Attribute writes${m.P.attrCum === null && S.attrs > 0
           ? " <span class=\"src\">not measured on EAS — excluded</span>" : ""}</td>
         <td class="n">${m.P.attrCum === null ? "—" : fmt(m.attrWrites, 0)}</td>
         <td class="n">${m.P.attrEach && S.attrs ? fmt(m.P.attrEach) : "—"}</td>
         <td class="n">${fmt(m.attrGas)}</td><td class="n">${usd(m.toUsd(m.attrGas))}</td>
-        <td class="n">${(100 * m.attrGas / tot).toFixed(1)}%</td></tr>
+        <td class="n">${share(m.attrGas)}</td></tr>
       <tr><td>Registration <span class="src">${m.P.registration ? "round 1 only"
           : "no per-token gate on EAS"}</span></td>
         <td class="n">${m.regTxns ? fmt(m.regTxns) : "—"}</td>
         <td class="n">${m.regGas ? fmt(m.perItemReg, 0) + " /token" : "—"}</td>
         <td class="n">${fmt(m.regGas)}</td><td class="n">${usd(m.toUsd(m.regGas))}</td>
-        <td class="n">${(100 * m.regGas / tot).toFixed(1)}%</td></tr>
+        <td class="n">${share(m.regGas)}</td></tr>
     </tbody>`;
 
+  // `crossoverTokens` is null for two different reasons -- no closes are charged, or the price
+  // term it divides by is excluded -- and the sentence below was written for the first. Separate
+  // them: with no price term there is nothing to cross over, and saying so is not the same as
+  // saying the closes are free.
   const co = m.crossoverTokens;
-  const coBody = co === null
+  const coBody = noTotal
+    ? `<strong>Not computable on these dials.</strong> The crossover is the token count at which
+       the price writes overtake the cycle close, and ${noTotalWhy} — so there is nothing to
+       compare the close against. The ${fmt(m.hbCount, 1)} close${m.hbCount === 1 ? "" : "s"} this
+       month ${m.hbCount === 1 ? "is" : "are"} charged at a measured row and shown in the table
+       above; what share of the bill they represent is exactly what cannot be said here.`
+    : co === null
     ? `<strong>On these dials the question does not arise: there are no bare cycle closes to pay
        for.</strong> The write cadence (${S.cadence} day) is inside the cycle-close window
        (${fmt(m.hbInterval, 2)} days), and ${isEas
