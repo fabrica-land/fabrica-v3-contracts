@@ -307,13 +307,34 @@ def parse_heartbeat_variants(path):
     }
 
 
+# ENG-3964: the mainnet block gas limit the boundary search was run against. It is ALSO read from
+# chain into chain-data.json and rendered on the page; this constant is the figure the committed
+# bench measured against, and the build asserts the two agree rather than letting them drift.
+BLOCK_GAS_LIMIT = 60_000_000
+# The batch sizes ENG-3964 measured while locating that boundary. The decisive pair is the last
+# fitting size and the first non-fitting one; the rest are the search trace, kept so the boundary
+# is reproducible rather than asserted.
+BOUNDARY_SIZES = [80, 100, 200, 225, 230, 231, 250]
+# The decomposition the dial-1,000 card is composed from: 1000 = 4 x 230 + 80. Both are measured
+# sizes; parse_batch_boundary re-derives them from the rows and refuses if they disagree with these.
+DIAL_1000_BATCH = 230
+DIAL_1000_RESIDUAL = 80
+
+
 def parse_eas_close_write(path):
     """The EAS cycle-close WRITE rows the running-cost model charges under the EAS dial.
 
-    Arm 1's close is measured complete (attest + the Indexer write). Arm 2's close is measured only
-    as far as the attestation: the pointer write that would make a cycle-close row findable on that
-    arm was never measured, which is why the EAS running cost carries an explicit exclusion for it
-    rather than an estimate.
+    ENG-3944 charged arm 2's close at the attestation alone and excluded the pointer write that
+    makes the row findable, and charged no writer bootstrap at all because none was measured.
+    ENG-3964 measured both, in first AND repeat regimes, so nothing here is excluded:
+
+      attestFirst / attestSecond  the close attestation, first and second by the same writer
+      indexFirst  / indexRepeat   arm 1's Indexer write, first and later entries on that row
+      pointFirst  / pointRepeat   arm 2's pointer write, cold and warm slot
+
+    The bootstrap premium the page shows is the difference of two measured rows, never a rule about
+    storage. Every row is cooled on EVERY address its call touches -- EAS, the SchemaRegistry it
+    reads the schema from, and the Indexer or pointer being written -- in both halves of each pair.
     """
     text = path.read_text()
     return {
@@ -324,6 +345,114 @@ def parse_eas_close_write(path):
         "arm1Indexed": _read_int(
             text, r"arm1 cycle close, attest \+ index -- WHOLE TRANSACTIONS: (\d+)",
             path, "arm 1 cycle close, attest + index"),
+        "attestFirst": _read_int(
+            text, r"cycle close attestation FIRST by the writer -- WHOLE TRANSACTION: (\d+)",
+            path, "EAS cycle-close attestation, first by the writer"),
+        "attestSecond": _read_int(
+            text, r"cycle close attestation SECOND by the same writer -- WHOLE TRANSACTION: (\d+)",
+            path, "EAS cycle-close attestation, second by the same writer"),
+        "indexFirst": _read_int(
+            text, r"arm1 cycle close, Indexer write FIRST on the row -- WHOLE TRANSACTION: (\d+)",
+            path, "arm 1 cycle-close Indexer write, first on the row"),
+        "indexRepeat": _read_int(
+            text, r"arm1 cycle close, Indexer write REPEAT on the row -- WHOLE TRANSACTION: (\d+)",
+            path, "arm 1 cycle-close Indexer write, repeat on the row"),
+        "pointFirst": _read_int(
+            text, r"arm2 cycle close, pointer write FIRST on the row -- WHOLE TRANSACTION: (\d+)",
+            path, "arm 2 cycle-close pointer write, first on the row"),
+        "pointRepeat": _read_int(
+            text, r"arm2 cycle close, pointer write REPEAT on the row -- WHOLE TRANSACTION: (\d+)",
+            path, "arm 2 cycle-close pointer write, repeat on the row"),
+    }
+
+
+def parse_attribute_writes(path):
+    """ENG-3964 item 4: what an attribute write costs on each EAS arm.
+
+    Composed the way the price term is -- the attestation PLUS the write that makes it findable --
+    because a record the arm cannot find is a record it does not have. The lookup row is per
+    (token, attribute), so a token's FIRST attribute write pays a cold row and later ones do not;
+    both regimes are measured at the 100 batch so the model can charge them apart, exactly as it
+    does on the bespoke layer.
+    """
+    text = path.read_text()
+
+    def batch(label, sizes, suffix=""):
+        return {str(n): _read_int(
+            text,
+            r"EAS attribute %s n=%d%s -- WHOLE TRANSACTION: (\d+)" % (label, n, suffix),
+            path, "attribute %s n=%d%s" % (label, n, suffix)) for n in sizes}
+
+    # The dial sizes, plus the two the dial-1,000 decomposition needs. The attribute stream is
+    # composed at the SAME 4 x nMax + residual split the price stream uses, so the two remain
+    # comparable on one dial; the attribute legs fit comfortably at that size and the build
+    # asserts it below rather than assuming it.
+    sizes = BATCH_SIZES + [DIAL_1000_RESIDUAL, DIAL_1000_BATCH]
+    out = {
+        "attest": batch("multiAttest", sizes),
+        "indexFirst": batch("indexAttestations", sizes, " FIRST on the row"),
+        "indexRepeat": batch("indexAttestations", sizes, " REPEAT on the row"),
+        "pointFirst": batch("pointBatch", sizes, " FIRST on the row"),
+        "pointRepeat": batch("pointBatch", sizes, " REPEAT on the row"),
+    }
+    for leg, rows in out.items():
+        over = rows[str(DIAL_1000_BATCH)]
+        if over > BLOCK_GAS_LIMIT:
+            sys.exit("%s: the attribute %s leg is %s at n=%d, over the %s block limit, so the "
+                     "dial-1,000 attribute composition would not be sendable"
+                     % (path, leg, f"{over:,}", DIAL_1000_BATCH, f"{BLOCK_GAS_LIMIT:,}"))
+    return out
+
+
+def parse_batch_boundary(path, chain_gas_limit):
+    """ENG-3964 item 3: the largest batch that fits in a block, located by MEASUREMENT.
+
+    The dial offers 1,000 and a single n=1,000 attestation does not fit in a block. Rather than
+    divide a per-item figure by the limit -- a projection, and one that came out a size too high --
+    the bench measures candidate sizes and this reads the boundary off them: n_max is the largest
+    MEASURED size that fits, and the build refuses unless the very next measured size is proven not
+    to fit, so the boundary is an adjacent measured pair and not an extrapolation.
+    """
+    if chain_gas_limit != BLOCK_GAS_LIMIT:
+        sys.exit("build-model-page.py: the bench measured against a %s gas block limit but "
+                 "chain-data.json reads %s from chain; the boundary would be wrong"
+                 % (f"{BLOCK_GAS_LIMIT:,}", f"{chain_gas_limit:,}"))
+    text = path.read_text()
+    attest = {n: _read_int(text, r"EAS multiAttest n=%d -- WHOLE TRANSACTION: (\d+)" % n, path,
+                           "multiAttest n=%d" % n) for n in BOUNDARY_SIZES}
+    fits = sorted(n for n, g in attest.items() if g <= BLOCK_GAS_LIMIT)
+    over = sorted(n for n, g in attest.items() if g > BLOCK_GAS_LIMIT)
+    if not fits or not over:
+        sys.exit("%s: the measured batch sizes do not bracket the block limit; the boundary cannot "
+                 "be read off them" % path)
+    n_max, first_over = fits[-1], over[0]
+    if first_over != n_max + 1:
+        sys.exit("%s: n_max=%d and the first size measured NOT to fit is %d. The boundary is only "
+                 "proven when those are ADJACENT -- measure n=%d, or the page is extrapolating"
+                 % (path, n_max, first_over, n_max + 1))
+    residual = 1000 % n_max
+    if n_max != DIAL_1000_BATCH or residual != DIAL_1000_RESIDUAL:
+        sys.exit("%s: the measured boundary is n_max=%d with residual %d, but the attribute rows "
+                 "were measured at %d/%d. Re-measure the attribute legs at the new sizes, or the "
+                 "two write streams are composed at different splits"
+                 % (path, n_max, residual, DIAL_1000_BATCH, DIAL_1000_RESIDUAL))
+    legs = {}
+    for key, label in (("index", "EAS indexAttestations"), ("point", "pointer pointBatch")):
+        legs[key] = {str(n): _read_int(
+            text, re.escape(label) + r" n=%d -- WHOLE TRANSACTION: (\d+)" % n, path,
+            "%s n=%d" % (label, n)) for n in (n_max, residual)}
+        if legs[key][str(n_max)] > BLOCK_GAS_LIMIT:
+            sys.exit("%s: the %s leg does not fit at n=%d either; n_max is not set by the attest "
+                     "leg and the page's wording would be wrong" % (path, label, n_max))
+    return {
+        "blockGasLimit": BLOCK_GAS_LIMIT,
+        "sizes": BOUNDARY_SIZES,
+        "attest": {str(n): g for n, g in attest.items()},
+        "nMax": n_max,
+        "firstOver": first_over,
+        "residual": residual,
+        "fullBatches": 1000 // n_max,
+        "legs": legs,
     }
 
 
@@ -504,6 +633,9 @@ def main():
             # ENG-3944: the cycle-close WRITE the running-cost model charges under the EAS dial.
             # arm 1's is measured complete; arm 2's is measured only as far as the attestation.
             "close": parse_eas_close_write(arms_report),
+            # ENG-3964: the attribute term, and the batch-1,000 boundary the dial needs.
+            "attribute": parse_attribute_writes(arms_report),
+            "boundary": parse_batch_boundary(arms_report, chain["now"]["gasLimit"]),
         },
     }
     # Labels for the addend ops, so the table can name each measured row it sums.

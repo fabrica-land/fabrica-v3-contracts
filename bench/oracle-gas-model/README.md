@@ -100,20 +100,33 @@ reports — write side or read side. A page with a hole in it is worse than no p
 Every figure is a measured row from a named report at a named commit, or an arithmetic composition
 of measured rows whose formula the page states next to it.
 
-What that rule costs, stated plainly: **the EAS running cost on the layer dial is a floor, not a
-forecast.** Three terms of the round-1 running-cost model have no measured EAS row, and the page
-excludes them by name on that dial rather than filling them in:
+That rule used to cost something. Until [ENG-3964](https://linear.app/fabrica/issue/ENG-3964) four
+terms of the round-1 running-cost model had no measured EAS row, so the page excluded them by name
+and its EAS totals were floors rather than forecasts. Tim, on seeing that: *"This model is not
+complete."* He was right, and the answer was to measure them, not to reword the footnote:
 
-- **attribute writes** — ENG-3922 measured no attribute attestation, so any non-zero setting of the
-  attributes dial is dropped from every EAS figure;
-- **arm 2's cycle-close *lookup* write** — the close is charged at the measured attestation, and
-  the pointer write that would make that row findable is not measured;
-- **a writer's first cycle close on EAS** — the bespoke store has a measured cold-slot bootstrap
-  premium; EAS has no equivalent row, so no one-time bootstrap is charged.
+| term | measured by ENG-3964 |
+|---|---|
+| a writer's **first** cycle close | the attestation and its lookup write, both first and repeat regimes, per arm |
+| **arm 2's cycle-close pointer write** | 50,137 cold / 30,525 warm — the close is no longer charged at the attestation alone |
+| **attribute writes** | attest + the arm's lookup write, at every dial size, both row regimes |
+| the **batch dial at 1,000** | composed from measured rows: `4 × 230 + 80` |
 
-The batch dial's 1,000 preset is registration-only. The EAS write side is measured at 1 / 10 / 100,
-so at 1,000 the price-write term — nearly the whole month — has no measured row, and the EAS
-headline shows a dash with that reason rather than a total that quietly omits its dominant term.
+**The exclusion list is now empty on every dial state**, and the totals are totals. The mechanism
+that renders exclusions is deliberately kept rather than deleted — the rule it enforces still
+stands, and if a future dial or arm outruns the rows it fills again.
+
+**On the batch dial at 1,000.** No single EAS attestation of 1,000 facts fits in a block. The
+largest that does is **230**, located by measuring adjacent sizes — 230 fits at 59,899,669 gas
+(99.83% of the 60,000,000 limit) and 231 does not at 60,161,620. So the dial-1,000 figure is
+composed from measured rows: four batches of 230 plus a residual of 80, ten transactions per
+thousand facts. A projection from the n=100 per-item cost put the boundary at 231; it was one out,
+which is why the pair is measured rather than divided.
+
+**And a finding that inverts the dial's premise.** Batching on EAS does not merely converge past
+100 — it *reverses*. Per-item attest cost rises from 259,692 at n=100 to 260,439 at n=231, so
+larger batches cost slightly more per fact, not less. The effect is measured; its cause is not
+claimed.
 
 **Round 2 is a third codebase.** These are round-1 numbers.
 [ENG-3924](https://linear.app/fabrica/issue/ENG-3924) deletes the owner, the writer allowlist and
