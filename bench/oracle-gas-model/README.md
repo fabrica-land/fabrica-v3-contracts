@@ -96,6 +96,6 @@ The EAS **read side and headline running cost** follow from that read gas, so th
 either. The EAS **write side is** here as of
 [ENG-3938](https://linear.app/fabrica/issue/ENG-3938): `multiAttest`, `indexAttestations`, the
 pointer write and `multiRevoke`, and the batched `writePrice` on the custom store, are measured in
-ENG-3922's arms report and driven by the batch dial — each cited to that report and commit, and
-labelled provisional until ENG-3922 (PR #42) merges. An estimate is still never shown: every EAS
+ENG-3922's arms report and driven by the batch dial — each cited to that report and the commit
+that merged it to main (ENG-3922, PR #42, `55058ab0`). An estimate is still never shown: every EAS
 figure on the page is a measured row, not a guess.
