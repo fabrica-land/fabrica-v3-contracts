@@ -1,0 +1,30 @@
+# ENG-3924 round-2 fact store — whole-transaction gas
+#
+# PROVENANCE
+#   forge        : forge Version: 1.7.1
+#   forge commit : 4072e48705af9d93e3c0f6e29e93b5e9a40caed8
+#   profile      : default (foundry.toml: optimizer=true, optimizer_runs=1, via_ir=false)
+#   command      : forge test --match-contract Eng3924FactStoreGasTest -vv
+#   regenerate   : bench-reports/eng3924-regenerate.sh
+#   contract     : src/FabricaFactStore.sol
+#   basis        : whole transaction = 21,000 intrinsic + EIP-2028 calldata + execution.
+#                  One scenario per test function. Storage slots are cooled with vm.cool and the
+#                  ACCOUNT is then re-warmed with a BALANCE read, because a real transaction
+#                  starts with tx.to warm (EIP-2929) and its storage slots cold. The calldata
+#                  cost is computed BEFORE the measurement window. The getLiveFact row is a view:
+#                  execution only, no intrinsic and no calldata, because that is what an
+#                  aggregator pays inside price().
+#   cross-check  : against real Sepolia receipts, see the artifact. Agreement is ~1% on every row
+#                  that has a receipt; the residual is the harness CALL overhead.
+#
+ENG-3924 gas: closeCycle (first close, cold slot) =  49216
+ENG-3924 gas: closeCycle (subsequent close, warm slot) =  32116
+ENG-3924 gas: cycle projection, 1,000 tokens x 3 oracle sources = 3,000 facts =  296115000
+ENG-3924 gas: cycle projection, fresh rows, per fact (one tx per fact) =  98705
+ENG-3924 gas: getLiveFact (cold, execution only, as read inside price()) =  13787
+ENG-3924 gas: setLock (lock, cold slot) =  47109
+ENG-3924 gas: setMinValidCycle (kills every fact below the floor) =  46874
+ENG-3924 gas: writeFact regime 1 (fresh row, no history push) =  98668
+ENG-3924 gas: writeFact regime 2 (cold history slot + cold counter) =  93275
+ENG-3924 gas: writeFact regime 3-48 (cold history slot, warm counter) =  76176
+ENG-3924 gas: writeFact regime 49+ (ring overwrite) =  59105
