@@ -1,0 +1,25 @@
+# ENG-3924 round-2 fact store — whole-transaction gas
+#
+# PROVENANCE
+#   forge        : forge Version: 1.7.1
+#   forge commit : 4072e48705af9d93e3c0f6e29e93b5e9a40caed8
+#   profile      : default (foundry.toml: optimizer=true, optimizer_runs=1, via_ir=false)
+#   command      : forge test --match-contract Eng3924FactStoreGasTest -vv
+#   regenerate   : bench-reports/eng3924-regenerate.sh
+#   contract     : src/FabricaFactStore.sol
+#   basis        : whole transaction = 21,000 intrinsic + EIP-2028 calldata + execution.
+#                  One scenario per test function, vm.cool(store) immediately before the
+#                  measured call. The getLiveFact row is a view: execution only, no intrinsic
+#                  and no calldata, because that is what an aggregator pays inside price().
+#
+ENG-3924 gas: closeCycle (first close, cold slot) =  67044
+ENG-3924 gas: closeCycle (subsequent close, warm slot) =  47549
+ENG-3924 gas: cycle projection, fresh rows, per fact (one tx per fact) =  156812
+ENG-3924 gas: cycle projection, 1,000 tokens x 3 oracle sources = 3,000 facts =  470436000
+ENG-3924 gas: getLiveFact (cold, execution only, as read inside price()) =  13855
+ENG-3924 gas: setLock (lock, cold slot) =  69441
+ENG-3924 gas: setMinValidCycle (kills every fact below the floor) =  62307
+ENG-3924 gas: writeFact regime 1 (fresh row, no history push) =  159227
+ENG-3924 gas: writeFact regime 2 (cold history slot + cold counter) =  151345
+ENG-3924 gas: writeFact regime 3-48 (cold history slot, warm counter) =  134246
+ENG-3924 gas: writeFact regime 49+ (ring overwrite) =  117171
