@@ -435,6 +435,17 @@ function writeProfile(armKey) {
   const perFact = measuredAtDial
     ? Math.floor((O[addA][String(S.batch)].total + O[addB][String(S.batch)].total) / S.batch)
     : composedAtDial ? Math.floor(composedPrice / 1000) : null;
+  // The attribute stream is composed the SAME way as the price stream, which at dial 1,000 means
+  // `fullBatches` batches of nMax plus the residual -- NOT one nMax batch divided by nMax. Dividing
+  // the 230 measurement by 230 quietly drops the residual and disagrees with the split the sidecar
+  // asserts both streams share; it also disagreed with this arm's own `attrTxnsFor`, which was
+  // already counting the composed transactions. (CodeRabbit, PR #47.)
+  const attrPerWrite = leg => measuredAtDial
+    ? Math.floor((A.attest[String(S.batch)] + A[leg][String(S.batch)]) / S.batch)
+    : composedAtDial
+      ? Math.floor((BD.fullBatches * (A.attest[String(BD.nMax)] + A[leg][String(BD.nMax)])
+                    + (A.attest[String(BD.residual)] + A[leg][String(BD.residual)])) / 1000)
+      : 0;
   if (perFact === null) excluded.push(`price writes at batch ${fmt(S.batch)}: no measured EAS row
     and no measured decomposition — the EAS write side is measured at
     ${BATCH.sizes.join(" / ")} and composed at 1,000, and this term is excluded rather than
@@ -481,18 +492,12 @@ function writeProfile(armKey) {
     // lookup row is per (token, attribute), so a token's FIRST attribute write pays a cold row and
     // later ones do not -- the same two regimes the bespoke store has, charged the same way.
     attrCum: (before, n) => {
-      const size = measuredAtDial ? String(S.batch) : String(BD.nMax);
-      const div = measuredAtDial ? S.batch : BD.nMax;
-      const firstEach = Math.floor((A.attest[size] + A[isArm1 ? "indexFirst" : "pointFirst"][size]) / div);
-      const restEach = Math.floor((A.attest[size] + A[isArm1 ? "indexRepeat" : "pointRepeat"][size]) / div);
+      const firstEach = attrPerWrite(isArm1 ? "indexFirst" : "pointFirst");
+      const restEach = attrPerWrite(isArm1 ? "indexRepeat" : "pointRepeat");
       const cum = k => k <= 0 ? 0 : firstEach * Math.min(k, 1) + restEach * Math.max(0, k - 1);
       return cum(before + n) - cum(before);
     },
-    attrEach: (() => {
-      const size = measuredAtDial ? String(S.batch) : String(BD.nMax);
-      const div = measuredAtDial ? S.batch : BD.nMax;
-      return Math.floor((A.attest[size] + A[isArm1 ? "indexRepeat" : "pointRepeat"][size]) / div);
-    })(),
+    attrEach: attrPerWrite(isArm1 ? "indexRepeat" : "pointRepeat"),
     // Attributes batch on EAS exactly as prices do, so an attribute WRITE count is not a
     // transaction count either -- the same distinction the price term draws.
     attrTxnsFor: writes => measuredAtDial
