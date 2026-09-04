@@ -2878,10 +2878,10 @@ const DATA = {
   }
  ],
  "meta": {
-  "commit": "672b0069e43f8ad0f2dac3916d082793644b122c",
-  "commitShort": "672b006",
+  "commit": "78a3a33f08bd9a2e84786a15cbaf2491b90165d0",
+  "commitShort": "78a3a33",
   "historyDepth": 48,
-  "inputDigest": "ad2e353a4a7b4e07",
+  "inputDigest": "7b96a078c2c7cedd",
   "reportHeader": "# ENG-3913 \u2014 per-scenario gas bench, literal output\n#\n# repo:    fabrica-v3-contracts\n# base:    origin/main @ 4b9201d17d78c7296545a6bd5ef6ac8da1d5a86e\n# branch:  tozzetto/eng-3913-oracle-gas-model\n# command: forge test --match-path test/Eng3913OracleGasBench.t.sol -vv\n# forge:   forge Version: 1.7.1 (Commit SHA: 4072e48705af9d93e3c0f6e29e93b5e9a40caed8)\n# profile: optimizer=true, optimizer_runs=1, via_ir=false (foundry.toml [profile.default])\n# knobs:   FabricaAttributeOracle.defaultKnobs() \u2014 the config\n#          script/FabricaAttributeOracleDeploy.s.sol deploys with.\n#\n# \u26a0 RUN THIS WITHOUT --gas-report.\n#   Foundry's gas-report instrumentation inflates the gasleft() deltas these benches\n#   read, and the codeless-control subtraction absorbs most but not all of it. The CSV\n#   rows here are valid ONLY from a plain -vv run. Under --gas-report the steady-state\n#   writePrice row reads 72,268 instead of 73,812."
  },
  "read": {
@@ -3862,6 +3862,17 @@ function render() {
   const alt = isEas ? easArmTotals[otherEasArm.key] : null;
   // Bespoke prices a row through the history ring rather than from a flat per-fact figure, so it
   // has no `priceEach` by construction; only the EAS layer can be missing one.
+  //
+  // CONTINGENCY, and currently UNREACHABLE. `noTotal` was true at batch 1,000 until ENG-3964 gave
+  // that dial size a measured composition; every size the dial offers now yields a `priceEach`, so
+  // nothing below this line renders today — including ENG-3961's fix to the zero-closes crossover
+  // sentence, which is correct if reached and has never been exercised on a shipped page.
+  //
+  // Kept deliberately, for the same reason the empty `excluded` list above is kept: the rule it
+  // enforces still stands. A dial size or an arm with no measured row and no measured
+  // decomposition must refuse to show a total rather than show a partial one, and if the dial
+  // gains a size or an arm gains a leg the rows do not cover, this fills again. Do not delete it
+  // as dead, and do not read its presence as evidence that the path is tested.
   const noTotal = isEas && m.P.priceEach === null;
   const noTotalWhy = `no measured EAS write row at batch ${fmt(S.batch)} — measured at ${BATCH.sizes.join(" / ")}`;
   const withAlt = (sub, render) => noTotal ? noTotalWhy

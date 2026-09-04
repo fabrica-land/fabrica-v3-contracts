@@ -975,6 +975,17 @@ function render() {
   const alt = isEas ? easArmTotals[otherEasArm.key] : null;
   // Bespoke prices a row through the history ring rather than from a flat per-fact figure, so it
   // has no `priceEach` by construction; only the EAS layer can be missing one.
+  //
+  // CONTINGENCY, and currently UNREACHABLE. `noTotal` was true at batch 1,000 until ENG-3964 gave
+  // that dial size a measured composition; every size the dial offers now yields a `priceEach`, so
+  // nothing below this line renders today — including ENG-3961's fix to the zero-closes crossover
+  // sentence, which is correct if reached and has never been exercised on a shipped page.
+  //
+  // Kept deliberately, for the same reason the empty `excluded` list above is kept: the rule it
+  // enforces still stands. A dial size or an arm with no measured row and no measured
+  // decomposition must refuse to show a total rather than show a partial one, and if the dial
+  // gains a size or an arm gains a leg the rows do not cover, this fills again. Do not delete it
+  // as dead, and do not read its presence as evidence that the path is tested.
   const noTotal = isEas && m.P.priceEach === null;
   const noTotalWhy = `no measured EAS write row at batch ${fmt(S.batch)} — measured at ${BATCH.sizes.join(" / ")}`;
   const withAlt = (sub, render) => noTotal ? noTotalWhy
