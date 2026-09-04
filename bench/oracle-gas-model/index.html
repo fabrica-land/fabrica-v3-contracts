@@ -2770,10 +2770,10 @@ const DATA = {
   }
  ],
  "meta": {
-  "commit": "917d5bc14dc908e6e516a12375e735327f83ebc8",
-  "commitShort": "917d5bc",
+  "commit": "d8e2525044dd4e1f70df5c27ff6915736ff2f8cd",
+  "commitShort": "d8e2525",
   "historyDepth": 48,
-  "inputDigest": "5e0b352245a936d9",
+  "inputDigest": "ad1034f7f42e8790",
   "reportHeader": "# ENG-3913 \u2014 per-scenario gas bench, literal output\n#\n# repo:    fabrica-v3-contracts\n# base:    origin/main @ 4b9201d17d78c7296545a6bd5ef6ac8da1d5a86e\n# branch:  tozzetto/eng-3913-oracle-gas-model\n# command: forge test --match-path test/Eng3913OracleGasBench.t.sol -vv\n# forge:   forge Version: 1.7.1 (Commit SHA: 4072e48705af9d93e3c0f6e29e93b5e9a40caed8)\n# profile: optimizer=true, optimizer_runs=1, via_ir=false (foundry.toml [profile.default])\n# knobs:   FabricaAttributeOracle.defaultKnobs() \u2014 the config\n#          script/FabricaAttributeOracleDeploy.s.sol deploys with.\n#\n# \u26a0 RUN THIS WITHOUT --gas-report.\n#   Foundry's gas-report instrumentation inflates the gasleft() deltas these benches\n#   read, and the codeless-control subtraction absorbs most but not all of it. The CSV\n#   rows here are valid ONLY from a plain -vv run. Under --gas-report the steady-state\n#   writePrice row reads 72,268 instead of 73,812."
  },
  "rows": {
@@ -3373,9 +3373,13 @@ total                                                    = ${fmt(m.totalGas)} ga
       from <code>${BATCH.source.file}</code> @ <code>${srcCommit}</code> (PR #${BATCH.source.pr})${provTag}`;
   } else {
     writeHtml = BATCH.eas.arms.map(a => {
-      const [a1, a2] = a.addends, single = O[a1]["1"].perItem + O[a2]["1"].perItem;
+      const [a1, a2] = a.addends, single = Math.floor((O[a1]["1"].total + O[a2]["1"].total) / 1);
       const body = sizes.map(n => {
-        const x1 = O[a1][String(n)].perItem, x2 = O[a2][String(n)].perItem, per = x1 + x2;
+        const r1 = O[a1][String(n)], r2 = O[a2][String(n)];
+        // Per item of the whole batch is floor of the COMBINED total / n, not the sum of two
+        // independently floored per-items (which can trail by up to a gas). This matches the
+        // stated method, floor(whole-tx / n); the addend columns are each floored on their own.
+        const x1 = r1.perItem, x2 = r2.perItem, per = Math.floor((r1.total + r2.total) / n);
         const active = n === S.batch;
         return `<tr${active ? ' style="background:var(--accent-soft)"' : ""}>
           <td>${fmt(n)}${dialMark(active)}</td><td class="n">${fmt(x1)}</td><td class="n">${fmt(x2)}</td>
@@ -3392,13 +3396,15 @@ total                                                    = ${fmt(m.totalGas)} ga
     worth = `Each arm's per-item write is its <strong>complete</strong> cost, every addend measured:
       a record the arm cannot find is a record it does not have, so the attest is priced with the
       write that makes it findable. ` + BATCH.eas.arms.map(a => {
-      const [a1, a2] = a.addends, single = O[a1]["1"].perItem + O[a2]["1"].perItem;
-      const p100 = O[a1]["100"].perItem + O[a2]["100"].perItem;
+      const [a1, a2] = a.addends, single = Math.floor((O[a1]["1"].total + O[a2]["1"].total) / 1);
+      const p100 = Math.floor((O[a1]["100"].total + O[a2]["100"].total) / 100);
       return `<strong>${a.label}</strong>: ${fmt(single)} gas per item single, ${fmt(p100)} at 100
         (${vsCell(p100, single)}).`;
     }).join(" ") + ` <code>multiAttest</code> alone — the attest without its lookup write — is
       never shown as the whole write. ENG-3922 measured no standalone single <code>attest</code>,
-      so each arm's “single” is its n=1 row: one attest plus one lookup write.`;
+      so each arm's “single” is its n=1 row: one attest plus one lookup write. Each arm's per item
+      is floor of its combined two-transaction batch ÷ n, so the two independently floored addend
+      columns can read a single gas below it.`;
     const mr = O.multiRevoke;
     relatedHtml = `<p class="small" style="margin-top:8px"><strong>Revoke (context, not part of the
       write):</strong> <code>multiRevoke</code> per item ${fmt(mr["10"].perItem)} at 10,
