@@ -215,6 +215,13 @@ READ_SOURCES = 3
 # growth curve is the finding, and a curve with a hole in it is worse than no curve.
 INDEXER_ROW_DEPTHS = [1, 2, 5]
 CLOSE_ROW_DEPTHS = [1, 3, 7]
+# The cycle-close row depth the PROBED Sepolia deployment actually stood at. It was the third
+# deployment, and that row gains one entry per deployment, so its rows were at depth 3. This is a
+# fact about the run rather than something derivable, which is exactly why it is named here and
+# validated below instead of being written into the page as a literal index: the page's
+# like-for-like comparison reads `closeRow[PROBED_CLOSE_ROW_DEPTH]`, and if a regenerated report
+# ever stops measuring that depth the build must fail rather than render NaN.
+PROBED_CLOSE_ROW_DEPTH = 3
 
 # The pass marks, pre-registered on ENG-3922 on 2026-09-03 BEFORE any arm was measured, on Fede's
 # bias concern, and never moved. They are constants here, not derived, because that is the entire
@@ -269,6 +276,10 @@ def parse_arms_read(path):
 def parse_growth(path):
     """Arm 1's two append-only Indexer growth curves, both measured in the arms report."""
     text = path.read_text()
+    if PROBED_CLOSE_ROW_DEPTH not in CLOSE_ROW_DEPTHS:
+        sys.exit("build-model-page.py: the probed cycle-close depth %d is not among the measured "
+                 "depths %s, so the page's like-for-like comparison has nothing to read"
+                 % (PROBED_CLOSE_ROW_DEPTH, CLOSE_ROW_DEPTHS))
     return {
         "indexerRow": {str(d): _read_int(text, r"Indexer row depth %d: (\d+)" % d, path,
                                          "Indexer row depth %d" % d) for d in INDEXER_ROW_DEPTHS},
@@ -324,16 +335,31 @@ def parse_baseline_read(path):
     hold everything but the fact layer constant, which only the calibration arm does.
     """
     text = path.read_text()
-    depths = {str(d): _read_int(
-        text, r"price\(\) execution gas, 3 oracle sources, seasoning walk depth %d: (\d+)" % d,
-        path, "deployed aggregator at walk depth %d" % d) for d in READ_DEPTHS}
+    # The source count is READ out of each row rather than pinned in the pattern, because every
+    # per-hop figure on the page divides by READ_SOURCES: a baseline regenerated at a different
+    # count would otherwise produce quietly wrong hop costs with no other symptom. Matching it
+    # loosely and checking it is the difference between a real assertion and one that can never
+    # fire, since a pattern that hardcodes "3 oracle sources" simply stops matching instead.
+    depths = {}
+    for depth in READ_DEPTHS:
+        row = re.search(
+            r"price\(\) execution gas, (\d+) oracle sources, seasoning walk depth %d: (\d+)" % depth,
+            text)
+        if not row:
+            sys.exit("%s: missing measured row for the deployed aggregator at walk depth %d -- "
+                     "the read-side panel needs it" % (path, depth))
+        if int(row.group(1)) != READ_SOURCES:
+            sys.exit("%s: the walk-depth-%d row is a %s-source read, but the page divides every "
+                     "per-hop figure by %d sources"
+                     % (path, depth, row.group(1), READ_SOURCES))
+        depths[str(depth)] = int(row.group(2))
     store = re.search(r"live fact store: (0x[0-9a-fA-F]{40})", text)
     if not store:
         sys.exit("%s: cannot find the live fact store address in the report header" % path)
     return {"depths": depths, "factStore": store.group(1)}
 
 
-def parse_sepolia_probes(path, fork=None):
+def parse_sepolia_probes(path, fork):
     """The four real-Sepolia probe receipts from the merged evidence report.
 
     `price()` is a view, so an eth_call costs nothing observable; these come from a probe contract
@@ -357,22 +383,22 @@ def parse_sepolia_probes(path, fork=None):
         if not row:
             sys.exit("%s: no Sepolia probe row for %r -- the read-side panel cites a transaction "
                      "hash for every arm it shows a chain figure for" % (path, arm["probe"]))
-        out[arm["key"]] = {"gas": int(row.group(1).replace(",", "")),
-                           "wholeTx": int(row.group(2).replace(",", "")),
-                           "tx": row.group(4)}
+        # Group 2 is the whole-transaction figure. It is matched so the pattern reaches the
+        # hash in group 4, and deliberately not carried onto the page: nothing renders it, and
+        # the vendored evidence report is committed beside this file.
+        out[arm["key"]] = {"gas": int(row.group(1).replace(",", "")), "tx": row.group(4)}
         prices[arm["key"]] = row.group(3)
     # The read-side panel's fork-versus-chain narrative is arm 1's: it explains the divergence by
     # arm 1's append-only Indexer rows, which no other arm has. If some other arm ever diverges
     # more, that explanation is attached to the wrong row, so the premise is asserted rather than
     # assumed. `fork` is passed in for exactly this check.
-    if fork:
-        gaps = {k: abs(v["gas"] - fork[k]["0"]) / fork[k]["0"] for k, v in out.items()}
-        worst = max(gaps, key=gaps.get)
-        if worst != "arm1":
-            sys.exit("%s: the largest fork-versus-chain divergence is %s (%.1f%%), not arm1; the "
-                     "read-side panel explains that divergence by arm 1's append-only Indexer "
-                     "rows, and that explanation no longer fits the data"
-                     % (path, worst, gaps[worst] * 100))
+    gaps = {k: abs(v["gas"] - fork[k]["0"]) / fork[k]["0"] for k, v in out.items()}
+    worst = max(gaps, key=gaps.get)
+    if worst != "arm1":
+        sys.exit("%s: the largest fork-versus-chain divergence is %s (%.1f%%), not arm1; the "
+                 "read-side panel explains that divergence by arm 1's append-only Indexer rows, "
+                 "and that explanation no longer fits the data"
+                 % (path, worst, gaps[worst] * 100))
     distinct = sorted(set(prices.values()))
     if len(distinct) != 1:
         sys.exit("%s: the probe rows return different prices (%s); the arms are not measuring the "
@@ -501,6 +527,7 @@ def main():
         "sources": READ_SOURCES,
         "indexerRowDepths": INDEXER_ROW_DEPTHS,
         "closeRowDepths": CLOSE_ROW_DEPTHS,
+        "probedCloseRowDepth": PROBED_CLOSE_ROW_DEPTH,
         "fork": fork_rows,
         "growth": parse_growth(arms_report),
         "heartbeat": parse_heartbeat_variants(arms_report),

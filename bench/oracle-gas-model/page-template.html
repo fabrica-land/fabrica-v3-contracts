@@ -322,10 +322,12 @@ footer{border-top:1px solid var(--line);padding:18px 20px 40px;color:var(--muted
 const DATA = /*__DATA__*/null;
 const R = DATA.rows, CHAIN = DATA.chain, META = DATA.meta, BATCH = DATA.batch;
 const READ = DATA.read;
-/* Which EAS arm the running-cost headline is quoted for. Arm 2 is the only EAS arm that can
-   ship to Ethereum mainnet: EAS's `Indexer` is not deployed there, which is why the adoption
-   survey's Option A carries an ownerless pointer contract of our own instead. Arm 1's figure
-   is computed alongside and shown on every card, never dropped. */
+/* Which EAS arm the running-cost headline is quoted for. Of the two arms the write model
+   covers, arm 2 is the mainnet-viable one: arm 1 resolves through EAS's `Indexer`, which is not
+   deployed on Ethereum mainnet, which is why the adoption survey's Option A carries an ownerless
+   pointer contract of our own instead. (Arm 1C needs no Indexer either, but it is handed the uid
+   off chain and has no lookup write of its own, so the write model does not carry it.) Arm 1's
+   figure is computed alongside and shown on every card, never dropped. */
 const EAS_HEADLINE_ARM = "arm2";
 const MONTH_DAYS = 30.436875;           // mean Gregorian month
 const HISTORY_DEPTH = META.historyDepth; // ring depth, 48, read from the contract in the bench
@@ -605,9 +607,10 @@ const READ_CMP = (() => {
     .map(a => ({arm: a, pct: pctDiff(READ.fork[a.key]["0"], READ.sepolia.probes[a.key].gas)}));
   const byDivergence = [...probed].sort((x, y) => Math.abs(y.pct) - Math.abs(x.pct));
   const outlier = byDivergence[0], agreeing = byDivergence.slice(1);
-  // The probed deployment was the third, and the cycle-close row gains one entry per deployment,
-  // so its rows stood at depth 3. A fact about the run, not a derivation.
-  const probedCloseDepth = 3;
+  // The cycle-close row depth the probed deployment stood at. A fact about that run rather than
+  // a derivation, so it is an INPUT the builder names and validates against the measured depths --
+  // not a literal here, which a regenerated report could turn into an undefined lookup and NaN.
+  const probedCloseDepth = READ.probedCloseRowDepth;
   // "every arm" / "n of m arms" / "no arm" is itself derived: a mark's verdict must never be a
   // sentence that outlives the numbers beside it.
   const tally = (verdicts, noun, failWord, passWord) => {
@@ -622,12 +625,8 @@ const READ_CMP = (() => {
     worstAgreeing: Math.max(...agreeing.map(x => Math.abs(x.pct))),
     likeForLike: pctDiff(READ.growth.closeRow[String(probedCloseDepth)],
                          READ.sepolia.probes[outlier.arm.key].gas),
-    aVerdicts: easArms.map(a => markA(READ.fork[a.key]["0"])),
-    bVerdicts: READ.arms.map(a => markB(READ.fork[a.key]["0"])),
-    dearestGas: READ.fork[byGas[byGas.length - 1].key]["0"],
     aSummary: tally(easArms.map(a => markA(READ.fork[a.key]["0"])), "EAS", "FAIL", "pass"),
     bSummary: tally(READ.arms.map(a => markB(READ.fork[a.key]["0"])), "measured", "FAIL", "pass"),
-    tally,
   };
 })();
 
@@ -870,7 +869,8 @@ function render() {
     <code>${srcCommitShort()}</code>. The write side is in <em>Batching</em>. The running cost on
     this dial is quoted for <strong>${m.P.armLabel}</strong>${otherEasArm
       ? `, with ${otherEasArm.label} on every card` : ""}: EAS's <code>Indexer</code> is not
-    deployed on Ethereum mainnet, so the pointer arm is the one that could ship there.</p>
+    deployed on Ethereum mainnet, so of the two arms this model prices, the pointer arm is the
+    one that could ship there.</p>
     ${m.P.excluded.length ? `<p><strong>${m.P.excluded.length === 1
       ? "One term of the round-1 model has" : `${fmt(m.P.excluded.length)} terms of the round-1
     model have`} no measured EAS row on these dials, and ${m.P.excluded.length === 1
