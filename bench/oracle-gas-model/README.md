@@ -31,6 +31,10 @@ committed at all.
 | `deployed-round1/` | the round-1 fact store source, vendored for that comparison only |
 | `identify-deployed-bytecode.py` | proves which commit produced the deployed contract |
 | `reports/deployed-bytecode-id.txt` | that proof's literal output |
+| `reports/eng3922-arms.txt` | ENG-3922's arms report, vendored verbatim: the per-arm `price()` rows the read side renders, and the batched write rows the batch dial reads |
+| `reports/eng3922-baseline.txt` | ENG-3922's baseline report, vendored verbatim: the deployed aggregator's `price()` at each walk depth |
+| `reports/eng3922-sepolia-evidence.md` | ENG-3922's Sepolia evidence, vendored verbatim: the four real-transaction probe receipts and their hashes |
+| `reports/eng3922-source.txt` | the provenance sidecar pinning the commit all three were vendored from |
 
 The measurements come from `test/Eng3913OracleGasBench.t.sol` and
 `test/Eng3913DeployedVsMainGas.t.sol` in this repo.
@@ -64,8 +68,14 @@ The `forge` runs need no RPC and no keys, so a reviewer can reproduce the gas nu
 clean clone. Only the mainnet readings need an RPC URL, and re-running those moves the "now"
 base fee and the ETH price — the historical anchors are immutable.
 
+The three `reports/eng3922-*` files are **not** regenerated here. They are vendored verbatim from
+ENG-3922's own reports at the commit named in `reports/eng3922-source.txt`, which is the commit that
+merged them to `main`; ENG-3922 regenerates them with `bench-reports/regenerate.sh`. To refresh them,
+copy them across from `bench-reports/` at the new commit, update the sidecar, and rebuild — the
+input digest changes, which is the point.
+
 `build-model-page.py` refuses to build if any scenario the page needs is missing from the
-reports. A page with a hole in it is worse than no page.
+reports — write side or read side. A page with a hole in it is worse than no page.
 
 ## Three things to know before reading the numbers
 
@@ -86,18 +96,64 @@ reports. A page with a hole in it is worse than no page.
 
 ## What is not here
 
-Read gas inside `price()`. This page prices *writing* facts. Per the adoption survey, read gas
-— not write gas — is the binding constraint on the fact-layer choice, and it is
-[ENG-3922](https://linear.app/fabrica/issue/ENG-3922)'s measurement; those results are held
-pending Tim's acknowledgement of the pre-registered pass mark, so no read-side figure or verdict
-appears on the page.
+**An estimate, anywhere.** That is the page's one standing rule and it survives ENG-3944 intact.
+Every figure is a measured row from a named report at a named commit, or an arithmetic composition
+of measured rows whose formula the page states next to it.
 
-The EAS **read side and headline running cost** follow from that read gas, so they are not here
-either. The EAS **write side is** here as of
-[ENG-3938](https://linear.app/fabrica/issue/ENG-3938): the batch dial's per-item write cost is
-`multiAttest` + `indexAttestations` (arm 1) or `multiAttest` + the pointer write (arm 2), and the
-bespoke store's batched `writePrice` is driven the same way — each measured in ENG-3922's arms
-report and cited to the commit that merged it to main (ENG-3922, PR #42, `55058ab0`).
-`multiRevoke` is measured and shown for context (a revoke), **not** part of the dial-driven arm
-composition. An estimate is still never shown: every EAS figure on the page is a measured row, not
-a guess.
+What that rule costs, stated plainly: **the EAS running cost on the layer dial is a floor, not a
+forecast.** Three terms of the round-1 running-cost model have no measured EAS row, and the page
+excludes them by name on that dial rather than filling them in:
+
+- **attribute writes** — ENG-3922 measured no attribute attestation, so any non-zero setting of the
+  attributes dial is dropped from every EAS figure;
+- **arm 2's cycle-close *lookup* write** — the close is charged at the measured attestation, and
+  the pointer write that would make that row findable is not measured;
+- **a writer's first cycle close on EAS** — the bespoke store has a measured cold-slot bootstrap
+  premium; EAS has no equivalent row, so no one-time bootstrap is charged.
+
+The batch dial's 1,000 preset is registration-only. The EAS write side is measured at 1 / 10 / 100,
+so at 1,000 the price-write term — nearly the whole month — has no measured row, and the EAS
+headline shows a dash with that reason rather than a total that quietly omits its dominant term.
+
+**Round 2 is a third codebase.** These are round-1 numbers.
+[ENG-3924](https://linear.app/fabrica/issue/ENG-3924) deletes the owner, the writer allowlist and
+the per-token registration gate, so every registration figure here is a round-1 cost only.
+
+## The read side
+
+As of [ENG-3944](https://linear.app/fabrica/issue/ENG-3944) the page carries the read side —
+gas inside `price()` — which per the adoption survey, not write gas, is the binding constraint on
+the fact-layer choice. It is measured by [ENG-3922](https://linear.app/fabrica/issue/ENG-3922), and
+this page renders it from that ticket's three reports as merged to `main` in PR #42, squash
+`55058ab0`: the per-arm `price()` for a three-source read at `refUID` walk depths 0 / 1 / 3 / 7, each
+against a real Sepolia transaction, the per-arm ratios against both the ownerless custom store and
+the calibration arm, and arm 1's two append-only growth curves.
+
+Two things about how it is carried:
+
+1. **Only raw measured integers are embedded.** Every ratio, per-hop cost, percentage and projection
+   is composed in the page's own JavaScript, by the method printed beside it, and appears nowhere in
+   the committed HTML. Verify them by reading the rendered DOM, not by grepping `index.html`.
+2. **It is not in the self-check, deliberately.** The self-check compares something the *model*
+   computes against something *measured*; the read side models nothing, so every row would be a
+   measurement compared with itself. The equivalent guarantee lives in the build instead:
+   `build-model-page.py` hard-errors if any read row is missing, and asserts the two independent
+   Foundry suites that both measure the depth-0 read (`Eng3922Read` and `Eng3922Coverage`'s
+   `coverage=none` control) agree on all five arms.
+
+**The pass mark was pre-registered on ENG-3922 on 2026-09-03, before any arm was built or measured**,
+on Fede's bias concern, and was never moved. Mark A is the all-EAS three-source `price()` within
+1.5x the custom store's at the same walk depth; mark B is 350,000 gas absolute at the operating
+point.
+
+It was never formally acknowledged either: it was held unpublished pending that acknowledgement,
+and Tim directed publication on 2026-09-04 16:18Z — *"I want to share the full model when all the
+numbers we asked for are populated"* — which supersedes the hold **without touching the bar**. Both
+facts are on the page and in the results document, because a verdict published under a
+pre-registered mark is only worth what its provenance is.
+
+**The verdict itself is deliberately not written down here.** The page tallies both marks from the
+measured rows on every build, so restating the outcome in this file would be a copy that can go
+stale — which is the defect three review rounds on this work were spent removing. Read it off the
+*Read side* panel, or from the ENG-3922 results document in Linear, which is regenerated from the
+same reports.
