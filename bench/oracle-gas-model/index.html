@@ -2878,10 +2878,10 @@ const DATA = {
   }
  ],
  "meta": {
-  "commit": "10c662179ecb35ff946b7c5eb87c7617d9f1255d",
-  "commitShort": "10c6621",
+  "commit": "a098335a2391de908ca39436a2cf1a8bb6bc755a",
+  "commitShort": "a098335",
   "historyDepth": 48,
-  "inputDigest": "cc7cb0a54b4c27aa",
+  "inputDigest": "7dd5f36d5d692833",
   "reportHeader": "# ENG-3913 \u2014 per-scenario gas bench, literal output\n#\n# repo:    fabrica-v3-contracts\n# base:    origin/main @ 4b9201d17d78c7296545a6bd5ef6ac8da1d5a86e\n# branch:  tozzetto/eng-3913-oracle-gas-model\n# command: forge test --match-path test/Eng3913OracleGasBench.t.sol -vv\n# forge:   forge Version: 1.7.1 (Commit SHA: 4072e48705af9d93e3c0f6e29e93b5e9a40caed8)\n# profile: optimizer=true, optimizer_runs=1, via_ir=false (foundry.toml [profile.default])\n# knobs:   FabricaAttributeOracle.defaultKnobs() \u2014 the config\n#          script/FabricaAttributeOracleDeploy.s.sol deploys with.\n#\n# \u26a0 RUN THIS WITHOUT --gas-report.\n#   Foundry's gas-report instrumentation inflates the gasleft() deltas these benches\n#   read, and the codeless-control subtraction absorbs most but not all of it. The CSV\n#   rows here are valid ONLY from a plain -vv run. Under --gas-report the steady-state\n#   writePrice row reads 72,268 instead of 73,812."
  },
  "read": {
@@ -3781,11 +3781,16 @@ function renderReadSide() {
     arm 1 is the one that includes it.</p></div>`;
 
   document.getElementById("read-provenance").innerHTML = `
-    <p class="small">Every figure on this panel comes from ENG-3922's committed reports, vendored
-    verbatim into this directory and byte-identical to
-    <code>${READ.reports.arms}</code>, <code>${READ.reports.baseline}</code> and
-    <code>${READ.reports.evidence}</code> on <code>main</code> at
-    <code>${srcCommitShort()}</code> (PR #${READ.source.pr}), which is the commit that merged them.
+    <p class="small">Every figure on this panel comes from ENG-3922's committed reports, in this
+    directory. <code>${READ.reports.baseline}</code> and <code>${READ.reports.evidence}</code> are
+    vendored <strong>verbatim</strong> and byte-identical to their counterparts on <code>main</code>
+    at <code>${srcCommitShort()}</code> (PR #${READ.source.pr}), the commit that merged them.
+    <code>${READ.reports.arms}</code> is <strong>regenerated</strong> by the same harness at the
+    same pinned fork block, because ENG-3964 measured terms whose rows do not exist at that commit:
+    it holds ${fmt(+READ.source.armsRowsAfter)} measured rows against
+    ${fmt(+READ.source.armsRowsBefore)} there, ${fmt(+READ.source.armsRowsAfter - +READ.source.armsRowsBefore)}
+    added and ${fmt(+READ.source.armsRowsMoved)} corrected. The sidecar carries that accounting and
+    the reason for every correction.
     They are inputs to this page's digest, so <code>build-model-page.py --check</code> fails if any
     row is edited. The ratios, per-hop costs, percentages and projections are composed here from
     those rows by the formulas stated above and appear nowhere in the committed HTML — read them
