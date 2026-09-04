@@ -756,7 +756,8 @@ total                                                    = ${fmt(m.totalGas)} ga
       return `<strong>${a.label}</strong>: ${fmt(single)} gas per item single, ${fmt(p100)} at 100
         (${vsCell(p100, single)}).`;
     }).join(" ") + ` <code>multiAttest</code> alone — the attest without its lookup write — is
-      never shown as the whole write.`;
+      never shown as the whole write. ENG-3922 measured no standalone single <code>attest</code>,
+      so each arm's “single” is its n=1 row: one attest plus one lookup write.`;
     const mr = O.multiRevoke;
     relatedHtml = `<p class="small" style="margin-top:8px"><strong>Revoke (context, not part of the
       write):</strong> <code>multiRevoke</code> per item ${fmt(mr["10"].perItem)} at 10,

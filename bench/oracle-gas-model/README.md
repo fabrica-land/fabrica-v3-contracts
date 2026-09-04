@@ -86,11 +86,16 @@ reports. A page with a hole in it is worse than no page.
 
 ## What is not here
 
-The EAS arm. Every EAS figure is **pending measurement** on
-[ENG-3922](https://linear.app/fabrica/issue/ENG-3922) and is not estimated anywhere on the
-page — an estimate would be read as a measurement and would settle a decision it has no
-standing to settle. The batched `writePrice` prototype is ENG-3922's too.
+Read gas inside `price()`. This page prices *writing* facts. Per the adoption survey, read gas
+— not write gas — is the binding constraint on the fact-layer choice, and it is
+[ENG-3922](https://linear.app/fabrica/issue/ENG-3922)'s measurement; those results are held
+pending Tim's acknowledgement of the pre-registered pass mark, so no read-side figure or verdict
+appears on the page.
 
-Read gas inside `price()` is also not here. This page prices *writing* facts. Per the
-adoption survey, read gas — not write gas — is the binding constraint on the fact-layer
-choice, and it is ENG-3922's measurement.
+The EAS **read side and headline running cost** follow from that read gas, so they are not here
+either. The EAS **write side is** here as of
+[ENG-3938](https://linear.app/fabrica/issue/ENG-3938): `multiAttest`, `indexAttestations`, the
+pointer write and `multiRevoke`, and the batched `writePrice` on the custom store, are measured in
+ENG-3922's arms report and driven by the batch dial — each cited to that report and commit, and
+labelled provisional until ENG-3922 (PR #42) merges. An estimate is still never shown: every EAS
+figure on the page is a measured row, not a guess.
