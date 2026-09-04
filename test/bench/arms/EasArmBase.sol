@@ -57,6 +57,11 @@ abstract contract EasArmBase is BenchAggregatorBase {
 
     constructor(AggConfig memory cfg, EasConfig memory easCfg) BenchAggregatorBase(cfg) {
         if (easCfg.eas == address(0) || easCfg.priceSchema == bytes32(0)) revert InvalidConfig();
+        // A zero cycle-close schema silently makes every writer look dead, or every cycle look
+        // closed, depending on the rule. If either consumer is switched on it has to be real.
+        if ((easCfg.requireHeartbeat || cfg.coverage != CoverageMode.None) && easCfg.cycleCloseSchema == bytes32(0)) {
+            revert InvalidConfig();
+        }
         eas = IEAS(easCfg.eas);
         priceSchema = easCfg.priceSchema;
         cycleCloseSchema = easCfg.cycleCloseSchema;
@@ -96,47 +101,52 @@ abstract contract EasArmBase is BenchAggregatorBase {
     {
         bytes32 uid = _headUid(sourceId, tokenId, ctx);
         if (uid == bytes32(0)) return fact;
-        (bool ok, PriceFact memory f,) = _readPrice(uid, sourceId, tokenId, true);
-        return ok ? f : fact;
+        (bool ok, PriceFact memory f, bytes32 refUID) = _readPrice(uid, sourceId, tokenId, true);
+        if (!ok) return fact;
+        f.ref = refUID;
+        return f;
     }
 
-    function _previous(uint8 sourceId, uint256 tokenId, Ctx memory ctx)
+    function _previous(uint8 sourceId, uint256 tokenId, PriceFact memory head, Ctx memory ctx)
         internal
         view
         override
         returns (PriceFact memory fact)
     {
-        bytes32 uid = _headUid(sourceId, tokenId, ctx);
-        if (uid == bytes32(0)) return fact;
-        (bool ok,, bytes32 refUID) = _readPrice(uid, sourceId, tokenId, true);
-        if (!ok || refUID == bytes32(0)) return fact;
+        ctx;
+        if (!head.present || head.ref == bytes32(0)) return fact;
         // A superseded attestation is revoked by the writer in the same transaction as its
-        // replacement, so history hops must be read WITHOUT the revocation check. Revocation
-        // means "not the live head", not "never happened".
-        (bool ok2, PriceFact memory prev,) = _readPrice(refUID, sourceId, tokenId, false);
-        return ok2 ? prev : fact;
+        // replacement, so history hops must be read WITHOUT the revocation check. Revocation means
+        // "not the live head", not "never happened".
+        (bool ok, PriceFact memory prev,) = _readPrice(head.ref, sourceId, tokenId, false);
+        return ok ? prev : fact;
     }
 
     /// @notice Walk the `refUID` chain until a publication old enough to clear seasoning.
-    function _asOf(uint8 sourceId, uint256 tokenId, uint64 targetTs, Ctx memory ctx)
+    function _asOf(uint8 sourceId, uint256 tokenId, uint64 targetTs, PriceFact memory head, Ctx memory ctx)
         internal
         view
         override
         returns (bool found, uint128 priceUsdc6, uint256 hops)
     {
-        bytes32 uid = _headUid(sourceId, tokenId, ctx);
-        bool head = true;
+        ctx;
+        if (!head.present) return (false, 0, 0);
+        // The head is already in hand from the liveness pass; start from it rather than resolving
+        // the uid again and re-reading the same attestation.
+        if (head.lastWrittenAt != 0 && head.lastWrittenAt <= targetTs && head.priceUsdc6 != 0) {
+            return (true, head.priceUsdc6, 0);
+        }
+        bytes32 uid = head.ref;
         while (uid != bytes32(0) && hops < MAX_WALK_HOPS) {
-            (bool ok, PriceFact memory f, bytes32 refUID) = _readPrice(uid, sourceId, tokenId, head);
+            unchecked {
+                ++hops;
+            }
+            (bool ok, PriceFact memory f, bytes32 refUID) = _readPrice(uid, sourceId, tokenId, false);
             if (!ok) return (false, 0, hops);
             if (f.lastWrittenAt != 0 && f.lastWrittenAt <= targetTs && f.priceUsdc6 != 0) {
                 return (true, f.priceUsdc6, hops);
             }
             uid = refUID;
-            head = false;
-            unchecked {
-                ++hops;
-            }
         }
         return (false, 0, hops);
     }
@@ -233,7 +243,9 @@ abstract contract EasArmBase is BenchAggregatorBase {
         (uint256 attTokenId, uint8 attSourceId, uint128 priceUsdc6,, uint64 attCycle,) =
             abi.decode(att.data, (uint256, uint8, uint128, uint24, uint64, bytes32));
         if (attTokenId != tokenId || attSourceId != sourceId) return (false, fact, bytes32(0));
-        fact = PriceFact({present: true, priceUsdc6: priceUsdc6, lastWrittenAt: att.time, cycle: attCycle});
+        fact = PriceFact({
+            present: true, priceUsdc6: priceUsdc6, lastWrittenAt: att.time, cycle: attCycle, ref: att.refUID
+        });
         return (true, fact, att.refUID);
     }
 }

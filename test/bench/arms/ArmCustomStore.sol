@@ -40,35 +40,40 @@ contract ArmCustomStore is BenchAggregatorBase {
         IFabricaAttributeOracle.SourcePrice memory sp = store.getSourcePrice(validatorId, tokenId, sourceId);
         if (sp.priceUsdc6 == 0) return fact;
         if (!store.isCycleValid(validatorId, sp.cycle)) return fact;
-        return PriceFact({present: true, priceUsdc6: sp.priceUsdc6, lastWrittenAt: sp.lastWrittenAt, cycle: sp.cycle});
+        return PriceFact({
+            present: true, priceUsdc6: sp.priceUsdc6, lastWrittenAt: sp.lastWrittenAt, cycle: sp.cycle, ref: bytes32(0)
+        });
     }
 
-    function _previous(uint8 sourceId, uint256 tokenId, Ctx memory)
+    function _previous(uint8 sourceId, uint256 tokenId, PriceFact memory head, Ctx memory)
         internal
         view
         override
         returns (PriceFact memory fact)
     {
+        if (!head.present) return fact;
         uint256 len = store.historyLength(validatorId, tokenId, sourceId);
         if (len == 0) return fact;
         IFabricaAttributeOracle.HistoryEntry memory prev = store.getHistory(validatorId, tokenId, sourceId, 0);
         if (prev.priceUsdc6 == 0) return fact;
         if (!store.isCycleValid(validatorId, prev.cycle)) return fact;
-        return
-            PriceFact({
-                present: true, priceUsdc6: prev.priceUsdc6, lastWrittenAt: prev.lastWrittenAt, cycle: prev.cycle
-            });
+        return PriceFact({
+            present: true,
+            priceUsdc6: prev.priceUsdc6,
+            lastWrittenAt: prev.lastWrittenAt,
+            cycle: prev.cycle,
+            ref: bytes32(0)
+        });
     }
 
-    function _asOf(uint8 sourceId, uint256 tokenId, uint64 targetTs, Ctx memory)
+    function _asOf(uint8 sourceId, uint256 tokenId, uint64 targetTs, PriceFact memory head, Ctx memory)
         internal
         view
         override
         returns (bool found, uint128 priceUsdc6, uint256 hops)
     {
-        IFabricaAttributeOracle.SourcePrice memory sp = store.getSourcePrice(validatorId, tokenId, sourceId);
-        if (sp.lastWrittenAt != 0 && sp.lastWrittenAt <= targetTs && sp.priceUsdc6 != 0) {
-            return (true, sp.priceUsdc6, 0);
+        if (head.present && head.lastWrittenAt != 0 && head.lastWrittenAt <= targetTs && head.priceUsdc6 != 0) {
+            return (true, head.priceUsdc6, 0);
         }
         uint256 len = store.historyLength(validatorId, tokenId, sourceId);
         for (uint256 i; i < len; ++i) {

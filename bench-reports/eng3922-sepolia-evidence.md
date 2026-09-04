@@ -9,20 +9,21 @@ contended for a nonce with the ENG-3895 cycle-close cron.
 
 | What | Address |
 | -- | -- |
-| `FactPointer` (arm 2, ownerless) | `0xCd417b4d82eCAe1828a443595C0146B8b213c815` |
-| `OwnerlessFactStore` (arm 3) | `0x39b37b1Ff9F4F5B8d28807E14f09d56acf3141af` |
-| `PriceGasProbe` | `0x2327094ca69861b2F142b9E6f01e80be7A28aF38` |
-| `ArmEasPointer` | `0x33FfA4E8741875CAc12C5be51fDA4f06df82678b` |
-| `ArmEasIndexer` | `0x6153790d892a4E7A87bCba463942DE659c64d47E` |
-| `ArmEasContext` (Option C) | `0xf8a990e3Aa42c452635504922EB72b0198AC78E1` |
-| `ArmOwnerlessStore` | `0x1a478F2AB1c2569118D100405A8aEF687FB65Cb8` |
+| `FactPointer` (arm 2, ownerless) | `0x00aca67A7C41a237B5E7c00b0cD07DB1D94D4492` |
+| `OwnerlessFactStore` (arm 3) | `0x7D826a483d76898C312cDA8E9119833ACf3C2E12` |
+| `PriceGasProbe` | `0x2214F4cdA455744503988D13bCec78446cFBD71B` |
+| `ArmEasPointer` | `0xcA40c79ff40B1f4792bA53517dE3159D1bF3cE5B` |
+| `ArmEasIndexer` | `0x8817671856878A8C9bf95FE5B7250B7fc0A38364` |
+| `ArmEasContext` (Option C) | `0xfb3a59f0Ca20c1B9e9de1DF7E0a2e3A7ADdaDd82` |
+| `ArmOwnerlessStore` | `0x4844A460491034d33D78B454e6a81f9025Ca40d4` |
 
-**This is the second deployment.** Round 2 of review found that the temporal floor re-ran the whole
-liveness evaluation per oracle source, so every fact-layer read happened twice on any `price()` with
-seasoning enabled. Fixing it moved every arm by 24–26%, which made the first deployment's evidence a
-measurement of code that is no longer in this PR. The contracts were redeployed and every number
-below re-taken, because functional verification has to verify the code being shipped. The first
-deployment's addresses and transactions remain on chain and are simply superseded.
+**This is the third deployment.** Each redeploy followed a fix to the measured read path, because functional verification has to
+verify the code being shipped, and superseded deployments simply stay on chain. Deployment 2 followed
+the temporal floor re-running the whole liveness evaluation per oracle source. Deployment 3 follows
+CodeRabbit's finding that the EAS arms re-resolved and re-read the SAME head attestation three times
+per source — once in `_current`, once for the breaker's `_previous`, once for the seasoning walk —
+where the store arms read a packed struct twice. That was a real bias against EAS in every published
+figure, and correcting it took the EAS arms down 18–22% against 6–8% for the store arms.
 
 EAS schemas registered on the Sepolia `SchemaRegistry` (`resolver = address(0)`, `revocable = true`):
 
@@ -43,10 +44,10 @@ quantity 1, walk depth 0, round-2 configuration (no on-chain coverage check).
 
 | Arm | `price()` gas | Whole tx | Price returned | Transaction |
 | -- | -- | -- | -- | -- |
-| arm 3 — ownerless custom store | **112,376** | 138,651 | 100500000000 | `0x5002ca40b79f481659cc6f8ba7b3a04e6a191900e15d47c78907d77b001c9ef4` |
-| arm 1C — all-EAS via `oracleContext` | **246,436** | 276,459 | 100500000000 | `0x33c9945d911ca9c1174146c8721ef1d862f43959b0f6ae47b98be3daef178838` |
-| arm 2 — EAS plus pointer | **274,724** | 301,011 | 100500000000 | `0x4e935f76c2e2863a00d22fee9bfb0b78da8015d207c49f4203fbfaa0a3474d44` |
-| arm 1 — all-EAS via EAS `Indexer` | **338,281** | 364,568 | 100500000000 | `0x79d5df884347113d7a4f0d6074081c0a22f07becd82f34975500a2793922db1f` |
+| arm 3 — ownerless custom store | **105,591** | 131,590 | 100500000000 | `0xfdfbed934c8f9d520914b1086230b6dbfac8d7f072d89edc4f1cb38f86121dfd` |
+| arm 1C — all-EAS via `oracleContext` | **201,606** | 231,365 | 100500000000 | `0xec047aff0b6018e7ac9d6d0706b70914c8b1f7cabae44cadd5b839453ea3990f` |
+| arm 2 — EAS plus pointer | **222,051** | 248,050 | 100500000000 | `0xc483756a4f39162a42171a90e8122aaa08ac92c4ced59ec6eccf207adf702602` |
+| arm 1 — all-EAS via EAS `Indexer` | **266,120** | 292,119 | 100500000000 | `0x1cf3a43422292a479ed5bcc91f332512a7c0468744bffcbdf00f88a836abd81c` |
 
 All four arms return the same usable price, which is the point: the arms differ only in where the
 facts live.
@@ -57,12 +58,12 @@ facts live.
 
 | Arm | Fork | Sepolia | Difference |
 | -- | -- | -- | -- |
-| arm 3 ownerless store | 113,393 | 112,376 | −0.9% |
-| arm 1C `oracleContext` | 245,830 | 246,436 | +0.2% |
-| arm 2 EAS plus pointer | 273,589 | 274,724 | +0.4% |
-| arm 1 all-EAS `Indexer` | 323,929 | 338,281 | **+4.4%** |
+| arm 3 ownerless store | 106,607 | 105,591 | −1.0% |
+| arm 1C `oracleContext` | 200,730 | 201,606 | +0.4% |
+| arm 2 EAS plus pointer | 220,635 | 222,051 | +0.6% |
+| arm 1 all-EAS `Indexer` | 251,788 | 266,120 | **+5.7%** |
 
-Three arms agree to within 0.9%. **Arm 1's +4.4% is not noise, and chasing it produced a finding** — see below: the fork holds one attestation per Indexer row where Sepolia holds two. Like for like, the fork at row depth 2 (336,834) against Sepolia at row depth 2 (338,281) is +0.4%, in line with every other arm.
+Three arms agree to within 1.0%. **Arm 1's +5.7% is not noise, and chasing it produced a finding** — see below. The price rows on this deployment are fresh at depth 1, but the writers' CYCLE-CLOSE rows had reached depth 3, one per deployment, because that row is keyed by the writer rather than by the token. Like for like, the fork at cycle-close row depth 3 (270,376) against Sepolia at cycle-close row depth 3 (266,120) is -1.6%, in line with every other arm.
 
 <!-- /GENERATED:fork-vs-sepolia -->
 
@@ -79,13 +80,29 @@ with how many attestations have accumulated in a row. Measured directly on the f
 
 | Indexer row depth | arm 1 `price()` gas |
 | -- | -- |
-| 1 | 329,596 |
-| 2 | 336,834 |
-| 5 | 358,965 |
+| 1 | 257,455 |
+| 2 | 263,685 |
+| 5 | 283,062 |
 
-That is **7,238 gas for the first extra attestation and about 7,377 per attestation averaged over depths 2 to 5** — it is not one constant, and quoting it as a single figure understates how it grows.
+That is **6,230 gas for the first extra attestation and about 6,459 per attestation averaged over depths 2 to 5** — it is not one constant, and quoting it as a single figure understates how it grows.
 
 <!-- /GENERATED:indexer-row-depth -->
+
+And the row that grows fastest is not the token's. The cycle-close row is keyed by the **writer**, so
+it gains an attestation every cycle regardless of how many tokens exist, and arm 1 reads it on every
+`price()` for every token:
+
+<!-- GENERATED:close-row-depth do not edit by hand; bench-reports/regenerate.sh rewrites this -->
+
+| Cycle-close row depth | arm 1 `price()` gas |
+| -- | -- |
+| 1 | 257,455 |
+| 3 | 270,376 |
+| 7 | 296,212 |
+
+About **6,459 gas per extra cycle close**. This row is keyed by the WRITER, not by the token, so it grows once per cycle for the writer and every `price()` for every token reads it. At a daily cycle close that is 365 attestations a year on one row, or roughly **2,357,535 gas added to every read** after twelve months.
+
+<!-- /GENERATED:close-row-depth -->
 
 The arm-1 figures here are **post-guard**. `ArmEasIndexer.recipientForToken` rejects a token id wider
 than `uint160` rather than silently truncating it into a colliding Indexer row, and that check costs
@@ -103,14 +120,13 @@ Whole-transaction `gasUsed` from receipts.
 
 | Operation | Total | Per token | Transaction (writer 1 of 3) |
 | -- | -- | -- | -- |
-| EAS `multiAttest`, 20 prices | 5,609,525 | 280,476 | `0x921436180f7676a8db8d800785b48d97faa57b404e849ffcddbd94350fcd4c54` |
-| EAS `indexAttestations`, 20 | 3,163,032 | 158,152 | `0x39eaa8d62551fc33bc8ed822422561334df3a1fef195bd9dce5851cb8cfadd3c` |
-| pointer `pointBatch`, 20 | 552,201 | 27,610 | `0x20024664d0e3a7ded9d3b7f558b8dd49a61b8e173ee974b92a8dffca3c9af839` |
-| ownerless store `writePriceBatch`, 20 | 1,504,984 | 75,249 | `0xe676503c23d38d0b004ab985c29d3239f156f58b9d3faf59d76c53554ed388a2` |
-| EAS cycle-close `attest` | 230,461 | — | `0xcbfb7f60c7f31f34dd3bad3f90150d6d96d749c29dc02d1c9c3af457e9b077ab` |
-| pointer `point` (cycle close) | 46,988 | — | `0xe53fbaa26e649cf93667fff667588501427ae4c1d020321eb90cebb17e7f179d` |
-| EAS `indexAttestation` (cycle close) | 182,739 | — | `0x23320efa257376804fe498e6648407d78c926bc66d5a6b622c8486760266e124` |
-| ownerless store `heartbeat` (cycle close) | 33,289 | — | `0x201dc789d1c94f32cf81327de662ad31c6d9e611933a604209364f08d837cf0c` |
+| EAS `multiAttest`, 20 prices | 5,600,933 | 280,046 | `0x67362c58988e3dc8647b599f741bf894ffaa9ea08d7ea567c0d5485e8eb4c349` |
+| EAS `indexAttestations`, 20 | 3,505,056 | 175,252 | `0x7b0412d2738ec5179c8f49e025c89ed698409c270ab160e46d1ed477995ea1e7` |
+| pointer `pointBatch`, 20 | 546,477 | 27,323 | `0xf4e1988ac84f604cae63059da3203d4032159223c5b17ce579df8bb188d1a510` |
+| ownerless store `writePriceBatch`, 20 | 1,498,996 | 74,949 | `0x9b01c63af81c2d24dddd8d0a7674c39aab8c3042192c7139efe88d4d570ee4a6` |
+| EAS cycle-close `attest` | 230,461 | — | `0xf304061f284a51462de23b7d752fe484df38ca9e6873ea4868d4611858abb501` |
+| EAS `indexAttestation` (cycle close) | 182,751 | — | `0xe3ccf599ec55eead3a8d1524283d574b761c33125eca4d4c03ff9e2a399459a7` |
+| ownerless store `heartbeat` (cycle close) | 33,289 | — | `0x6c8afa3f45e63179167ce252b861cbc27337d17930eb179d21c26581c50ccbf1` |
 
 The two indexing figures are **lower** than the first run's (176,107 and 234,039 per token) because
 the second run appends to Indexer rows that already exist: the array slot goes non-zero to non-zero
@@ -122,9 +138,9 @@ honest ones for a cold start and are the ones used below.
 
 | Arm | Per fact | Weekly cycle |
 | -- | -- | -- |
-| arm 3 — ownerless custom store | 75,249 | **226M** |
-| arm 2 — EAS plus pointer (`attest` + `point`) | 308,086 | **924M** |
-| arm 1 — all-EAS (`attest` + `indexAttestation`, cold rows) | 456,583 | **1,370M** |
+| arm 3 — ownerless custom store | 74,949 | **225M** |
+| arm 2 — EAS plus pointer (`attest` + `point`) | 307,369 | **922M** |
+| arm 1 — all-EAS (`attest` + `indexAttestation`) | 455,298 | **1,366M** |
 
 ## The lock, end to end
 

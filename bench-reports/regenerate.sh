@@ -16,8 +16,13 @@ cd "$(dirname "$0")/.."
 
 BASELINE_CMD='forge test --match-path "test/bench/Eng3922Baseline.t.sol" -vv'
 ARMS_CMD='forge test --match-path "test/bench/Eng3922*.t.sol" --no-match-path "test/bench/Eng3922Baseline.t.sol" -vv'
-FORGE_VERSION="$(forge --version | head -1)"
-FORGE_COMMIT="$(forge --version | grep -i 'Commit SHA' | awk '{print $3}')"
+# Both substitutions are guarded: under `set -euo pipefail` a `grep` that matches nothing exits 1
+# and would abort the whole regeneration, and a provenance header is not worth failing a run over.
+# `|| true` keeps the exit status, and the `:-unknown` fallbacks keep the header honest about it.
+FORGE_VERSION="$(forge --version 2>/dev/null | head -1 || true)"
+FORGE_COMMIT="$(forge --version 2>/dev/null | grep -i 'Commit SHA' | awk '{print $3}' || true)"
+FORGE_VERSION="${FORGE_VERSION:-unknown (forge --version produced no output)}"
+FORGE_COMMIT="${FORGE_COMMIT:-unknown}"
 
 header() {
   cat <<EOF

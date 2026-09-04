@@ -152,3 +152,54 @@ contract Eng3922IndexerRowDepth5Test is Eng3922IndexerRowDepthBase {
         return 4;
     }
 }
+
+/// @notice Arm 1's read cost against the depth of the writer's CYCLE-CLOSE Indexer row.
+/// @dev The price row is keyed by token, so it grows once per cycle per token. The cycle-close row
+///      is keyed by the WRITER — `recipient` is the writer's own address — so it grows once per
+///      cycle for the writer, full stop, and every `price()` for every token reads it. It is the
+///      fastest-growing row in the design, and it is the one that explained the +5.7% between the
+///      fork and Sepolia on the third deployment: the price rows were fresh at depth 1 while the
+///      writers' cycle-close rows had reached depth 3, one per deployment.
+abstract contract Eng3922CloseRowDepthBase is Eng3922HarnessBase {
+    uint256 internal tokenId;
+
+    function _extraCloses() internal pure virtual returns (uint256);
+
+    function setUp() public virtual override {
+        super.setUp();
+        if (!forked) return;
+        tokenId = _tokenId(abi.encode("eng3922-closerow", _extraCloses()));
+        _seed(tokenId, 0);
+        for (uint256 n; n < _extraCloses(); ++n) {
+            for (uint8 s; s < 3; ++s) {
+                _easCycleClose(s, uint64(100 + n), bytes32(0));
+            }
+        }
+    }
+
+    function test_cycleCloseRowDepthReadGas() public {
+        if (!forked) vm.skip(true);
+        emit log_named_uint(
+            string.concat("arm1 all-EAS indexer, cycle-close row depth ", vm.toString(_extraCloses() + 1)),
+            _measure(_armIndexer(true), tokenId, _contextFor(tokenId))
+        );
+    }
+}
+
+contract Eng3922CloseRowDepth1Test is Eng3922CloseRowDepthBase {
+    function _extraCloses() internal pure override returns (uint256) {
+        return 0;
+    }
+}
+
+contract Eng3922CloseRowDepth3Test is Eng3922CloseRowDepthBase {
+    function _extraCloses() internal pure override returns (uint256) {
+        return 2;
+    }
+}
+
+contract Eng3922CloseRowDepth7Test is Eng3922CloseRowDepthBase {
+    function _extraCloses() internal pure override returns (uint256) {
+        return 6;
+    }
+}

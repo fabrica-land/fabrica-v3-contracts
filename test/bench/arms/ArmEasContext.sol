@@ -23,7 +23,15 @@ import {EasArmBase} from "./EasArmBase.sol";
 ///      The uids ride in the same `oracleContext` struct every arm now decodes, alongside the
 ///      Merkle proofs Tim's 18:17Z rule requires. An empty context reads as "no uid supplied".
 contract ArmEasContext is EasArmBase {
-    constructor(AggConfig memory cfg, EasConfig memory easCfg) EasArmBase(cfg, easCfg) {}
+    /// @dev Under `CoverageStamp` this arm reads coverage as an ATTESTATION, so a zero coverage
+    ///      schema would make every token look uncovered and every source silently ineligible.
+    ///      `ArmEasPointer` needs no such guard: it overrides `_coveredThrough` to read a contract
+    ///      slot and never touches the schema.
+    constructor(AggConfig memory cfg, EasConfig memory easCfg) EasArmBase(cfg, easCfg) {
+        if (cfg.coverage == CoverageMode.CoverageStamp && easCfg.coverageSchema == bytes32(0)) {
+            revert InvalidConfig();
+        }
+    }
 
     function _headUid(uint8 sourceId, uint256, Ctx memory ctx) internal pure override returns (bytes32) {
         return ctx.priceUids[sourceId];

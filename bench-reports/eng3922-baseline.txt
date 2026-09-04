@@ -31,36 +31,36 @@ Logs:
 Logs:
   price() execution gas, 3 oracle sources, seasoning walk depth 7: 359805
 
-[PASS] test_writeGasFirstWrite() (gas: 312293)
+[PASS] test_writeGasFirstWrite() (gas: 316209)
 Logs:
   writePrice, write 1 of a row (no history push) -- execution gas: 146852
   writePrice, write 1 of a row (no history push) -- intrinsic + calldata: 23768
   writePrice, write 1 of a row (no history push) -- WHOLE TRANSACTION: 170620
 
-[PASS] test_writeGasHeartbeat() (gas: 54937)
+[PASS] test_writeGasHeartbeat() (gas: 55685)
 Logs:
   heartbeat -- execution gas: 23040
   heartbeat -- intrinsic + calldata: 21344
   heartbeat -- WHOLE TRANSACTION: 44384
 
-[PASS] test_writeGasSecondWrite() (gas: 444724)
+[PASS] test_writeGasSecondWrite() (gas: 448640)
 Logs:
   writePrice, write 2 of a row (ring slot and counter both cold) -- execution gas: 130697
   writePrice, write 2 of a row (ring slot and counter both cold) -- intrinsic + calldata: 23756
   writePrice, write 2 of a row (ring slot and counter both cold) -- WHOLE TRANSACTION: 154453
 
-[PASS] test_writeGasThirdWrite() (gas: 515867)
+[PASS] test_writeGasThirdWrite() (gas: 519783)
 Logs:
   writePrice, writes 3-48 of a row (ring slot fresh, counter warm) -- execution gas: 113600
   writePrice, writes 3-48 of a row (ring slot fresh, counter warm) -- intrinsic + calldata: 23768
   writePrice, writes 3-48 of a row (ring slot fresh, counter warm) -- WHOLE TRANSACTION: 137368
 
-[PASS] test_writeGasWrappedRing() (gas: 3701753)
+[PASS] test_writeGasWrappedRing() (gas: 3705669)
 Logs:
   writePrice, write 49+ of a row (ring wrapped, slot overwritten) -- execution gas: 79501
   writePrice, write 49+ of a row (ring wrapped, slot overwritten) -- intrinsic + calldata: 23768
   writePrice, write 49+ of a row (ring wrapped, slot overwritten) -- WHOLE TRANSACTION: 103269
 
-Suite result: ok. 10 passed; 0 failed; 0 skipped; finished in 222.23ms (14.26ms CPU time)
+Suite result: ok. 10 passed; 0 failed; 0 skipped; finished in 135.50ms (14.94ms CPU time)
 
-Ran 1 test suite in 250.68ms (222.23ms CPU time): 10 tests passed, 0 failed, 0 skipped (10 total tests)
+Ran 1 test suite in 155.39ms (135.50ms CPU time): 10 tests passed, 0 failed, 0 skipped (10 total tests)

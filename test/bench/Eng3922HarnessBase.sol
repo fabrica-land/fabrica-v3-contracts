@@ -484,7 +484,7 @@ abstract contract Eng3922HarnessBase is Test {
     function _intrinsicGas(bytes memory callData) internal pure returns (uint256 g) {
         g = 21_000;
         for (uint256 i; i < callData.length; ++i) {
-            g += callData[i] == 0 ? 4 : 16;
+            g += callData[i] == bytes1(0) ? 4 : 16;
         }
     }
 

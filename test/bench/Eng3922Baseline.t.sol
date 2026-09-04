@@ -79,8 +79,8 @@ contract Eng3922BaselineTest is Test {
     }
 
     /// @notice The live two-source aggregator's configuration, for the record. No measurement.
-    function test_liveTwoSourceAggregatorConfig() public view {
-        if (!forked) return;
+    function test_liveTwoSourceAggregatorConfig() public {
+        if (!forked) vm.skip(true);
         FabricaOracleAggregator live = FabricaOracleAggregator(LIVE_AGGREGATOR);
         assertEq(address(live.factStore()), LIVE_FACT_STORE, "live aggregator points at live fact store");
         assertEq(live.sourceIds().length, 2, "live aggregator reads two oracle sources");
@@ -229,7 +229,7 @@ contract Eng3922BaselineTest is Test {
     function _intrinsicGas(bytes memory callData) internal pure returns (uint256 g) {
         g = 21_000;
         for (uint256 i; i < callData.length; ++i) {
-            g += callData[i] == 0 ? 4 : 16;
+            g += callData[i] == bytes1(0) ? 4 : 16;
         }
     }
 

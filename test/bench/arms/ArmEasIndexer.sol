@@ -30,6 +30,11 @@ contract ArmEasIndexer is EasArmBase {
 
     constructor(AggConfig memory cfg, EasConfig memory easCfg, address indexer_) EasArmBase(cfg, easCfg) {
         if (indexer_ == address(0)) revert InvalidConfig();
+        // Under `CoverageStamp` this arm reads coverage as an ATTESTATION, so a zero coverage
+        // schema would make every token look uncovered and every source silently ineligible.
+        if (cfg.coverage == CoverageMode.CoverageStamp && easCfg.coverageSchema == bytes32(0)) {
+            revert InvalidConfig();
+        }
         indexer = IEASIndexer(indexer_);
     }
 

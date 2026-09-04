@@ -39,6 +39,16 @@ abstract contract BenchAggregatorBase is IPriceOracle {
         CoverageStamp
     }
 
+    /// @notice Everything the liveness pass produces, grouped so `_evaluate` stays shallow.
+    struct LiveSet {
+        uint256 liveCount;
+        uint128 currentMin;
+        uint128 currentMax;
+        bytes32 firstReason;
+        bool[3] live;
+        PriceFact[3] facts;
+    }
+
     /// @notice The aggregator's immutable rule set, grouped so subclasses stay shallow.
     struct AggConfig {
         address usdc;
@@ -55,6 +65,12 @@ abstract contract BenchAggregatorBase is IPriceOracle {
         uint128 priceUsdc6;
         uint64 lastWrittenAt;
         uint64 cycle;
+        /// @notice The fact layer's handle for what comes BEFORE this one, when it has one.
+        /// @dev On the EAS arms this is the head attestation's `refUID`, so the breaker and the
+        ///      seasoning walk can continue from the head the liveness pass already fetched instead
+        ///      of resolving and re-reading it. Zero on the store arms, which reach their history by
+        ///      index rather than by chaining.
+        bytes32 ref;
     }
 
     /// @notice Everything a caller may pass through `oracleContext`, decoded once per read.
@@ -121,9 +137,18 @@ abstract contract BenchAggregatorBase is IPriceOracle {
 
     function _current(uint8 sourceId, uint256 tokenId, Ctx memory ctx) internal view virtual returns (PriceFact memory);
 
-    function _previous(uint8 sourceId, uint256 tokenId, Ctx memory ctx) internal view virtual returns (PriceFact memory);
+    /// @notice The publication immediately before `head`, for the rate-of-change breaker.
+    /// @param head The fact `_current` already returned. An earlier version took no head and
+    ///        re-resolved it, which cost the EAS arms a second uid lookup and a second full
+    ///        `getAttestation` for a record the caller was already holding.
+    function _previous(uint8 sourceId, uint256 tokenId, PriceFact memory head, Ctx memory ctx)
+        internal
+        view
+        virtual
+        returns (PriceFact memory);
 
-    function _asOf(uint8 sourceId, uint256 tokenId, uint64 targetTs, Ctx memory ctx)
+    /// @notice This oracle source's price as of `targetTs`, continuing from `head`.
+    function _asOf(uint8 sourceId, uint256 tokenId, uint64 targetTs, PriceFact memory head, Ctx memory ctx)
         internal
         view
         virtual
@@ -227,13 +252,16 @@ abstract contract BenchAggregatorBase is IPriceOracle {
         returns (bool pass, bytes32 failedCheck, uint256 usable, uint256 walkHops)
     {
         if (currencyToken != usdc) return (false, CHECK_CURRENCY, 0, 0);
-        (uint256 liveCount, uint128 currentMin, uint128 currentMax, bytes32 firstReason, bool[3] memory live) =
-            _collectLiveMinMax(tokenId, ctx);
-        if (liveCount == 0) return (false, firstReason, 0, 0);
-        if (liveCount < uint256(minLiveSources) || currentMin == 0) return (false, CHECK_MIN_SOURCES, 0, 0);
-        uint256 ratioBps = (uint256(currentMax) * uint256(BPS_DENOMINATOR)) / uint256(currentMin);
-        if (ratioBps > uint256(maxDispersionBps)) return (false, CHECK_DISPERSION, 0, 0);
-        (uint128 usablePrice, uint256 hops) = _applyTemporalFloor(tokenId, currentMin, ctx, live);
+        LiveSet memory set = _collectLiveMinMax(tokenId, ctx);
+        if (set.liveCount == 0) return (false, set.firstReason, 0, 0);
+        if (set.liveCount < uint256(minLiveSources) || set.currentMin == 0) {
+            return (false, CHECK_MIN_SOURCES, 0, 0);
+        }
+        if ((uint256(set.currentMax) * uint256(BPS_DENOMINATOR)) / uint256(set.currentMin) > uint256(maxDispersionBps))
+        {
+            return (false, CHECK_DISPERSION, 0, 0);
+        }
+        (uint128 usablePrice, uint256 hops) = _applyTemporalFloor(tokenId, set, ctx);
         return (true, bytes32(0), uint256(usablePrice), hops);
     }
 
@@ -297,46 +325,44 @@ abstract contract BenchAggregatorBase is IPriceOracle {
     ///      happened TWICE on every `price()` whenever `seasoningWindow != 0`. That inflated the
     ///      reported read gas on every arm and, because the EAS arms pay far more per fact-layer
     ///      read, it inflated them unequally.
-    function _collectLiveMinMax(uint256 tokenId, Ctx memory ctx)
-        internal
-        view
-        returns (uint256 liveCount, uint128 currentMin, uint128 currentMax, bytes32 firstReason, bool[3] memory live)
-    {
-        currentMin = type(uint128).max;
+    function _collectLiveMinMax(uint256 tokenId, Ctx memory ctx) internal view returns (LiveSet memory set) {
+        set.currentMin = type(uint128).max;
         for (uint8 sid; sid < SOURCE_COUNT; ++sid) {
             (bool isLive, bytes32 reason, PriceFact memory f) = _liveFact(sid, tokenId, ctx);
             if (!isLive) {
-                if (firstReason == bytes32(0)) firstReason = reason;
+                if (set.firstReason == bytes32(0)) set.firstReason = reason;
                 continue;
             }
-            live[sid] = true;
-            if (f.priceUsdc6 < currentMin) currentMin = f.priceUsdc6;
-            if (f.priceUsdc6 > currentMax) currentMax = f.priceUsdc6;
+            set.live[sid] = true;
+            set.facts[sid] = f;
+            if (f.priceUsdc6 < set.currentMin) set.currentMin = f.priceUsdc6;
+            if (f.priceUsdc6 > set.currentMax) set.currentMax = f.priceUsdc6;
             unchecked {
-                ++liveCount;
+                ++set.liveCount;
             }
         }
-        if (liveCount == 0) {
-            currentMin = 0;
-            currentMax = 0;
+        if (set.liveCount == 0) {
+            set.currentMin = 0;
+            set.currentMax = 0;
         }
     }
 
     /// @notice MIN of each live oracle source's price as of the seasoning cutoff.
-    /// @param live The mask `_collectLiveMinMax` already computed; liveness is not re-evaluated.
-    function _applyTemporalFloor(uint256 tokenId, uint128 currentMin, Ctx memory ctx, bool[3] memory live)
+    /// @param set What `_collectLiveMinMax` already computed: the live mask so liveness is not
+    ///        re-evaluated, and the head facts so no arm re-resolves or re-reads a head.
+    function _applyTemporalFloor(uint256 tokenId, LiveSet memory set, Ctx memory ctx)
         internal
         view
         returns (uint128 usablePrice, uint256 walkHops)
     {
-        usablePrice = currentMin;
+        usablePrice = set.currentMin;
         if (seasoningWindow == 0) return (usablePrice, 0);
         uint64 targetTs = uint64(block.timestamp) > seasoningWindow ? uint64(block.timestamp) - seasoningWindow : 0;
         uint128 pastMin = type(uint128).max;
         bool any;
         for (uint8 sid; sid < SOURCE_COUNT; ++sid) {
-            if (!live[sid]) continue;
-            (bool found, uint128 p, uint256 hops) = _asOf(sid, tokenId, targetTs, ctx);
+            if (!set.live[sid]) continue;
+            (bool found, uint128 p, uint256 hops) = _asOf(sid, tokenId, targetTs, set.facts[sid], ctx);
             walkHops += hops;
             if (!found) continue;
             if (p < pastMin) pastMin = p;
@@ -352,7 +378,7 @@ abstract contract BenchAggregatorBase is IPriceOracle {
         returns (bool)
     {
         if (maxJumpBps == 0) return false;
-        PriceFact memory prev = _previous(sourceId, tokenId, ctx);
+        PriceFact memory prev = _previous(sourceId, tokenId, current, ctx);
         if (!prev.present || prev.priceUsdc6 == 0) return false;
         uint256 cur = uint256(current.priceUsdc6);
         uint256 prv = uint256(prev.priceUsdc6);

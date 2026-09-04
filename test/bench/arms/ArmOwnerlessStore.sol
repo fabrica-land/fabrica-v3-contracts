@@ -38,34 +38,39 @@ contract ArmOwnerlessStore is BenchAggregatorBase {
         OwnerlessFactStore.Fact memory f = store.getFact(w, tokenId);
         if (f.priceUsdc6 == 0) return fact;
         if (!store.isCycleValid(w, f.cycle)) return fact;
-        return PriceFact({present: true, priceUsdc6: f.priceUsdc6, lastWrittenAt: f.lastWrittenAt, cycle: f.cycle});
+        return PriceFact({
+            present: true, priceUsdc6: f.priceUsdc6, lastWrittenAt: f.lastWrittenAt, cycle: f.cycle, ref: bytes32(0)
+        });
     }
 
-    function _previous(uint8 sourceId, uint256 tokenId, Ctx memory)
+    function _previous(uint8 sourceId, uint256 tokenId, PriceFact memory head, Ctx memory)
         internal
         view
         override
         returns (PriceFact memory fact)
     {
+        if (!head.present) return fact;
         address w = writerOf(sourceId);
         if (store.historyLength(w, tokenId) == 0) return fact;
         OwnerlessFactStore.HistoryEntry memory h = store.getHistory(w, tokenId, 0);
         if (h.priceUsdc6 == 0) return fact;
         if (!store.isCycleValid(w, h.cycle)) return fact;
-        return PriceFact({present: true, priceUsdc6: h.priceUsdc6, lastWrittenAt: h.lastWrittenAt, cycle: h.cycle});
+        return PriceFact({
+            present: true, priceUsdc6: h.priceUsdc6, lastWrittenAt: h.lastWrittenAt, cycle: h.cycle, ref: bytes32(0)
+        });
     }
 
-    function _asOf(uint8 sourceId, uint256 tokenId, uint64 targetTs, Ctx memory)
+    function _asOf(uint8 sourceId, uint256 tokenId, uint64 targetTs, PriceFact memory head, Ctx memory)
         internal
         view
         override
         returns (bool found, uint128 priceUsdc6, uint256 hops)
     {
-        address w = writerOf(sourceId);
-        OwnerlessFactStore.Fact memory f = store.getFact(w, tokenId);
-        if (f.lastWrittenAt != 0 && f.lastWrittenAt <= targetTs && f.priceUsdc6 != 0) {
-            return (true, f.priceUsdc6, 0);
+        // The head is already in hand from the liveness pass; do not read the fact again.
+        if (head.present && head.lastWrittenAt != 0 && head.lastWrittenAt <= targetTs && head.priceUsdc6 != 0) {
+            return (true, head.priceUsdc6, 0);
         }
+        address w = writerOf(sourceId);
         uint256 len = store.historyLength(w, tokenId);
         for (uint256 i; i < len; ++i) {
             OwnerlessFactStore.HistoryEntry memory h = store.getHistory(w, tokenId, i);
