@@ -423,9 +423,7 @@ const DATA = {
     ]
    },
    "close": {
-    "arm1Indexed": 469623,
     "attestFirst": 236047,
-    "attestOnly": 235993,
     "attestSecond": 229048,
     "indexFirst": 253682,
     "indexRepeat": 180770,
@@ -524,8 +522,8 @@ const DATA = {
    "armsRegeneratedBy": "ENG-3964",
    "armsRowsAfter": "293",
    "armsRowsBefore": "128",
-   "armsRowsMoved": "8",
-   "armsRowsMovedReason": "cassatine W1 on PR #47 -- _easIndexBatch cooled the Indexer alone, leaving EAS warm from the priming multiAttest inside the same test. indexAttestations is necessarily a SEPARATE transaction (a publisher cannot know the uids until the attest transaction returns, ENG-3922's own evidence report says so), so in reality it reads those attestations cold. The 8 indexAttestations rows are +26,000 gas per item as a result. The correction makes arm 1 dearer, not cheaper.",
+   "armsRowsMoved": "11",
+   "armsRowsMovedReason": "cassatine W1 on PR #47 -- _easIndexBatch cooled the Indexer alone, leaving EAS warm from the priming multiAttest inside the same test. indexAttestations is necessarily a SEPARATE transaction (a publisher cannot know the uids until the attest transaction returns, ENG-3922's own evidence report says so), so in reality it reads those attestations cold. Eleven rows move as a result: the 8 indexAttestations rows at +26,000 per item, the arm-1 coverage stamp 353,292 -\u003e 371,292, and the arm-1 indexed cycle close 469,623 -\u003e 489,623. The correction makes arm 1 dearer, not cheaper.",
    "branch": "sebadas/eng-3922-fact-layer-bench",
    "commit": "55058ab0c9ec6bce5d9ef3779f9dafe22ec10552",
    "file": "bench-reports/eng3922-arms.txt",
@@ -2880,10 +2878,10 @@ const DATA = {
   }
  ],
  "meta": {
-  "commit": "44cfad791c8858b6228d63ca6473c6803d5cccd3",
-  "commitShort": "44cfad7",
+  "commit": "672b0069e43f8ad0f2dac3916d082793644b122c",
+  "commitShort": "672b006",
   "historyDepth": 48,
-  "inputDigest": "e51ecfc3925f7480",
+  "inputDigest": "ad2e353a4a7b4e07",
   "reportHeader": "# ENG-3913 \u2014 per-scenario gas bench, literal output\n#\n# repo:    fabrica-v3-contracts\n# base:    origin/main @ 4b9201d17d78c7296545a6bd5ef6ac8da1d5a86e\n# branch:  tozzetto/eng-3913-oracle-gas-model\n# command: forge test --match-path test/Eng3913OracleGasBench.t.sol -vv\n# forge:   forge Version: 1.7.1 (Commit SHA: 4072e48705af9d93e3c0f6e29e93b5e9a40caed8)\n# profile: optimizer=true, optimizer_runs=1, via_ir=false (foundry.toml [profile.default])\n# knobs:   FabricaAttributeOracle.defaultKnobs() \u2014 the config\n#          script/FabricaAttributeOracleDeploy.s.sol deploys with.\n#\n# \u26a0 RUN THIS WITHOUT --gas-report.\n#   Foundry's gas-report instrumentation inflates the gasleft() deltas these benches\n#   read, and the codeless-control subtraction absorbs most but not all of it. The CSV\n#   rows here are valid ONLY from a plain -vv run. Under --gas-report the steady-state\n#   writePrice row reads 72,268 instead of 73,812."
  },
  "read": {
@@ -3034,8 +3032,8 @@ const DATA = {
    "armsRegeneratedBy": "ENG-3964",
    "armsRowsAfter": "293",
    "armsRowsBefore": "128",
-   "armsRowsMoved": "8",
-   "armsRowsMovedReason": "cassatine W1 on PR #47 -- _easIndexBatch cooled the Indexer alone, leaving EAS warm from the priming multiAttest inside the same test. indexAttestations is necessarily a SEPARATE transaction (a publisher cannot know the uids until the attest transaction returns, ENG-3922's own evidence report says so), so in reality it reads those attestations cold. The 8 indexAttestations rows are +26,000 gas per item as a result. The correction makes arm 1 dearer, not cheaper.",
+   "armsRowsMoved": "11",
+   "armsRowsMovedReason": "cassatine W1 on PR #47 -- _easIndexBatch cooled the Indexer alone, leaving EAS warm from the priming multiAttest inside the same test. indexAttestations is necessarily a SEPARATE transaction (a publisher cannot know the uids until the attest transaction returns, ENG-3922's own evidence report says so), so in reality it reads those attestations cold. Eleven rows move as a result: the 8 indexAttestations rows at +26,000 per item, the arm-1 coverage stamp 353,292 -\u003e 371,292, and the arm-1 indexed cycle close 469,623 -\u003e 489,623. The correction makes arm 1 dearer, not cheaper.",
    "branch": "sebadas/eng-3922-fact-layer-bench",
    "commit": "55058ab0c9ec6bce5d9ef3779f9dafe22ec10552",
    "file": "bench-reports/eng3922-arms.txt",

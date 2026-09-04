@@ -178,6 +178,11 @@ def parse_source(path):
     for req in ("file", "commit", "status", "pr"):
         if req not in meta:
             sys.exit("%s: missing required provenance line %r" % (path, req))
+    # `armsRowsAfter` and `armsRowsBefore` are checked against the committed report. `armsRowsMoved`
+    # CANNOT be: recomputing it needs the base revision, and a committed file cannot reach git. All
+    # this can enforce is that a non-zero count carries its reason. The count itself is a claim a
+    # reviewer must verify by comparison, and the sidecar says so rather than letting the presence
+    # of a guard imply the number is covered.
     moved = meta.get("armsRowsMoved")
     if moved not in (None, "0") and not meta.get("armsRowsMovedReason", "").strip():
         sys.exit("%s: armsRowsMoved is %r with no armsRowsMovedReason. A moved row means a figure "
@@ -385,13 +390,9 @@ def parse_eas_close_write(path):
     """
     text = path.read_text()
     return {
-        "attestOnly": _read_int(
-            text,
-            r"EAS arms, cycle close attestation WITHOUT root \(round 2\) -- WHOLE TRANSACTION: (\d+)",
-            path, "EAS round-2 cycle-close attestation", "write-side cycle-close term"),
-        "arm1Indexed": _read_int(
-            text, r"arm1 cycle close, attest \+ index -- WHOLE TRANSACTIONS: (\d+)",
-            path, "arm 1 cycle close, attest + index", "write-side cycle-close term"),
+        # `attestOnly` and `arm1Indexed` were parsed here until ENG-3964 measured both arms' closes
+        # properly. Nothing reads them now, so nothing ships them: a payload field no template
+        # consumes is a figure that can go stale with no symptom.
         "attestFirst": _read_int(
             text, r"cycle close attestation FIRST by the writer -- WHOLE TRANSACTION: (\d+)",
             path, "EAS cycle-close attestation, first by the writer", "write-side cycle-close term"),

@@ -17,8 +17,13 @@ files:  bench-reports/eng3922-arms.txt, bench-reports/eng3922-baseline.txt, benc
 armsRegeneratedBy: ENG-3964
 armsRowsBefore: 128
 armsRowsAfter: 293
-armsRowsMoved: 8
-armsRowsMovedReason: cassatine W1 on PR #47 -- _easIndexBatch cooled the Indexer alone, leaving EAS warm from the priming multiAttest inside the same test. indexAttestations is necessarily a SEPARATE transaction (a publisher cannot know the uids until the attest transaction returns, ENG-3922's own evidence report says so), so in reality it reads those attestations cold. The 8 indexAttestations rows are +26,000 gas per item as a result. The correction makes arm 1 dearer, not cheaper.
+armsRowsMoved: 11
+# NOT MACHINE-CHECKED. build-model-page.py verifies armsRowsAfter and armsRowsBefore against the
+# committed report, but recomputing armsRowsMoved needs the BASE revision and a committed file
+# cannot reach git. The build only enforces that a non-zero count carries a reason. Verify the
+# count itself by comparing the report against 3a44d846 row by row -- do not take the presence of
+# a guard as evidence that this particular number is covered.
+armsRowsMovedReason: cassatine W1 on PR #47 -- _easIndexBatch cooled the Indexer alone, leaving EAS warm from the priming multiAttest inside the same test. indexAttestations is necessarily a SEPARATE transaction (a publisher cannot know the uids until the attest transaction returns, ENG-3922's own evidence report says so), so in reality it reads those attestations cold. Eleven rows move as a result: the 8 indexAttestations rows at +26,000 per item, the arm-1 coverage stamp 353,292 -> 371,292, and the arm-1 indexed cycle close 469,623 -> 489,623. The correction makes arm 1 dearer, not cheaper.
 repo:   fabrica-land/fabrica-v3-contracts
 pr:     42
 branch: sebadas/eng-3922-fact-layer-bench
@@ -35,10 +40,12 @@ status: final
 #                                Was md5 c88f7b824eeb93f00948b2939b677925, 17,695 B at 55058ab0.
 #
 # The regeneration ADDS rows and MOVES none. Verified row by row against the 55058ab0 copy:
-#   128 measured rows before -> 293 after; 165 added, 8 MOVED, 0 removed.
-# The 8 are every indexAttestations row, corrected upward by 26,000 gas per item -- see
-# armsRowsMovedReason. Nothing else moved: multiAttest, pointBatch, multiRevoke, the ownerless
-# store rows and every read row are unchanged from 55058ab0.
+#   128 measured rows before -> 293 after; 165 added, 11 MOVED, 0 removed.
+# The 11 are every row whose measurement read EAS warm off a priming attest in the same test:
+# the 8 indexAttestations rows (+26,000 per item), the arm-1 coverage stamp (+18,000 per item)
+# and the arm-1 indexed cycle close (+20,000). See armsRowsMovedReason. Nothing else moved:
+# multiAttest, pointBatch, multiRevoke, the ownerless store rows and every read row are unchanged
+# from 55058ab0.
 # build-model-page.py counts the rows in the committed report and REFUSES if armsRowsAfter
 # disagrees, because this number was typed once and went stale within the hour: it was taken after
 # the first regeneration and three further benches were added afterwards.

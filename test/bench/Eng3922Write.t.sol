@@ -807,6 +807,9 @@ contract Eng3922WriteTest is Eng3922HarnessBase {
         bytes32[] memory uids = eas.multiAttest(req);
         uint256 attestExec = g - gasleft();
         bytes memory indexCd = abi.encodeCall(IEASIndexer.indexAttestations, (uids));
+        // The index leg is a SEPARATE transaction -- the uids do not exist until the attest
+        // transaction returns -- so it reads these attestations cold, not warm off the attest above.
+        _coolAttestPath();
         vm.cool(EAS_INDEXER);
         vm.prank(writers[0]);
         g = gasleft();
@@ -840,6 +843,8 @@ contract Eng3922WriteTest is Eng3922HarnessBase {
         bytes32 uid = eas.attest(req);
         uint256 attestExec = g - gasleft();
         bytes memory indexCd = abi.encodeCall(IEASIndexer.indexAttestation, (uid));
+        // Separate transaction, same reasoning as above.
+        _coolAttestPath();
         vm.cool(EAS_INDEXER);
         vm.prank(writers[0]);
         g = gasleft();
