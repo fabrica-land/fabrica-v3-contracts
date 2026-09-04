@@ -190,19 +190,20 @@ def parse_arms_batch(path):
 # table on the page renders in. `needle` is the literal prefix the arms report prints for that arm;
 # `probe` is the literal row label the Sepolia evidence table uses for the same arm.
 READ_ARMS = [
-    {"key": "arm3", "label": "arm 3 — ownerless custom store",
+    {"key": "arm3", "label": "arm 3 — ownerless custom store", "short": "arm 3",
      "needle": "arm3 ownerless store", "probe": "arm 3 — ownerless custom store",
      "family": "store", "reference": True},
     {"key": "cal", "label": "calibration — deployed round-1 store, read through the harness",
+     "short": "the calibration arm",
      "needle": "cal. round-1 store", "probe": None,
      "family": "store", "reference": True},
-    {"key": "arm1C", "label": "arm 1C — all-EAS via `oracleContext`",
+    {"key": "arm1C", "label": "arm 1C — all-EAS via `oracleContext`", "short": "arm 1C",
      "needle": "arm1C EAS oracleContext", "probe": "arm 1C — all-EAS via `oracleContext`",
      "family": "eas", "reference": False},
-    {"key": "arm2", "label": "arm 2 — EAS plus pointer",
+    {"key": "arm2", "label": "arm 2 — EAS plus pointer", "short": "arm 2",
      "needle": "arm2 EAS+pointer", "probe": "arm 2 — EAS plus pointer",
      "family": "eas", "reference": False},
-    {"key": "arm1", "label": "arm 1 — all-EAS via EAS `Indexer`",
+    {"key": "arm1", "label": "arm 1 — all-EAS via EAS `Indexer`", "short": "arm 1",
      "needle": "arm1 all-EAS indexer", "probe": "arm 1 — all-EAS via EAS `Indexer`",
      "family": "eas", "reference": False},
 ]
@@ -494,7 +495,8 @@ def main():
     # reviewer verifies them by reading the rendered DOM rather than by grepping index.html.
     fork_rows = parse_arms_read(arms_report)
     read = {
-        "arms": [{k: arm[k] for k in ("key", "label", "family", "reference")} for arm in READ_ARMS],
+        "arms": [{k: arm[k] for k in ("key", "label", "short", "family", "reference")}
+                 for arm in READ_ARMS],
         "depths": READ_DEPTHS,
         "sources": READ_SOURCES,
         "indexerRowDepths": INDEXER_ROW_DEPTHS,

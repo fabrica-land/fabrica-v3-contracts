@@ -592,18 +592,54 @@ const markB = gas => gas > READ.marks.bAbsolute ? "FAIL" : "pass";
 const verdictCell = v => v === "FAIL"
   ? `<strong style="color:var(--bad)">FAIL</strong>` : `<span style="color:var(--ok)">pass</span>`;
 
+/* Every comparison the page quotes about the read side, derived ONCE from the embedded rows.
+   Nothing that depends on the dials belongs here, so it is computed at load and shared: the
+   pass-mark verdicts, the fork-versus-chain agreement, and the arm the narrative explains. This
+   exists because those figures were being re-quoted as literals in prose two panels apart, which
+   is the same defect the reports themselves were regenerated to prevent. */
+const READ_CMP = (() => {
+  const easArms = READ.arms.filter(a => a.family === "eas");
+  const easGas = easArms.map(a => READ.fork[a.key]["0"]);
+  const byGas = [...easArms].sort((x, y) => READ.fork[x.key]["0"] - READ.fork[y.key]["0"]);
+  const probed = READ.arms.filter(a => READ.sepolia.probes[a.key])
+    .map(a => ({arm: a, pct: pctDiff(READ.fork[a.key]["0"], READ.sepolia.probes[a.key].gas)}));
+  const byDivergence = [...probed].sort((x, y) => Math.abs(y.pct) - Math.abs(x.pct));
+  const outlier = byDivergence[0], agreeing = byDivergence.slice(1);
+  // The probed deployment was the third, and the cycle-close row gains one entry per deployment,
+  // so its rows stood at depth 3. A fact about the run, not a derivation.
+  const probedCloseDepth = 3;
+  // "every arm" / "n of m arms" / "no arm" is itself derived: a mark's verdict must never be a
+  // sentence that outlives the numbers beside it.
+  const tally = (verdicts, noun, failWord, passWord) => {
+    const failed = verdicts.filter(v => v === "FAIL").length;
+    return failed === verdicts.length ? `${failWord} on every ${noun} arm`
+         : failed === 0 ? `${passWord} on every ${noun} arm`
+         : `${failWord} on ${failed} of the ${verdicts.length} ${noun} arms`;
+  };
+  return {
+    easArms, easGas, byGas, cheapest: byGas[0], dearest: byGas[byGas.length - 1],
+    probed, outlier, agreeing, probedCloseDepth,
+    worstAgreeing: Math.max(...agreeing.map(x => Math.abs(x.pct))),
+    likeForLike: pctDiff(READ.growth.closeRow[String(probedCloseDepth)],
+                         READ.sepolia.probes[outlier.arm.key].gas),
+    aVerdicts: easArms.map(a => markA(READ.fork[a.key]["0"])),
+    bVerdicts: READ.arms.map(a => markB(READ.fork[a.key]["0"])),
+    dearestGas: READ.fork[byGas[byGas.length - 1].key]["0"],
+    aSummary: tally(easArms.map(a => markA(READ.fork[a.key]["0"])), "EAS", "FAIL", "pass"),
+    bSummary: tally(READ.arms.map(a => markB(READ.fork[a.key]["0"])), "measured", "FAIL", "pass"),
+    tally,
+  };
+})();
+
 function renderReadSide() {
   const isEas = S.layer === "eas";
   const arms = READ.arms;
-  const easArms = arms.filter(a => a.family === "eas");
+  const {easArms, cheapest, dearest} = READ_CMP;
   const storeGas = READ.fork.arm3["0"], calGas = READ.fork.cal["0"];
   const easRatios = easArms.map(a => ratio(READ.fork[a.key]["0"], storeGas));
   const easCalRatios = easArms.map(a => ratio(READ.fork[a.key]["0"], calGas));
-  const easGas = easArms.map(a => READ.fork[a.key]["0"]);
   // Cheapest and dearest are found by comparing the measured figures, never by taking the first
   // and last row: the arm order is a rendering choice and must not be able to mislabel an arm.
-  const byGas = [...easArms].sort((x, y) => READ.fork[x.key]["0"] - READ.fork[y.key]["0"]);
-  const cheapest = byGas[0], dearest = byGas[byGas.length - 1];
   const best = READ.fork[cheapest.key]["0"], worst = READ.fork[dearest.key]["0"];
   const closeRow = READ.growth.closeRow, closeDepths = READ.closeRowDepths;
   const perClose = Math.floor(
@@ -619,11 +655,12 @@ function renderReadSide() {
      `against ${fmt(storeGas)}, at the same walk depth`],
     ["× the calibration arm", `${Math.min(...easCalRatios).toFixed(2)}× – ${Math.max(...easCalRatios).toFixed(2)}×`,
      `against ${fmt(calGas)} — everything but the fact layer held constant`],
-    [`Pass mark A — within ${READ.marks.aCeiling}×`, "FAIL on every arm",
+    [`Pass mark A — within ${READ.marks.aCeiling}×`, READ_CMP.aSummary,
      `pre-registered ${READ.marks.preRegisteredOn}, before any arm was measured`],
-    [`Pass mark B — ≤ ${fmt(READ.marks.bAbsolute)}`,
-     easGas.every(g => markB(g) === "pass") ? "pass on every arm" : "FAIL on an arm",
-     "passes everywhere, and therefore separates nothing"],
+    [`Pass mark B — ≤ ${fmt(READ.marks.bAbsolute)}`, READ_CMP.bSummary,
+     READ_CMP.bSummary.startsWith("pass on every")
+       ? "passes everywhere, and therefore separates nothing"
+       : "unlike A, it does separate them"],
     ["Arm 1 after a year of daily closes", `+${fmt(yearOfDailyCloses)}`,
      `${fmt(perClose)} gas per past cycle close × 365, on every read of every token`],
   ] : [
@@ -643,15 +680,19 @@ function renderReadSide() {
     `<div class="card"><div class="k">${k}</div><div class="v">${v}</div><div class="s">${s}</div></div>`).join("");
 
   document.getElementById("read-verdict").innerHTML = `
-    <div class="note ${isEas ? "bad" : "ok"}"><p><strong>Pass mark A — the go/no-go — fails on
-    every EAS arm, at ${Math.min(...easRatios).toFixed(2)}× to ${Math.max(...easRatios).toFixed(2)}×
+    <div class="note ${isEas ? "bad" : "ok"}"><p><strong>Pass mark A — the go/no-go —
+    ${READ_CMP.aSummary.replace("FAIL", "fails").replace("pass", "passes")}, at
+    ${Math.min(...easRatios).toFixed(2)}× to ${Math.max(...easRatios).toFixed(2)}×
     against a ${READ.marks.aCeiling}× ceiling.</strong> The mark was registered on
     <a href="https://linear.app/fabrica/issue/ENG-3922">ENG-3922</a> on
     ${READ.marks.preRegisteredOn}, <em>before any arm was built or measured</em>, on Fede's bias
     concern, and was never moved; publication of the comparison was directed by Tim on
     ${READ.marks.publicationDirected}. Pass mark B
-    (≤ ${fmt(READ.marks.bAbsolute)} gas) passes on every arm including the dearest, so it
-    discriminates nothing — which is a fact about the bar, not about the arms.</p>
+    (≤ ${fmt(READ.marks.bAbsolute)} gas) ${READ_CMP.bSummary.startsWith("pass on every")
+      ? `passes on every measured arm including the dearest (${fmt(worst)}), so it discriminates
+         nothing — which is a fact about the bar, not about the arms`
+      : `is ${READ_CMP.bSummary.replace("FAIL", "failed").replace("pass", "passed")}, so unlike A
+         it does separate them`}.</p>
     <p class="small">The margin is narrower than it was. Review found the EAS arms re-resolving and
     re-reading the same head attestation three times per oracle source where the store arms read a
     packed struct twice — a real bias <em>against</em> EAS in every figure published before
@@ -687,16 +728,8 @@ function renderReadSide() {
         <td class="n">—</td><td class="n">${verdictCell(markB(READ.deployed.depths["0"]))}</td></tr>
     </tbody>`;
 
-  const forkVsChain = arms.filter(a => READ.sepolia.probes[a.key])
-    .map(a => ({a, pct: pctDiff(READ.fork[a.key]["0"], READ.sepolia.probes[a.key].gas)}));
-  const byDivergence = [...forkVsChain].sort((x, y) => Math.abs(y.pct) - Math.abs(x.pct));
-  const outlier = byDivergence[0], agreeing = byDivergence.slice(1);
-  const worstAgreeing = Math.max(...agreeing.map(x => Math.abs(x.pct)));
-  // The like-for-like comparison is against the fork at the row depth the probed deployment
-  // actually had: it was the third deployment, and the cycle-close row gains one entry per
-  // deployment, so its rows stood at depth 3. That is a fact about the run, not a derivation.
-  const probedCloseDepth = 3;
-  const likeForLike = pctDiff(closeRow[String(probedCloseDepth)], READ.sepolia.probes.arm1.gas);
+  const {probed: forkVsChain, outlier, agreeing, worstAgreeing, likeForLike,
+         probedCloseDepth} = READ_CMP;
   document.getElementById("read-arms-notes").innerHTML = `
     <div class="note"><p><strong>Every read number exists twice</strong> — once on a Sepolia fork
     with <code>vm.cool</code>, once as a real Sepolia transaction through a probe contract that
@@ -705,14 +738,14 @@ function renderReadSide() {
     All ${forkVsChain.length} arms return the same price (${READ.sepolia.priceReturned}), which
     is the point: the arms differ only in where the facts live.</p>
     <p><strong>${agreeing.length} of the ${forkVsChain.length} arms agree to within
-    ${worstAgreeing.toFixed(1)}%. ${outlier.a.label}'s ${pctCell(outlier.pct)} is not noise, and
+    ${worstAgreeing.toFixed(1)}%. ${outlier.arm.short}'s ${pctCell(outlier.pct)} is not noise, and
     chasing it produced the finding below.</strong> The price rows on that deployment were fresh at
     depth 1, but the writers' cycle-close rows had reached depth ${probedCloseDepth} — one per
     deployment, because that row is keyed by the writer rather than by the token. Like for like,
     the fork at cycle-close depth ${probedCloseDepth}
     (${fmt(closeRow[String(probedCloseDepth)])}) against Sepolia at cycle-close depth
-    ${probedCloseDepth} (${fmt(READ.sepolia.probes.arm1.gas)}) is ${pctCell(likeForLike)}, in line
-    with every other arm.</p>
+    ${probedCloseDepth} (${fmt(READ.sepolia.probes[outlier.arm.key].gas)}) is
+    ${pctCell(likeForLike)}, in line with every other arm.</p>
     <p class="small"><strong>Which denominator, and why two.</strong> Pass mark A is measured
     against the ownerless custom store. The calibration arm — the deployed round-1 store read
     through the same harness — is shown beside it because it is the only row that holds
@@ -721,7 +754,7 @@ function renderReadSide() {
     ${fmt(READ.deployed.depths["0"])}, so it is the <em>harder</em> of the two denominators for the
     EAS arms: dividing by a smaller number makes the ratios larger. A fails against either.</p>
     <p class="small">Sepolia probe transactions:
-    ${forkVsChain.map(x => `${x.a.label} <code>${READ.sepolia.probes[x.a.key].tx}</code>`).join("; ")}.</p></div>`;
+    ${forkVsChain.map(x => `${x.arm.label} <code>${READ.sepolia.probes[x.arm.key].tx}</code>`).join("; ")}.</p></div>`;
 
   /* seasoning walk */
   const hops = [[0, 1], [1, 3], [3, 7]];
@@ -1010,7 +1043,7 @@ total                                                    = ${noTotal ? "— not 
   const peak = CHAIN.gasAnchors.find(a => a.label === "extremely high");
   const hist = CHAIN.gasAnchors.find(a => a.label === "historical peak");
   const atGas = (g, tip, gas) => gas * (g + tip) * 1e-9 * S.eth;
-  document.getElementById("urgency").innerHTML = `
+  document.getElementById("urgency").innerHTML = noTotal ? "" : `
     <thead><tr><th>Scenario</th><th class="n">Base fee</th><th class="n">Urgent class</th>
       <th class="n">Deferrable class</th><th class="n">Total if nothing waits</th></tr></thead>
     <tbody>
@@ -1024,7 +1057,13 @@ total                                                    = ${noTotal ? "— not 
     </tbody>`;
 
   const longest = S.maxSilence * (1 - S.margin / 100);
-  document.getElementById("urgency-notes").innerHTML = `
+  document.getElementById("urgency-notes").innerHTML = noTotal ? `
+    <div class="note warn"><p><strong>Not computable on these dials, and not estimated.</strong>
+    Both classes this panel splits — the urgent writes and the deferrable ones — are dominated by
+    the price-write term, and there is ${noTotalWhy}. What is left is the cycle close, which is a
+    fraction of a percent of a month; rendering its cost here would present it as a month's
+    exposure to a gas spike. Move the batch dial to a measured size
+    (${BATCH.sizes.join(" / ")}) to price the congestion question.</p></div>` : `
     <div class="note"><p><strong>Holding the urgent class to its bound at the worst moment of
     the trailing year</strong> (${gwei(peak.baseFeeGwei)} gwei, ${peak.timeUtc}) costs
     <strong>${usd(atGas(peak.baseFeeGwei, S.tip * S.urgentMult, m.urgentGas))}</strong> for
@@ -1390,22 +1429,21 @@ total                                                    = ${noTotal ? "— not 
     assumed. <a href="https://linear.app/fabrica/issue/ENG-3922">ENG-3922</a> ran every read arm
     twice — once on a Sepolia fork with <code>vm.cool</code>, and once as a <strong>real Sepolia
     transaction</strong> through a probe contract that performs the read inside a transaction and
-    emits the gas it consumed. <strong>Three of the four arms agree to within
-    ${(() => { const xs = READ.arms.filter(a => READ.sepolia.probes[a.key] && a.key !== "arm1")
-      .map(a => Math.abs(pctDiff(READ.fork[a.key]["0"], READ.sepolia.probes[a.key].gas)));
-      return Math.max(...xs).toFixed(1); })()}%; the fourth, arm 1, diverges
-    ${pctCell(pctDiff(READ.fork.arm1["0"], READ.sepolia.probes.arm1.gas))} — and chasing that
-    divergence is what produced the append-only-growth finding.</strong> Like for like, at equal
-    cycle-close row depth, arm 1 lands at
-    ${pctCell(pctDiff(READ.growth.closeRow["3"], READ.sepolia.probes.arm1.gas))} with the rest.
+    emits the gas it consumed. <strong>${READ_CMP.agreeing.length} of the
+    ${READ_CMP.probed.length} arms agree to within ${READ_CMP.worstAgreeing.toFixed(1)}%; the
+    other (${READ_CMP.outlier.arm.short}) diverges ${pctCell(READ_CMP.outlier.pct)} — and chasing
+    that divergence is what produced the append-only-growth finding.</strong> Like for like, at
+    equal cycle-close row depth, it lands at ${pctCell(READ_CMP.likeForLike)} with the rest.
     The per-arm figures, the derivation and every transaction hash are in the <em>Read side</em>
     panel above, from that ticket's merged reports.</p>
     <p class="small"><strong>Correction, ENG-3944.</strong> This paragraph previously claimed the
     two methods agreed “to within 0.7% on all four arms, and to 0.2% on three of them”. Against the
     reports as merged at <code>${srcCommitShort()}</code> that is wrong in both halves, and it
-    flattered the method: the agreement is 1.0% at worst on three arms and 5.7% on the fourth. The
-    figures in this paragraph are now derived from the merged reports on every build rather than
-    written down, so the claim cannot go stale again.</p>
+    flattered the method: the agreement is ${READ_CMP.worstAgreeing.toFixed(1)}% at worst on
+    ${READ_CMP.agreeing.length} arms and ${Math.abs(READ_CMP.outlier.pct).toFixed(1)}% on the
+    other. Those two figures, and the ones in the paragraph above, are composed from the merged
+    reports on every build rather than written down — including in this sentence, so the
+    correction cannot itself go stale.</p>
     <p class="small">This is a cross-check of the <em>method</em>, on the read path, by another
     lane. It is not a re-measurement of this page's write-side numbers, and it does not remove
     the write-1 discrepancy below.</p></div>
