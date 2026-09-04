@@ -16,7 +16,11 @@ contract Eng3924FuzzProbe is Test {
     }
 
     function _in(uint128 v, uint64 c) internal view returns (FabricaFactStore.FactInput memory) {
-        return FabricaFactStore.FactInput(4388, kind, v, 0, 0, c, bytes32(0));
+        return _inAt(4388, v, c);
+    }
+
+    function _inAt(uint256 tokenId, uint128 v, uint64 c) internal view returns (FabricaFactStore.FactInput memory) {
+        return FabricaFactStore.FactInput(tokenId, kind, v, 0, 0, c, bytes32(0));
     }
 
     /// Band math must never revert for arithmetic reasons, only via BandExceeded.
@@ -65,24 +69,37 @@ contract Eng3924FuzzProbe is Test {
     }
 
     /// A stranger can never change any of writer w's observable state.
+    /// A stranger can never change any of writer `w`'s observable state.
+    /// @dev Two things this test got wrong at first, both the same class of mistake — a fuzz case
+    ///      that looks stronger than it is:
+    ///      - a bare `vm.expectRevert()` accepts ANY revert, so the test would still have passed if
+    ///        these calls started failing for an unrelated reason (arithmetic, a missing row, an
+    ///        out-of-gas). It now pins the exact `NotWriter(writer, caller)` payload, which is the
+    ///        only revert that actually demonstrates row isolation;
+    ///      - the fuzzed `tokenId` was passed to `setLock` but every assertion read the hardcoded
+    ///        token, so the fuzzing dimension proved nothing about the row it perturbed. The fact
+    ///        is now written AT the fuzzed token and the assertions read that same token.
     function testFuzz_strangerCannotMutate(address stranger, uint256 tokenId, bool lockValue, uint64 floor) public {
         vm.assume(stranger != w);
-        vm.startPrank(w);
-        store.writeFact(w, _in(1e6, 1));
-        vm.stopPrank();
-        bool liveBefore = store.isFactLive(w, 4388, kind);
+        vm.prank(w);
+        store.writeFact(w, _inAt(tokenId, 1e6, 1));
+        bool liveBefore = store.isFactLive(w, tokenId, kind);
+        bytes memory refusal = abi.encodeWithSelector(FabricaFactStore.NotWriter.selector, w, stranger);
         vm.startPrank(stranger);
-        vm.expectRevert();
+        vm.expectRevert(refusal);
         store.setLock(w, tokenId, lockValue);
-        vm.expectRevert();
+        vm.expectRevert(refusal);
         store.setMinValidCycle(w, floor);
-        vm.expectRevert();
+        vm.expectRevert(refusal);
         store.closeCycle(w, floor);
-        vm.expectRevert();
-        store.writeFact(w, _in(2e6, 1));
+        vm.expectRevert(refusal);
+        store.writeFact(w, _inAt(tokenId, 2e6, 1));
         vm.stopPrank();
-        assertEq(store.isFactLive(w, 4388, kind), liveBefore, "liveness unchanged");
-        assertEq(store.getFact(w, 4388, kind).value, 1e6, "value unchanged");
+        assertTrue(liveBefore, "the fuzzed row is live before the stranger touches it");
+        assertEq(store.isFactLive(w, tokenId, kind), liveBefore, "liveness unchanged at the fuzzed token");
+        assertEq(store.getFact(w, tokenId, kind).value, 1e6, "value unchanged at the fuzzed token");
+        assertFalse(store.locked(w, tokenId), "no lock applied at the fuzzed token");
         assertEq(store.minValidCycle(w), 0, "floor unchanged");
+        assertEq(store.lastCycleClose(w).closedAt, 0, "no cycle close recorded");
     }
 }

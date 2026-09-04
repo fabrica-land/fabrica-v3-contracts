@@ -24,6 +24,13 @@ FORGE_COMMIT="${FORGE_COMMIT:-unknown}"
 
 raw="$(eval "$BENCH_CMD")"
 
+# N5: the report is staged to a temp file and published only after every check below has passed.
+# Writing straight to $REPORT truncated the committed report at redirect time, so a run that then
+# failed validation left a damaged artifact behind — the detection happened after the destruction.
+# The same rule applies to the document: this script now mutates nothing at all unless it succeeds.
+TMP_REPORT="$(mktemp)"
+trap 'rm -f "$TMP_REPORT"' EXIT
+
 {
   cat <<EOF
 # ENG-3924 round-2 fact store — whole-transaction gas
@@ -47,13 +54,14 @@ raw="$(eval "$BENCH_CMD")"
 #
 EOF
   echo "$raw" | grep 'ENG-3924 gas:' | sed 's/^[[:space:]]*//' | sort
-} > "$REPORT"
+} > "$TMP_REPORT"
 
-python3 - "$REPORT" "$DOC" <<'PY'
+python3 - "$TMP_REPORT" "$DOC" "$REPORT" <<'PY'
+import os
 import re
 import sys
 
-report, doc = sys.argv[1], sys.argv[2]
+staged, doc, report = sys.argv[1], sys.argv[2], sys.argv[3]
 
 # The exact scenario set this bench is expected to emit. A row that disappears (deleted test,
 # skipped test, renamed label) or is emitted twice must fail the run rather than silently
@@ -73,7 +81,7 @@ EXPECTED = [
 ]
 
 rows = []
-for line in open(report, encoding="utf-8"):
+for line in open(staged, encoding="utf-8"):
     match = re.match(r"ENG-3924 gas:\s*(.+?)\s*=\s*(\d+)\s*$", line.strip())
     if match:
         rows.append((match.group(1), int(match.group(2))))
@@ -103,9 +111,9 @@ text = open(doc, encoding="utf-8").read()
 pattern = re.compile(r"<!-- GENERATED:gas.*?<!-- /GENERATED:gas -->", re.DOTALL)
 if not pattern.search(text):
     sys.exit("no GENERATED:gas block in " + doc)
-text = pattern.sub(lambda _: block, text)
-open(doc, "w", encoding="utf-8").write(text)
-print("rewrote the gas table in " + doc + " from " + report)
+# The CANDIDATE document, not yet on disk. The prose check runs against this, so a drifting
+# figure fails the run without having rewritten anything.
+candidate = pattern.sub(lambda _: block, text)
 
 # ---------------------------------------------------------------------------
 # Prose cross-check. Prose cannot be regenerated, so it is verified instead.
@@ -143,8 +151,7 @@ ALLOWED = {
     "48,649": "receipt gasUsed, closeCycle first, tx 0xba6e299e...6619",
 }
 
-body = open(doc, encoding="utf-8").read()
-section = body[body.index("## Measured write cost"):body.index("## Deployed addresses")]
+section = candidate[candidate.index("## Measured write cost"):candidate.index("## Deployed addresses")]
 legal = {"{:,}".format(value) for value in cells.values()}
 legal |= set(DERIVED)
 legal |= set(ALLOWED)
@@ -160,9 +167,20 @@ if unexplained:
 for phrase, description in DERIVED.items():
     if phrase not in section:
         sys.exit("PROSE DRIFT: {} ({}) is no longer stated in the document.".format(phrase, description))
+
+# Every check has passed: now, and only now, publish the document.
+with open(doc + ".tmp", "w", encoding="utf-8") as handle:
+    handle.write(candidate)
+os.replace(doc + ".tmp", doc)
+print("rewrote the gas table in " + doc + " from " + report)
 print(
     "prose cross-check: {} gas figures in the section all explained; {} derived figures present".format(
         len(found), len(DERIVED)
     )
 )
 PY
+
+# Every check passed, so the staged report becomes the committed one. Under `set -e` a failing
+# python above aborts the script before this line and the committed report is left untouched.
+mv "$TMP_REPORT" "$REPORT"
+trap - EXIT
