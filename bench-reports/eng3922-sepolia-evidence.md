@@ -114,6 +114,36 @@ This matters beyond reconciling two numbers: **arm 1's read is the only one that
 own write history.** Nothing prunes an Indexer row, so an all-EAS deployment's read cost rises every
 cycle for as long as it runs. A year of weekly cycles is 52 attestations in each row.
 
+## Against the pre-registered pass mark
+
+The marks below were written into ENG-3922 **before any arm was built**, on Fede's bias concern, and
+were never moved. Corrections to the measurements were posted four times, each before
+acknowledgement; the bar itself is unchanged.
+
+* **A, the go/no-go.** All-EAS three-source `price()` within **1.5x** the custom store's, at the same
+  seasoning walk depth.
+* **B, absolute.** Three-source `price()` **at most 350,000 gas** at the operating point.
+* **C, write side.** One weekly cycle at 1,000 tokens — 3,000 facts, unbatched, whole-transaction
+  gas — **at most 450,000,000**. A regression tripwire, explicitly not the decision.
+
+<!-- GENERATED:pass-mark-scorecard do not edit by hand; bench-reports/regenerate.sh rewrites this -->
+
+| Arm | `price()` at depth 0 | vs custom store | A: within 1.5x | B: <= 350,000 | per weekly cycle | C: <= 450M |
+| -- | -- | -- | -- | -- | -- | -- |
+| arm 3 ownerless custom store | 106,607 | 1.00x | n/a (reference) | pass | 225M | pass |
+| calibration round-1 store | 111,207 | 1.04x | n/a (reference) | pass | — | read-side reference only |
+| arm 1C all-EAS `oracleContext` | 200,730 | 1.88x | **FAIL** | pass | 840M | **FAIL** |
+| arm 2 EAS plus pointer | 220,635 | 2.07x | **FAIL** | pass | 922M | **FAIL** |
+| arm 1 all-EAS `Indexer` | 251,788 | 2.36x | **FAIL** | pass | 1,366M | **FAIL** |
+
+Denominators: `x custom store` is against arm 3, the ownerless store; against the calibration arm (111,207) the EAS arms are 1.81x, 1.98x, 2.26x. A fails against either.
+
+**Every EAS arm fails pass-mark A**, at 1.88x to 2.36x against a 1.5x ceiling. **B passes on every arm** and therefore separates nothing. **C fails on all three EAS arms** and passes on the ownerless store, which comes in at 225M against the 450M budget.
+
+**Recommendation: round 2's fact store should be the ownerless custom store, not EAS.** The pre-registered go/no-go was read gas inside `price()`, and it is failed by every EAS arm even after a correction that ran in EAS's favour. The write side is worse. What EAS was going to buy — audited deployed code, nothing of ours to maintain, the writer lock for free — is real, and the honest price of declining it is roughly 190 lines needing review and audit; but the lock is three lines of that, the keying gap forced a satellite contract onto the EAS path anyway, and arm 1 — the only variant owning nothing at all — both needs an indexer that does not exist on mainnet and gets monotonically slower for as long as it runs. Keep the EAS work rather than discarding it: the schemas, adapters and harness are in this PR, and if read gas ever stops being the binding constraint this reruns in an afternoon.
+
+<!-- /GENERATED:pass-mark-scorecard -->
+
 ## The write — one real cycle, 20 tokens x 3 oracle sources
 
 Whole-transaction `gasUsed` from receipts.

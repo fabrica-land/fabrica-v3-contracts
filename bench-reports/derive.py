@@ -22,6 +22,23 @@ SEPOLIA_PROBES = {
     "arm1": (266_120, "arm 1 all-EAS `Indexer`", "0x1cf3a43422292a479ed5bcc91f332512a7c0468744bffcbdf00f88a836abd81c"),
 }
 
+# The pass marks, pre-registered on ENG-3922 BEFORE any arm was built and never moved. They are
+# constants here, not derived, because that is the whole point of pre-registering them: the bar is
+# an input to this comparison, never an output of it.
+MARK_A_CEILING = 1.5  # all-EAS price() within 1.5x the custom store's, at the same walk depth
+MARK_B_ABSOLUTE = 350_000  # three-source price() at the operating point
+MARK_C_CYCLE = 450_000_000  # one weekly cycle at 1,000 tokens = 3,000 facts, unbatched, whole-tx
+CYCLE_FACTS = 3_000  # 1,000 tokens x 3 oracle sources
+
+# Write-side receipts from the third Sepolia cycle, 20 tokens per transaction. Literal inputs, like
+# the probes: per-fact and per-cycle figures below are computed from these rather than typed.
+CYCLE_WRITE_RECEIPTS = {
+    "attest20": (5_600_933, "0x67362c58988e3dc8647b599f741bf894ffaa9ea08d7ea567c0d5485e8eb4c349"),
+    "index20": (3_505_056, "0x7b0412d2738ec5179c8f49e025c89ed698409c270ab160e46d1ed477995ea1e7"),
+    "point20": (546_477, "0xf4e1988ac84f604cae63059da3203d4032159223c5b17ce579df8bb188d1a510"),
+    "store20": (1_498_996, "0x9b01c63af81c2d24dddd8d0a7674c39aab8c3042192c7139efe88d4d570ee4a6"),
+}
+
 ARM_LABELS = [
     ("arm3", "arm3 ownerless store   ", "arm 3 ownerless custom store"),
     ("cal", "cal. round-1 store     ", "calibration round-1 store"),
@@ -151,6 +168,72 @@ def main():
         f"({SEPOLIA_PROBES['arm1'][0]:,}) is {like_pct:+.1f}%, in line with every other arm.",
     ]
     replace_block(ROOT / "bench-reports" / "eng3922-sepolia-evidence.md", "fork-vs-sepolia", "\n".join(compare))
+
+    # ---- the pass-mark scorecard -------------------------------------------------
+    attest = CYCLE_WRITE_RECEIPTS["attest20"][0] // 20
+    # Arm 1C owns no contract and needs no index: the reader is handed the uid off chain, so its
+    # write cost is the attestation alone. That makes it the cheapest EAS arm on the write side and
+    # it still fails C, which is worth showing rather than leaving blank.
+    per_fact = {
+        "arm3": CYCLE_WRITE_RECEIPTS["store20"][0] // 20,
+        "arm1C": attest,
+        "arm2": attest + CYCLE_WRITE_RECEIPTS["point20"][0] // 20,
+        "arm1": attest + CYCLE_WRITE_RECEIPTS["index20"][0] // 20,
+    }
+    denom = rows["cal"][0]
+    mark = [
+        "| Arm | `price()` at depth 0 | vs custom store | A: within 1.5x | B: <= 350,000 | per weekly cycle | C: <= 450M |",
+        "| -- | -- | -- | -- | -- | -- | -- |",
+    ]
+    verdicts = {}
+    for key, _, label in ARM_LABELS:
+        read = rows[key][0]
+        ratio = read / rows["arm3"][0]
+        cycle = per_fact.get(key, 0) * CYCLE_FACTS
+        if key in ("arm3", "cal"):
+            a_cell = "n/a (reference)"
+        else:
+            a_cell = "**FAIL**" if ratio > MARK_A_CEILING else "pass"
+            verdicts[key] = a_cell
+        b_cell = "**FAIL**" if read > MARK_B_ABSOLUTE else "pass"
+        if cycle:
+            c_cell = "**FAIL**" if cycle > MARK_C_CYCLE else "pass"
+            c_val = f"{cycle / 1_000_000:,.0f}M"
+        else:
+            # The calibration arm is the DEPLOYED round-1 store, whose write side is measured in
+            # the baseline report against a different rule set; it is a read-side reference here.
+            c_cell, c_val = "read-side reference only", "—"
+        mark.append(
+            f"| {label} | {read:,} | {ratio:.2f}x | {a_cell} | {b_cell} | {c_val} | {c_cell} |"
+        )
+    eas = [k for k in ("arm1C", "arm2", "arm1")]
+    worst = max(rows[k][0] / rows["arm3"][0] for k in eas)
+    best = min(rows[k][0] / rows["arm3"][0] for k in eas)
+    mark += [
+        "",
+        f"Denominators: `x custom store` is against arm 3, the ownerless store; against the "
+        f"calibration arm ({denom:,}) the EAS arms are "
+        + ", ".join(f"{rows[k][0] / denom:.2f}x" for k in eas)
+        + ". A fails against either.",
+        "",
+        f"**Every EAS arm fails pass-mark A**, at {best:.2f}x to {worst:.2f}x against a "
+        f"{MARK_A_CEILING}x ceiling. **B passes on every arm** and therefore separates nothing. "
+        "**C fails on all three EAS arms** and passes on the ownerless store, which comes in at "
+        f"{per_fact['arm3'] * CYCLE_FACTS / 1_000_000:,.0f}M against the {MARK_C_CYCLE / 1_000_000:,.0f}M budget.",
+        "",
+        "**Recommendation: round 2's fact store should be the ownerless custom store, not EAS.** The "
+        "pre-registered go/no-go was read gas inside `price()`, and it is failed by every EAS arm "
+        "even after a correction that ran in EAS's favour. The write side is worse. What EAS was "
+        "going to buy — audited deployed code, nothing of ours to maintain, the writer lock for "
+        "free — is real, and the honest price of declining it is roughly 190 lines needing review "
+        "and audit; but the lock is three lines of that, the keying gap forced a satellite contract "
+        "onto the EAS path anyway, and arm 1 — the only variant owning nothing at all — both needs "
+        "an indexer that does not exist on mainnet and gets monotonically slower for as long as it "
+        "runs. Keep the EAS work rather than discarding it: the schemas, adapters and harness are in "
+        "this PR, and if read gas ever stops being the binding constraint this reruns in an "
+        "afternoon.",
+    ]
+    replace_block(ROOT / "bench-reports" / "eng3922-sepolia-evidence.md", "pass-mark-scorecard", "\n".join(mark))
 
     close_body = "\n".join(
         [
