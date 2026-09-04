@@ -106,15 +106,20 @@ INPUTS = [
     "reports/bench-rows.txt",
     "reports/deployed-vs-main.txt",
     "reports/gas-report.txt",
-    # ENG-3938: the write-side batch measurements for both arms, vendored verbatim from
-    # ENG-3922's committed arms report, plus the sidecar that pins the commit it came from.
-    # In INPUTS so the digest changes when the report is swapped for its final revision.
+    # ENG-3938: the write-side batch measurements for both arms, from ENG-3922's arms report,
+    # plus the provenance sidecar. ENG-3964 REGENERATED the arms report with this repo's harness
+    # at ENG-3922's pinned fork block, so it is no longer byte-identical to 55058ab0; the sidecar
+    # records that regeneration. Both in INPUTS so the digest tracks either one changing.
     "reports/eng3922-arms.txt",
     "reports/eng3922-source.txt",
     # ENG-3944: the read side. The arms report already carried the per-arm price() rows; the
     # baseline report carries the deployed aggregator's read, and the Sepolia evidence carries
-    # the four real-transaction probe receipts that corroborate the fork. All three are vendored
-    # verbatim from the same merged commit, and all three are in INPUTS so the digest tracks them.
+    # the four real-transaction probe receipts that corroborate the fork. These TWO are vendored
+    # verbatim and byte-identical to 55058ab0; the arms report above is not (see ENG-3964). All
+    # four eng3922-* files are in INPUTS so the digest tracks them.
+    #
+    # NOTE: this file is NOT in INPUTS. The digest is over what the page is built FROM, not the
+    # builder, so editing a comment here -- including this one -- does not move the digest.
     "reports/eng3922-baseline.txt",
     "reports/eng3922-sepolia-evidence.md",
 ]
