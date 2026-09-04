@@ -754,8 +754,9 @@ def main():
             "preRegisteredOn": MARK_PRE_REGISTERED_ON,
             "publicationDirected": MARK_PUBLICATION_DIRECTED,
         },
-        # The paths these reports have on `main`, for citation. The vendored copies under
-        # reports/ are byte-identical to them at the commit in the provenance sidecar.
+        # The paths these reports have on `main`, for citation. The baseline and evidence copies
+        # under reports/ are byte-identical to them at the commit in the provenance sidecar; the
+        # arms copy is NOT -- ENG-3964 regenerated it, and the sidecar records that.
         "reports": {
             "arms": "bench-reports/eng3922-arms.txt",
             "baseline": "bench-reports/eng3922-baseline.txt",
