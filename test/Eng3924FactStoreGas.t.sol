@@ -8,14 +8,18 @@ import {FabricaFactStore} from "../src/FabricaFactStore.sol";
 /// @dev ENG-3922 measured the arm-3 PROTOTYPE at 74,949 gas per fact. That number does not carry
 ///      over and must not be quoted for this contract: the prototype refreshed the writer's
 ///      heartbeat on every price write, and `writeFact` here does not (a cycle close is a separate
-///      statement), while every mutating function gained an explicit `writer` calldata word. These
-///      are the replacement figures.
+///      statement), while every mutating function gained an explicit `writer` calldata word.
 ///
-///      Per the repo gas guard: one scenario per test function, state primed in `setUp` or before
-///      the measurement, `vm.cool` on the store immediately before the measured call, and the
-///      result reported whole-transaction (21,000 intrinsic + EIP-2028 calldata + execution)
-///      rather than execution alone. Run WITHOUT `--gas-report`:
+///      Per the repo gas guard: one scenario per test function, state primed before the
+///      measurement, and the result reported whole-transaction (21,000 intrinsic + EIP-2028
+///      calldata + execution) rather than execution alone. Run WITHOUT `--gas-report`, whose
+///      inspector perturbs the `gasleft()` deltas this bench reads:
 ///        forge test --match-contract Eng3924FactStoreGasTest -vv
+///
+///      Every figure here is cross-checked against a real Sepolia receipt in
+///      `deployment-artifacts/ENG-3924-round2-fact-store.md`. A cheatcode-simulated number that no
+///      receipt agrees with is not evidence, and the first version of this bench was wrong by
+///      ~61,500 gas per write in exactly that way.
 contract Eng3924FactStoreGasTest is Test {
     uint8 internal constant HISTORY_DEPTH = 48;
     uint64 internal constant CYCLE = 100;
@@ -53,91 +57,101 @@ contract Eng3924FactStoreGasTest is Test {
     }
 
     function test_gas_closeCycle_firstClose() public {
-        bytes memory data = abi.encodeCall(FabricaFactStore.closeCycle, (writer, CYCLE));
-        vm.cool(address(store));
-        vm.prank(writer);
-        uint256 before = gasleft();
-        store.closeCycle(writer, CYCLE);
-        _report("closeCycle (first close, cold slot)", before - gasleft() + INTRINSIC + _calldataGas(data));
+        _report(
+            "closeCycle (first close, cold slot)",
+            _measureCall(abi.encodeCall(FabricaFactStore.closeCycle, (writer, CYCLE)))
+        );
     }
 
     function test_gas_closeCycle_subsequentClose() public {
         vm.prank(writer);
         store.closeCycle(writer, CYCLE);
         vm.warp(block.timestamp + 1 days);
-        bytes memory data = abi.encodeCall(FabricaFactStore.closeCycle, (writer, CYCLE + 1));
-        vm.cool(address(store));
-        vm.prank(writer);
-        uint256 before = gasleft();
-        store.closeCycle(writer, CYCLE + 1);
-        _report("closeCycle (subsequent close, warm slot)", before - gasleft() + INTRINSIC + _calldataGas(data));
+        _report(
+            "closeCycle (subsequent close, warm slot)",
+            _measureCall(abi.encodeCall(FabricaFactStore.closeCycle, (writer, CYCLE + 1)))
+        );
     }
 
     function test_gas_setLock_lock() public {
         _seedWrites(1);
-        bytes memory data = abi.encodeCall(FabricaFactStore.setLock, (writer, TOKEN, true));
-        vm.cool(address(store));
-        vm.prank(writer);
-        uint256 before = gasleft();
-        store.setLock(writer, TOKEN, true);
-        _report("setLock (lock, cold slot)", before - gasleft() + INTRINSIC + _calldataGas(data));
+        _report(
+            "setLock (lock, cold slot)", _measureCall(abi.encodeCall(FabricaFactStore.setLock, (writer, TOKEN, true)))
+        );
     }
 
     function test_gas_setMinValidCycle_bulkInvalidation() public {
         _seedWrites(1);
-        bytes memory data = abi.encodeCall(FabricaFactStore.setMinValidCycle, (writer, CYCLE + 1));
-        vm.cool(address(store));
-        vm.prank(writer);
-        uint256 before = gasleft();
-        store.setMinValidCycle(writer, CYCLE + 1);
         _report(
-            "setMinValidCycle (kills every fact below the floor)", before - gasleft() + INTRINSIC + _calldataGas(data)
+            "setMinValidCycle (kills every fact below the floor)",
+            _measureCall(abi.encodeCall(FabricaFactStore.setMinValidCycle, (writer, CYCLE + 1)))
         );
     }
 
     function test_gas_getLiveFact_readOneRow() public {
         _seedWrites(1);
         vm.cool(address(store));
+        uint256 warmTheAccount = address(store).balance;
+        warmTheAccount;
         uint256 before = gasleft();
         store.getLiveFact(writer, TOKEN, kindPrice);
-        // A view call, so no intrinsic or calldata cost is added: this is the number an aggregator
-        // pays inside its own `price()`, which is what ENG-3922 compared across the arms.
-        _report("getLiveFact (cold, execution only, as read inside price())", before - gasleft());
+        uint256 readGas = before - gasleft();
+        // A view call, so no intrinsic and no calldata are added: this is what an aggregator pays
+        // inside its own `price()`, which is what ENG-3922 compared across the arms.
+        _report("getLiveFact (cold, execution only, as read inside price())", readGas);
     }
 
     /// @notice Per-fact cost across a run of fresh rows, the unit ENG-3922's write-side table used.
     /// @dev ENG-3922 reported 74,949 gas per fact for arm 3 from a 20-token x 3-source cycle driven
     ///      through `writePriceBatch`, where one transaction's intrinsic cost and one cycle close
-    ///      amortise over 60 facts. Round 2 ships NO batch write (proposal Part A item 12 is a
-    ///      round-3 candidate), so a round-2 cycle is one transaction per fact and the per-fact cost
-    ///      is the whole single-write transaction. This test measures that directly so the two
-    ///      numbers are never compared as if they shared a unit.
+    ///      amortise over 60 facts. Round 2 ships NO batch write (round-2 proposal Part A item 12 is
+    ///      a round-3 candidate), so a round-2 cycle is one transaction per fact and the per-fact
+    ///      cost is the whole single-write transaction. Measured directly so the two numbers are
+    ///      never compared as if they shared a unit.
     function test_gas_cycleProjection_freshRowsOneTransactionPerFact() public {
         uint256 facts = 60;
         uint256 total;
-        for (uint256 i; i < facts; ++i) {
-            FabricaFactStore.FactInput memory input = _input(PRICE + uint128(i), CYCLE);
+        // uint128 counter: `facts` is 60, so the value offset needs no narrowing cast.
+        for (uint128 i; i < facts; ++i) {
+            FabricaFactStore.FactInput memory input = _input(PRICE + i, CYCLE);
             input.tokenId = TOKEN + i;
-            bytes memory data = abi.encodeCall(FabricaFactStore.writeFact, (writer, input));
-            vm.cool(address(store));
-            vm.prank(writer);
-            uint256 before = gasleft();
-            store.writeFact(writer, input);
-            total += before - gasleft() + INTRINSIC + _calldataGas(data);
+            total += _measureCall(abi.encodeCall(FabricaFactStore.writeFact, (writer, input)));
         }
         uint256 perFact = total / facts;
         _report("cycle projection, fresh rows, per fact (one tx per fact)", perFact);
         _report("cycle projection, 1,000 tokens x 3 oracle sources = 3,000 facts", perFact * 3_000);
     }
 
-    function _measureWrite(uint128 value, uint64 cycle) internal returns (uint256) {
-        FabricaFactStore.FactInput memory input = _input(value, cycle);
-        bytes memory data = abi.encodeCall(FabricaFactStore.writeFact, (writer, input));
+    /// @notice Whole-transaction gas for one call, measured the way a real transaction pays for it.
+    /// @dev Two corrections over the first version of this bench, each of which inflated every row,
+    ///      and both caught only because real Sepolia receipts existed to disagree with them.
+    ///
+    ///      1. `vm.cool` marks the account AND all of its storage slots cold, but a real transaction
+    ///         begins with `tx.to` already warm under EIP-2929 while its storage slots are still
+    ///         cold. The account is therefore re-warmed with a `BALANCE` read — which touches no
+    ///         storage — before the window opens, reproducing exactly the real access pattern.
+    ///         Cooling without re-warming billed a spurious cold-account access (~2,500) per row.
+    ///      2. The EIP-2028 calldata cost is computed BEFORE the window. In the first version
+    ///         `_calldataGas(data)` shared an expression with the closing `gasleft()`, and Solidity
+    ///         does not define operand order within an expression: that helper's own ~260-iteration
+    ///         loop ran INSIDE the measured window and was billed to the call under test, which is
+    ///         where ~58,000 of the ~61,500 per-write overstatement came from.
+    function _measureCall(bytes memory callData) internal returns (uint256) {
+        uint256 calldataGas = _calldataGas(callData);
         vm.cool(address(store));
+        // BALANCE warms the account without warming any storage slot: the real tx.to pattern.
+        uint256 warmTheAccount = address(store).balance;
+        warmTheAccount;
         vm.prank(writer);
         uint256 before = gasleft();
-        store.writeFact(writer, input);
-        return before - gasleft() + INTRINSIC + _calldataGas(data);
+        (bool ok,) = address(store).call(callData);
+        uint256 executionGas = before - gasleft();
+        require(ok, "measured call reverted");
+        return executionGas + INTRINSIC + calldataGas;
+    }
+
+    function _measureWrite(uint128 value, uint64 cycle) internal returns (uint256) {
+        return _measureCall(abi.encodeCall(FabricaFactStore.writeFact, (writer, _input(value, cycle))));
     }
 
     /// @dev Seeds `count` prior writes so the measured call lands in a known ring regime. Each one

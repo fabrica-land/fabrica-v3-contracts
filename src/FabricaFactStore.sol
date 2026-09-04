@@ -263,12 +263,14 @@ contract FabricaFactStore {
     }
 
     /// @notice Declare the limits `writer` holds its own writes to.
-    /// @dev `maxDownBps` is capped at 100% because a larger figure has no meaning and would
-    ///      underflow the floor of the band; `maxUpBps` is NOT capped, because a move of more than
-    ///      2x is a real thing a writer may legitimately want to allow itself and this contract has
-    ///      no authority to tell a writer its band is too wide. `minWriteInterval` of zero disables
-    ///      the rate limit, and `bandDeclared` of false disables the band — a writer that has never
-    ///      called this function is bound by neither.
+    /// @dev `maxDownBps` is rejected above 100% because a larger figure has no meaning and would
+    ///      underflow the floor of the band. `maxUpBps` carries no such check, because a move of
+    ///      more than 2x is a real thing a writer may legitimately want to allow itself and this
+    ///      contract has no authority to tell a writer its band is too wide — but it is not
+    ///      unbounded either: the field is a `uint16`, so the widest declarable upward band is
+    ///      65,535 bps, or 655.35%. A writer needing more than that declares no band at all.
+    ///      `minWriteInterval` of zero disables the rate limit, and `bandDeclared` of false disables
+    ///      the band — a writer that has never called this function is bound by neither.
     function declarePolicy(address writer, WriterPolicy calldata policy) external {
         _requireWriter(writer);
         if (policy.maxDownBps > BPS_DENOMINATOR) revert InvalidBand(policy.maxDownBps);
@@ -362,6 +364,13 @@ contract FabricaFactStore {
         }
         if (!policy.bandDeclared) return;
         uint256 last = uint256(lastValue);
+        // A zero baseline has no proportional band: every percentage of zero is zero, so both edges
+        // collapse onto zero and the row would be pinned at zero forever. A zero `value` is a
+        // legitimate present fact here (presence is `writtenAt`), so this is reachable for any kind
+        // whose true value is zero, and the writer's only escapes would be to clear its own band or
+        // raise its own floor. Treated as unbanded, exactly like a first write, which is what it is
+        // in every sense except that a record already exists.
+        if (last == 0) return;
         uint256 maxUp = last + (last * uint256(policy.maxUpBps)) / uint256(BPS_DENOMINATOR);
         uint256 maxDown = last - (last * uint256(policy.maxDownBps)) / uint256(BPS_DENOMINATOR);
         if (uint256(newValue) > maxUp || uint256(newValue) < maxDown) {

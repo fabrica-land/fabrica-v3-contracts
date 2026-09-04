@@ -1,7 +1,9 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
-import {Test, console} from "forge-std/Test.sol";
+import {console} from "forge-std/Test.sol";
+
+import {ForkTestBase} from "./ForkTestBase.sol";
 import {FabricaFactStore} from "../src/FabricaFactStore.sol";
 
 /// @notice ENG-3924 — the as-shipped Sepolia sequence, rehearsed on a Sepolia fork.
@@ -16,11 +18,15 @@ import {FabricaFactStore} from "../src/FabricaFactStore.sol";
 ///        3. the same writer unlocks and the read recovers;
 ///        4. a third address trying to lock, unlock or invalidate another writer's facts REVERTS.
 ///
-///      Skips when SEPOLIA_RPC_URL is absent, per the repo's fork-test convention. The round-1
-///      store at 0xFfA7535eF090C9193f44399843a05b60808ffC0D is read for a single assertion that
-///      this deployment does not disturb it, and is never written.
-contract Eng3924FactStoreSepoliaForkTest is Test {
+///      Uses the repo's shared fork harness and the `sepolia` RPC alias from `foundry.toml`, pinned
+///      to a fixed block so the run is reproducible, exactly like the other six fork suites. The
+///      round-1 store at 0xFfA7535eF090C9193f44399843a05b60808ffC0D is read for a single assertion
+///      that this deployment does not disturb it, and is never written.
+contract Eng3924FactStoreSepoliaForkTest is ForkTestBase {
     address internal constant ROUND_1_STORE = 0xFfA7535eF090C9193f44399843a05b60808ffC0D;
+    uint256 internal constant SEPOLIA_CHAIN_ID = 11_155_111;
+    /// @notice Pinned so the suite is reproducible; the block this sequence was first proven at.
+    uint256 internal constant FORK_BLOCK = 11_634_663;
     uint8 internal constant HISTORY_DEPTH = 48;
     uint64 internal constant CYCLE = 1;
     uint256 internal constant TOKEN = 4388;
@@ -35,9 +41,16 @@ contract Eng3924FactStoreSepoliaForkTest is Test {
     address internal stranger;
 
     function setUp() public {
-        string memory rpc = vm.envOr("SEPOLIA_RPC_URL", string(""));
-        vm.skip(bytes(rpc).length == 0);
-        vm.createSelectFork(rpc);
+        bool forked = _forkOrRequire(
+            ForkConfig({
+                rpcEnvVar: "SEPOLIA_RPC_URL",
+                rpcAlias: "sepolia",
+                blockNumber: FORK_BLOCK,
+                requiredEnvVar: "FABRICA_REQUIRE_SEPOLIA_FV"
+            })
+        );
+        if (!forked) return;
+        assertEq(block.chainid, SEPOLIA_CHAIN_ID, "SEPOLIA_RPC_URL must target Sepolia");
         store = new FabricaFactStore(HISTORY_DEPTH);
         kindPrice = store.KIND_PRICE();
         writerA = makeAddr("eng3924-sepolia-writer-a");
@@ -46,7 +59,8 @@ contract Eng3924FactStoreSepoliaForkTest is Test {
     }
 
     function test_sepoliaSequence_allFourClausesInOrder() public {
-        console.log("ENG-3924 fork rehearsal at Sepolia block", block.number);
+        assertEq(block.number, FORK_BLOCK, "fork is pinned");
+        console.log("ENG-3924 fork rehearsal at pinned Sepolia block", block.number);
         // --- Clause 1: two writers, one token, isolated rows -----------------------------------
         _write(writerA, PRICE_A);
         _write(writerB, PRICE_B);

@@ -8,18 +8,23 @@
 #   regenerate   : bench-reports/eng3924-regenerate.sh
 #   contract     : src/FabricaFactStore.sol
 #   basis        : whole transaction = 21,000 intrinsic + EIP-2028 calldata + execution.
-#                  One scenario per test function, vm.cool(store) immediately before the
-#                  measured call. The getLiveFact row is a view: execution only, no intrinsic
-#                  and no calldata, because that is what an aggregator pays inside price().
+#                  One scenario per test function. Storage slots are cooled with vm.cool and the
+#                  ACCOUNT is then re-warmed with a BALANCE read, because a real transaction
+#                  starts with tx.to warm (EIP-2929) and its storage slots cold. The calldata
+#                  cost is computed BEFORE the measurement window. The getLiveFact row is a view:
+#                  execution only, no intrinsic and no calldata, because that is what an
+#                  aggregator pays inside price().
+#   cross-check  : against real Sepolia receipts, see the artifact. Agreement is ~1% on every row
+#                  that has a receipt; the residual is the harness CALL overhead.
 #
-ENG-3924 gas: closeCycle (first close, cold slot) =  67044
-ENG-3924 gas: closeCycle (subsequent close, warm slot) =  47549
-ENG-3924 gas: cycle projection, fresh rows, per fact (one tx per fact) =  156812
-ENG-3924 gas: cycle projection, 1,000 tokens x 3 oracle sources = 3,000 facts =  470436000
-ENG-3924 gas: getLiveFact (cold, execution only, as read inside price()) =  13855
-ENG-3924 gas: setLock (lock, cold slot) =  69441
-ENG-3924 gas: setMinValidCycle (kills every fact below the floor) =  62307
-ENG-3924 gas: writeFact regime 1 (fresh row, no history push) =  159227
-ENG-3924 gas: writeFact regime 2 (cold history slot + cold counter) =  151345
-ENG-3924 gas: writeFact regime 3-48 (cold history slot, warm counter) =  134246
-ENG-3924 gas: writeFact regime 49+ (ring overwrite) =  117171
+ENG-3924 gas: closeCycle (first close, cold slot) =  49216
+ENG-3924 gas: closeCycle (subsequent close, warm slot) =  32116
+ENG-3924 gas: cycle projection, 1,000 tokens x 3 oracle sources = 3,000 facts =  296115000
+ENG-3924 gas: cycle projection, fresh rows, per fact (one tx per fact) =  98705
+ENG-3924 gas: getLiveFact (cold, execution only, as read inside price()) =  13787
+ENG-3924 gas: setLock (lock, cold slot) =  47109
+ENG-3924 gas: setMinValidCycle (kills every fact below the floor) =  46874
+ENG-3924 gas: writeFact regime 1 (fresh row, no history push) =  98668
+ENG-3924 gas: writeFact regime 2 (cold history slot + cold counter) =  93275
+ENG-3924 gas: writeFact regime 3-48 (cold history slot, warm counter) =  76176
+ENG-3924 gas: writeFact regime 49+ (ring overwrite) =  59105

@@ -237,6 +237,29 @@ contract FabricaFactStoreTest is Test {
         assertEq(store.getFact(prycd, TOKEN, kindPrice).value, type(uint128).max, "first write is unbanded");
     }
 
+    /// @dev Regression for the zero-baseline band. A zero `value` is a legitimate present fact
+    ///      (presence is `writtenAt`), and before the fix every percentage of that zero baseline
+    ///      was also zero, so a declared band pinned the row at zero permanently: the widest
+    ///      possible band still rejected a write of 1.
+    function test_policy_zeroBaselineIsUnbandedNotPinnedToZero() public {
+        vm.startPrank(prycd);
+        store.declarePolicy(prycd, _policy(type(uint16).max, 10_000, 0, true));
+        store.writeFact(prycd, _input(TOKEN, kindAttribute, 0, CYCLE));
+        vm.stopPrank();
+        assertTrue(store.isFactLive(prycd, TOKEN, kindAttribute), "the zero-valued fact is present");
+        _write(prycd, TOKEN, kindAttribute, 1, CYCLE);
+        assertEq(store.getFact(prycd, TOKEN, kindAttribute).value, 1, "a write off a zero baseline is accepted");
+        // And once a nonzero baseline exists the band applies again, so the escape is scoped to zero.
+        uint128 tooHigh = uint128(uint256(1) + (uint256(1) * uint256(type(uint16).max)) / 10_000 + 1);
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                FabricaFactStore.BandExceeded.selector, uint128(1), tooHigh, type(uint16).max, uint16(10_000)
+            )
+        );
+        vm.prank(prycd);
+        store.writeFact(prycd, _input(TOKEN, kindAttribute, tooHigh, CYCLE));
+    }
+
     function test_policy_minWriteIntervalRejectsThenAllowsAfterTheInterval() public {
         vm.prank(prycd);
         store.declarePolicy(prycd, _policy(0, 0, 1 hours, false));

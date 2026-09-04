@@ -20,7 +20,12 @@ contract Eng3924FuzzProbe is Test {
     }
 
     /// Band math must never revert for arithmetic reasons, only via BandExceeded.
-    function testFuzz_bandNeverPanics(uint128 first, uint128 second, uint16 up, uint16 down) public {
+    /// @dev `zeroBaseline` forces the first write to zero on a meaningful share of runs. Left to
+    ///      chance a uint128 is zero in about 1 run in 3.4e38, and the un-forced version of this
+    ///      probe reached the zero baseline in 0 of 256 runs — so it could never have caught the
+    ///      band bug that a zero baseline pins the row to zero forever.
+    function testFuzz_bandNeverPanics(uint128 first, uint128 second, uint16 up, uint16 down, bool zeroBaseline) public {
+        if (zeroBaseline) first = 0;
         down = uint16(bound(down, 0, 10_000));
         vm.startPrank(w);
         store.declarePolicy(w, FabricaFactStore.WriterPolicy(up, down, 0, true));
@@ -28,8 +33,14 @@ contract Eng3924FuzzProbe is Test {
         try store.writeFact(w, _in(second, 1)) {
             assertEq(store.getFact(w, 4388, kind).value, second, "accepted write stored exactly");
         } catch (bytes memory err) {
+            // Deliberate truncation: the first four bytes of revert data ARE the selector.
+            // forge-lint: disable-next-line(unsafe-typecast)
             bytes4 sel = bytes4(err);
             assertEq(sel, FabricaFactStore.BandExceeded.selector, "only BandExceeded may reject");
+            // Reaching a zero baseline is not enough to catch the bug it was added for: a
+            // zero-baseline rejection IS a BandExceeded, so the assertion above is satisfied by
+            // the very behaviour that is wrong. A zero baseline must not reject AT ALL.
+            assertTrue(first != 0, "a zero baseline must never reject a write");
         }
         vm.stopPrank();
     }
@@ -38,16 +49,18 @@ contract Eng3924FuzzProbe is Test {
     function testFuzz_historyRingConsistent(uint8 writes) public {
         writes = uint8(bound(writes, 1, 60));
         vm.startPrank(w);
-        for (uint256 i; i < writes; ++i) {
-            store.writeFact(w, _in(uint128(1e6 + i), 1));
+        for (uint128 i; i < writes; ++i) {
+            store.writeFact(w, _in(1e6 + i, 1));
         }
         vm.stopPrank();
-        uint256 expected = writes - 1 > 48 ? 48 : writes - 1;
-        uint256 len = store.historyLength(w, 4388, kind);
+        uint128 expected = writes - 1 > 48 ? 48 : uint128(writes) - 1;
+        uint128 len = uint128(store.historyLength(w, 4388, kind));
         assertEq(len, expected, "history length");
-        for (uint256 i; i < len; ++i) {
+        // `writes` is bounded to [1, 60] above, so every index and value here fits a uint128 with
+        // no narrowing: the loop counter is declared uint128 rather than cast down to one.
+        for (uint128 i; i < len; ++i) {
             FabricaFactStore.HistoryEntry memory h = store.getHistory(w, 4388, kind, i);
-            assertEq(h.value, uint128(1e6 + (writes - 2 - i)), "newest-first ordering holds across wrap");
+            assertEq(h.value, 1e6 + (writes - 2 - i), "newest-first ordering holds across wrap");
         }
     }
 
