@@ -234,10 +234,17 @@ MARK_PRE_REGISTERED_ON = "2026-09-03"
 MARK_PUBLICATION_DIRECTED = "2026-09-04 16:18Z"
 
 
-def _read_int(text, pattern, path, what):
+def _read_int(text, pattern, path, what, side="read-side"):
+    """Pull one measured integer out of a report, or refuse to build.
+
+    `side` names which panel needs the row, because this helper serves both: the read-side panel
+    and (ENG-3964) the write-side running-cost terms. It defaulted to "the read-side panel needs
+    it" for every caller, which sent anyone debugging a missing write-side row to the wrong half
+    of the page.
+    """
     match = re.search(pattern, text)
     if not match:
-        sys.exit("%s: missing measured row for %s -- the read-side panel needs it" % (path, what))
+        sys.exit("%s: missing measured row for %s -- the %s needs it" % (path, what, side))
     return int(match.group(1).replace(",", ""))
 
 
@@ -341,29 +348,55 @@ def parse_eas_close_write(path):
         "attestOnly": _read_int(
             text,
             r"EAS arms, cycle close attestation WITHOUT root \(round 2\) -- WHOLE TRANSACTION: (\d+)",
-            path, "EAS round-2 cycle-close attestation"),
+            path, "EAS round-2 cycle-close attestation", "write-side cycle-close term"),
         "arm1Indexed": _read_int(
             text, r"arm1 cycle close, attest \+ index -- WHOLE TRANSACTIONS: (\d+)",
-            path, "arm 1 cycle close, attest + index"),
+            path, "arm 1 cycle close, attest + index", "write-side cycle-close term"),
         "attestFirst": _read_int(
             text, r"cycle close attestation FIRST by the writer -- WHOLE TRANSACTION: (\d+)",
-            path, "EAS cycle-close attestation, first by the writer"),
+            path, "EAS cycle-close attestation, first by the writer", "write-side cycle-close term"),
         "attestSecond": _read_int(
             text, r"cycle close attestation SECOND by the same writer -- WHOLE TRANSACTION: (\d+)",
-            path, "EAS cycle-close attestation, second by the same writer"),
+            path, "EAS cycle-close attestation, second by the same writer", "write-side cycle-close term"),
         "indexFirst": _read_int(
             text, r"arm1 cycle close, Indexer write FIRST on the row -- WHOLE TRANSACTION: (\d+)",
-            path, "arm 1 cycle-close Indexer write, first on the row"),
+            path, "arm 1 cycle-close Indexer write, first on the row", "write-side cycle-close term"),
         "indexRepeat": _read_int(
             text, r"arm1 cycle close, Indexer write REPEAT on the row -- WHOLE TRANSACTION: (\d+)",
-            path, "arm 1 cycle-close Indexer write, repeat on the row"),
+            path, "arm 1 cycle-close Indexer write, repeat on the row", "write-side cycle-close term"),
         "pointFirst": _read_int(
             text, r"arm2 cycle close, pointer write FIRST on the row -- WHOLE TRANSACTION: (\d+)",
-            path, "arm 2 cycle-close pointer write, first on the row"),
+            path, "arm 2 cycle-close pointer write, first on the row", "write-side cycle-close term"),
         "pointRepeat": _read_int(
             text, r"arm2 cycle close, pointer write REPEAT on the row -- WHOLE TRANSACTION: (\d+)",
-            path, "arm 2 cycle-close pointer write, repeat on the row"),
+            path, "arm 2 cycle-close pointer write, repeat on the row", "write-side cycle-close term"),
     }
+
+
+def assert_dial_1000_decomposition(path):
+    """The dial-1,000 split must agree with the boundary the rows actually show.
+
+    Run FIRST, before anything parses rows at those sizes. `parse_attribute_writes` reads the
+    attribute legs at DIAL_1000_BATCH and DIAL_1000_RESIDUAL, so if that constant moves without the
+    rows being re-measured, the attribute parser fails on a missing row and this check -- the one
+    that can explain what actually went wrong -- never runs. The build refused either way; it just
+    refused with the wrong reason, which sends the next person looking in the wrong place.
+    """
+    text = path.read_text()
+    attest = {}
+    for n in BOUNDARY_SIZES:
+        match = re.search(r"EAS multiAttest n=%d -- WHOLE TRANSACTION: (\d+)" % n, text)
+        if match:
+            attest[n] = int(match.group(1))
+    fits = sorted(n for n, g in attest.items() if g <= BLOCK_GAS_LIMIT)
+    if not fits:
+        return
+    n_max = fits[-1]
+    if n_max != DIAL_1000_BATCH or 1000 % n_max != DIAL_1000_RESIDUAL:
+        sys.exit("build-model-page.py: the measured boundary is n_max=%d with residual %d, but the "
+                 "dial-1,000 decomposition is set to %d + %d. Both write streams are composed at "
+                 "that split, so re-measure the price AND attribute legs at the new sizes before "
+                 "moving it" % (n_max, 1000 % n_max, DIAL_1000_BATCH, DIAL_1000_RESIDUAL))
 
 
 def parse_attribute_writes(path):
@@ -381,7 +414,7 @@ def parse_attribute_writes(path):
         return {str(n): _read_int(
             text,
             r"EAS attribute %s n=%d%s -- WHOLE TRANSACTION: (\d+)" % (label, n, suffix),
-            path, "attribute %s n=%d%s" % (label, n, suffix)) for n in sizes}
+            path, "attribute %s n=%d%s" % (label, n, suffix), "write-side attribute term") for n in sizes}
 
     # The dial sizes, plus the two the dial-1,000 decomposition needs. The attribute stream is
     # composed at the SAME 4 x nMax + residual split the price stream uses, so the two remain
@@ -431,10 +464,11 @@ def parse_batch_boundary(path, chain_gas_limit):
                  "proven when those are ADJACENT -- measure n=%d, or the page is extrapolating"
                  % (path, n_max, first_over, n_max + 1))
     residual = 1000 % n_max
+    # Belt and braces: assert_dial_1000_decomposition() has already run and would have caught this,
+    # but the boundary is the thing this function exists to establish, so it checks its own premise.
     if n_max != DIAL_1000_BATCH or residual != DIAL_1000_RESIDUAL:
-        sys.exit("%s: the measured boundary is n_max=%d with residual %d, but the attribute rows "
-                 "were measured at %d/%d. Re-measure the attribute legs at the new sizes, or the "
-                 "two write streams are composed at different splits"
+        sys.exit("%s: the measured boundary is n_max=%d with residual %d, but the dial-1,000 "
+                 "decomposition is set to %d + %d"
                  % (path, n_max, residual, DIAL_1000_BATCH, DIAL_1000_RESIDUAL))
     legs = {}
     for key, label in (("index", "EAS indexAttestations"), ("point", "pointer pointBatch")):
@@ -594,6 +628,8 @@ def main():
     # the ENG-3913 first write measured in this repo (bench-rows.txt); the EAS arm has no ENG-3913
     # figure, so its baseline is ENG-3922's multiAttest at n=1, which is a single attest.
     arms_report = HERE / "reports" / "eng3922-arms.txt"
+    # FIRST, before any parser reads a row at the dial-1,000 decomposition sizes.
+    assert_dial_1000_decomposition(arms_report)
     ops = parse_arms_batch(arms_report)
     source = parse_source(HERE / "reports" / "eng3922-source.txt")
     batch = {
