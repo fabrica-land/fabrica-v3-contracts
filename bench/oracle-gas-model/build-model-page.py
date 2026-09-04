@@ -124,6 +124,41 @@ INPUTS = [
 BATCH_SIZES = [1, 10, 100]
 
 
+def count_measured_rows(path):
+    """Count the measured `  label: <int>` lines in a forge report.
+
+    The row count is the one figure the provenance sidecar states about the report it describes,
+    and until ENG-3964 it was typed. It went stale within the hour: the count was taken after the
+    first regeneration and three more benches were added afterwards, leaving the sidecar 54 rows
+    light while still claiming to describe the committed file. Counting it here, and refusing when
+    the sidecar disagrees, is the same treatment every other derived figure in this directory gets.
+    """
+    return sum(1 for line in path.read_text().splitlines()
+               if re.match(r"\s{2}.+?: \d+$", line.rstrip()))
+
+
+def assert_sidecar_row_counts(meta, arms_path, base_rows):
+    """The sidecar's row accounting must match the report it ships beside.
+
+    `armsRowsAfter` is checked against the committed report; `armsRowsMoved` is not recomputed here
+    (it needs the base revision, which a committed file cannot reach) but IS asserted to be the
+    zero it claims, so a future regeneration that moves a row cannot keep the claim silently.
+    """
+    actual = count_measured_rows(arms_path)
+    claimed = meta.get("armsRowsAfter")
+    if claimed is None:
+        return
+    if int(claimed) != actual:
+        sys.exit("reports/eng3922-source.txt: armsRowsAfter says %s but %s holds %d measured rows. "
+                 "The sidecar describes the report it ships with, so update it -- or, if rows were "
+                 "added deliberately, re-run the row-by-row comparison against the base revision "
+                 "before changing the number" % (claimed, arms_path.name, actual))
+    before = meta.get("armsRowsBefore")
+    if before is not None and int(before) != base_rows:
+        sys.exit("reports/eng3922-source.txt: armsRowsBefore says %s but the vendored base is %d "
+                 "rows" % (before, base_rows))
+
+
 def parse_source(path):
     """Read reports/eng3922-source.txt: the provenance of the vendored ENG-3922 arms report.
 
@@ -143,6 +178,10 @@ def parse_source(path):
     for req in ("file", "commit", "status", "pr"):
         if req not in meta:
             sys.exit("%s: missing required provenance line %r" % (path, req))
+    if meta.get("armsRowsMoved") not in (None, "0"):
+        sys.exit("%s: armsRowsMoved is %r. The page's provenance rests on the regeneration having "
+                 "MOVED no measured row; if one moved, that claim has to be rewritten rather than "
+                 "the number bumped" % (path, meta["armsRowsMoved"]))
     return meta
 
 
@@ -632,6 +671,7 @@ def main():
     assert_dial_1000_decomposition(arms_report)
     ops = parse_arms_batch(arms_report)
     source = parse_source(HERE / "reports" / "eng3922-source.txt")
+    assert_sidecar_row_counts(source, arms_report, 128)
     batch = {
         "sizes": BATCH_SIZES,
         "source": source,

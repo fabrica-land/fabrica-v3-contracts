@@ -16,7 +16,7 @@ file:   bench-reports/eng3922-arms.txt
 files:  bench-reports/eng3922-arms.txt, bench-reports/eng3922-baseline.txt, bench-reports/eng3922-sepolia-evidence.md
 armsRegeneratedBy: ENG-3964
 armsRowsBefore: 128
-armsRowsAfter: 239
+armsRowsAfter: 293
 armsRowsMoved: 0
 repo:   fabrica-land/fabrica-v3-contracts
 pr:     42
@@ -34,7 +34,10 @@ status: final
 #                                Was md5 c88f7b824eeb93f00948b2939b677925, 17,695 B at 55058ab0.
 #
 # The regeneration ADDS rows and MOVES none. Verified row by row against the 55058ab0 copy:
-#   128 measured rows before -> 239 after; 111 added, 0 moved, 0 removed.
+#   128 measured rows before -> 293 after; 165 added, 0 moved, 0 removed.
+# build-model-page.py counts the rows in the committed report and REFUSES if armsRowsAfter
+# disagrees, because this number was typed once and went stale within the hour: it was taken after
+# the first regeneration and three further benches were added afterwards.
 # The baseline was re-run in the same pass and reproduced 19/19 rows identically, so it is kept at
 # its committed bytes rather than rewritten with a new wall-clock timing line.
 #
