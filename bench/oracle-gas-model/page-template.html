@@ -254,8 +254,8 @@ footer{border-top:1px solid var(--line);padding:18px 20px 40px;color:var(--muted
 
   <div class="panel">
     <h2>Batching</h2>
-    <h3 id="batch-write-h">Write side — the per-item cost of a batched price write</h3>
-    <div class="scroll"><table id="batch-write"></table></div>
+    <h3 id="batch-write-h">Write side — the per-item cost of a batched write</h3>
+    <div id="batch-write"></div>
     <div id="batch-write-notes"></div>
     <h3 id="batch-reg-h">Registration — a one-time round-1 cost</h3>
     <div class="scroll"><table id="batch"></table></div>
@@ -670,67 +670,109 @@ total                                                    = ${fmt(m.totalGas)} ga
 
   const blockLimit = CHAIN.now.gasLimit;
 
-  /* ENG-3938: write side. The batch dial drives the per-item cost of a batched price write for
-     the SELECTED arm, at the sizes ENG-3922 measured (1/10/100), shown against the single-write
-     cost so "is a batched write worth building" reads off one table for either fact layer.
-     n=1 is a single write, priced at the measured single-write figure -- you would not build a
-     batch to write one fact -- and n>=10 is the batched path. */
+  /* ENG-3938: write side. The batch dial drives the per-item cost of a batched write for the
+     SELECTED arm, at the sizes ENG-3922 measured (1/10/100), shown against the single-write cost
+     so "is a batched write worth building" reads off the panel for either fact layer.
+       - bespoke: a single fact is one writePrice (ENG-3913 first write), so the dial at 1
+         reproduces that; writePriceBatch is the batch entrypoint and its measured n=1 is shown as
+         its own row so the batching question reads off measured rows.
+       - EAS: each sub-arm's per-item write is its COMPLETE, additive cost -- attest PLUS the
+         separate write it needs to be findable (indexAttestations on arm 1, the pointer write on
+         arm 2). Every addend is a measured op; multiAttest alone is never shown as the whole write. */
   const arm = S.layer;
-  const primaryKey = BATCH.primary[arm];
-  const single = BATCH.single[arm];
-  const perItemAt = n => n === 1 ? single.gas : BATCH.ops[primaryKey][String(n)].perItem;
-  const wholeAt = n => n === 1 ? single.gas : BATCH.ops[primaryKey][String(n)].total;
-  const primaryFn = arm === "eas" ? "multiAttest" : "writePriceBatch";
-  document.getElementById("batch-write").innerHTML = `
-    <thead><tr><th>Batch size</th><th class="n">Per-item gas</th><th class="n">Single write</th>
-      <th class="n">vs single write</th><th class="n">Whole tx</th><th class="n">Share of a block</th></tr></thead>
-    <tbody>${BATCH.sizes.map(n => {
-      const per = perItemAt(n), whole = wholeAt(n), share = 100 * whole / blockLimit;
-      const active = n === S.batch;
-      return `<tr${active ? ' style="background:var(--accent-soft)"' : ""}>
-        <td>${fmt(n)}${active ? ' <span class="src">◂ dial</span>' : ""}</td>
-        <td class="n"><strong>${fmt(per)}</strong></td><td class="n">${fmt(single.gas)}</td>
-        <td class="n">${n === 1 ? "—" : "−" + (100 * (1 - per / single.gas)).toFixed(1) + "%"}</td>
-        <td class="n">${fmt(whole)}</td>
-        <td class="n" ${share > 100 ? 'style="color:var(--bad);font-weight:600"' : share > 50 ? 'style="color:var(--warn);font-weight:600"' : ""}>${share.toFixed(1)}%</td></tr>`;
-    }).join("")}</tbody>`;
-
-  const p10 = perItemAt(10), p100 = perItemAt(100);
-  const savedAt100 = (100 * (1 - p100 / single.gas)).toFixed(0);
+  const O = BATCH.ops;
+  const sizes = BATCH.sizes;
+  const shareCell = whole => {
+    const share = 100 * whole / blockLimit;
+    const style = share > 100 ? 'style="color:var(--bad);font-weight:600"'
+                : share > 50 ? 'style="color:var(--warn);font-weight:600"' : "";
+    return `<td class="n" ${style}>${share.toFixed(1)}%</td>`;
+  };
+  const dialMark = on => on ? ' <span class="src">◂ dial</span>' : "";
+  const vsCell = (per, base) => per === base ? "—"
+    : (per < base ? "−" : "+") + Math.abs(100 * (1 - per / base)).toFixed(1) + "%";
   const srcCommit = BATCH.source.commit.slice(0, 10);
   const provisional = BATCH.source.status === "PROVISIONAL";
-  const relatedRows = arm === "eas" ? BATCH.easRelated.map(k => {
-    const label = k === "multiRevoke" ? "<code>multiRevoke</code> (revoke a fact)"
-                : "<code>pointBatch</code> — arm 2 ownerless pointer";
-    const o = BATCH.ops[k];
-    return `<tr><td>${label}</td><td class="n">${fmt(o["10"].perItem)}</td>
-      <td class="n">${fmt(o["100"].perItem)}</td></tr>`;
-  }).join("") : "";
+  const provTag = provisional
+    ? ` <span class="pending">provisional</span> until PR #${BATCH.source.pr} merges` : "";
+
+  let writeHtml, worth, relatedHtml = "", srcLine;
+  if (arm === "bespoke") {
+    const single = BATCH.bespoke.single, wb = O[BATCH.bespoke.batchOp];
+    // Row for the single write (dial size 1), then the batch entrypoint at 1/10/100. Only the
+    // single-write row and the batched 10/100 rows are dial targets; writePriceBatch n=1 is
+    // measured evidence, shown but not the dial's n=1 figure.
+    const rows = [
+      {label: "single <code>writePrice</code> (first write)", per: single.gas, whole: single.gas, dialSize: 1},
+      {label: "<code>writePriceBatch</code>, n=1", per: wb["1"].perItem, whole: wb["1"].total, dialSize: null},
+      {label: "<code>writePriceBatch</code>, n=10", per: wb["10"].perItem, whole: wb["10"].total, dialSize: 10},
+      {label: "<code>writePriceBatch</code>, n=100", per: wb["100"].perItem, whole: wb["100"].total, dialSize: 100},
+    ];
+    writeHtml = `<div class="scroll"><table>
+      <thead><tr><th>Write</th><th class="n">Per-item gas</th><th class="n">vs single write</th>
+        <th class="n">Whole tx</th><th class="n">Share of a block</th></tr></thead>
+      <tbody>${rows.map(r => {
+        const active = r.dialSize !== null && r.dialSize === S.batch;
+        return `<tr${active ? ' style="background:var(--accent-soft)"' : ""}>
+          <td>${r.label}${dialMark(active)}</td><td class="n"><strong>${fmt(r.per)}</strong></td>
+          <td class="n">${vsCell(r.per, single.gas)}</td>
+          <td class="n">${fmt(r.whole)}</td>${shareCell(r.whole)}</tr>`;
+      }).join("")}</tbody></table></div>`;
+    worth = `A single <code>writePrice</code> costs <span class="num">${fmt(single.gas)}</span> gas.
+      The batch entrypoint <code>writePriceBatch</code> is ${vsCell(wb["1"].perItem, single.gas)} at
+      one item already, and per item falls to ${fmt(wb["10"].perItem)} at 10 and
+      ${fmt(wb["100"].perItem)} at 100 —
+      <strong>${(100 * (1 - wb["100"].perItem / single.gas)).toFixed(0)}% per item</strong> at 100,
+      essentially converged by then. Batching removes the 21,000 intrinsic and the per-transaction
+      dispatch, spread across the batch, and nothing else: every fact still writes its own storage,
+      the floor each column approaches. The dial at 1 prices a single fact as the plain
+      <code>writePrice</code> first write — you would not build a batch to write one fact — and
+      “first” is the regime because a batch writes each row once, to a fresh row.`;
+    srcLine = `<code>${single.source}</code> for the single write; <code>writePriceBatch</code> rows
+      from <code>${BATCH.source.file}</code> @ <code>${srcCommit}</code> (PR #${BATCH.source.pr})${provTag}`;
+  } else {
+    writeHtml = BATCH.eas.arms.map(a => {
+      const [a1, a2] = a.addends, single = O[a1]["1"].perItem + O[a2]["1"].perItem;
+      const body = sizes.map(n => {
+        const x1 = O[a1][String(n)].perItem, x2 = O[a2][String(n)].perItem, per = x1 + x2;
+        const active = n === S.batch;
+        return `<tr${active ? ' style="background:var(--accent-soft)"' : ""}>
+          <td>${fmt(n)}${dialMark(active)}</td><td class="n">${fmt(x1)}</td><td class="n">${fmt(x2)}</td>
+          <td class="n"><strong>${fmt(per)}</strong></td><td class="n">${vsCell(per, single)}</td></tr>`;
+      }).join("");
+      return `<p class="small" style="margin:10px 0 4px"><strong>Arm — ${a.label}:</strong>
+        <code>${BATCH.opLabels[a1]}</code> + <code>${BATCH.opLabels[a2]}</code>. ${a.note}</p>
+      <div class="scroll"><table>
+        <thead><tr><th>Batch size</th><th class="n"><code>${BATCH.opLabels[a1]}</code>/item</th>
+          <th class="n">+ <code>${BATCH.opLabels[a2]}</code>/item</th><th class="n">= per item</th>
+          <th class="n">vs single write</th></tr></thead>
+        <tbody>${body}</tbody></table></div>`;
+    }).join("");
+    worth = `Each arm's per-item write is its <strong>complete</strong> cost, every addend measured:
+      a record the arm cannot find is a record it does not have, so the attest is priced with the
+      write that makes it findable. ` + BATCH.eas.arms.map(a => {
+      const [a1, a2] = a.addends, single = O[a1]["1"].perItem + O[a2]["1"].perItem;
+      const p100 = O[a1]["100"].perItem + O[a2]["100"].perItem;
+      return `<strong>${a.label}</strong>: ${fmt(single)} gas per item single, ${fmt(p100)} at 100
+        (${vsCell(p100, single)}).`;
+    }).join(" ") + ` <code>multiAttest</code> alone — the attest without its lookup write — is
+      never shown as the whole write.`;
+    const mr = O.multiRevoke;
+    relatedHtml = `<p class="small" style="margin-top:8px"><strong>Revoke (context, not part of the
+      write):</strong> <code>multiRevoke</code> per item ${fmt(mr["10"].perItem)} at 10,
+      ${fmt(mr["100"].perItem)} at 100.</p>`;
+    srcLine = `all ENG-3922 rows (<code>multiAttest</code>, <code>indexAttestations</code>,
+      <code>pointBatch</code>, <code>multiRevoke</code>) from <code>${BATCH.source.file}</code> @
+      <code>${srcCommit}</code> (PR #${BATCH.source.pr})${provTag}`;
+  }
+  document.getElementById("batch-write").innerHTML = writeHtml;
   document.getElementById("batch-write-notes").innerHTML = `
     <div class="note ${arm === "eas" ? "warn" : "ok"}"><p><strong>Is a batched write worth building
-    on ${arm === "eas" ? "EAS" : "the custom store"}?</strong> A single
-    ${arm === "eas" ? "<code>attest</code>" : "<code>writePrice</code>"} costs
-    <span class="num">${fmt(single.gas)}</span> gas. Batched through <code>${primaryFn}</code>, the
-    per-item cost falls to ${fmt(p10)} at a batch of 10 and ${fmt(p100)} at 100 — a
-    <strong>${savedAt100}% saving per item</strong> at 100, essentially converged by then.
-    Batching removes the 21,000 intrinsic and the per-transaction dispatch, spread across the
-    batch, and nothing else: every fact still writes its own storage, which is the floor each
-    column approaches. A batch of 1 is just the single write, so it is priced as one.</p>
-    ${arm === "eas" ? `<p><strong>⚠ <code>multiAttest</code> is the attest cost only.</strong>
-    On arm 1 a record EAS's <code>Indexer</code> cannot find is a record it does not have, so the
-    honest write there is attest + <code>indexAttestation</code>, a separate transaction; and the
-    <code>Indexer</code> is not deployed on Ethereum mainnet. See <em>The EAS arm</em> below —
-    that indexing write is measured (ENG-3922) but not folded into the per-item figures here,
-    which price <code>multiAttest</code>/<code>multiRevoke</code> as the dial's inputs name them.</p>
-    <p class="small"><strong>Other batched writes on this arm.</strong></p>
-    <div class="scroll"><table><thead><tr><th>Operation</th><th class="n">Per item, n=10</th>
-      <th class="n">Per item, n=100</th></tr></thead><tbody>${relatedRows}</tbody></table></div>` : ""}
-    <p class="small">Write-side figures: <code>${single.source}</code> for the single write;
-    <code>${BATCH.source.file}</code> @ <code>${srcCommit}</code> (ENG-3922 PR #${BATCH.source.pr})
-    for the batched per-item figures${provisional
-      ? `, <span class="pending">provisional</span> until that report is finalised` : ""}.
-    No number here is hand-typed; per item is <code>floor(whole-tx ÷ n)</code> of the measured
-    total, and the build refuses to run if any row the dial needs is missing.</p></div>`;
+    on ${arm === "eas" ? "EAS" : "the custom store"}?</strong> ${worth}</p>
+    ${relatedHtml}
+    <p class="small">Every figure is measured, none hand-typed: per item is
+    <code>floor(whole-tx ÷ n)</code> of the measured total, additive per-item totals sum measured
+    rows, and the build refuses to run if any row the dial needs is missing. Sources: ${srcLine}.</p></div>`;
 
   /* Registration — bespoke, round-1 only; unchanged from ENG-3913. Hidden on the EAS arm, which
      has no per-token registration gate (round 2 deletes it, ENG-3924). */
@@ -834,22 +876,23 @@ total                                                    = ${fmt(m.totalGas)} ga
 
   document.getElementById("eas-section").innerHTML = `
     <div class="note warn"><p>The EAS arm's <strong>write side is now measured and shown</strong> in
-    the <em>Batching</em> panel above (ENG-3922), each figure cited to a report and commit. What is
-    <strong>not</strong> yet on this page — and is not estimated anywhere on it — is the number that
-    actually decides the fact-layer question, gas inside <code>price()</code> for a read, and the
-    separate indexing write. All belong to
-    <a href="https://linear.app/fabrica/issue/ENG-3922">ENG-3922</a>, whose pass mark is
-    pre-registered so the comparison cannot be tuned after the fact:</p>
+    the <em>Batching</em> panel above (ENG-3922), each figure cited to a report and commit —
+    including <code>indexAttestations</code>, folded into arm 1's per-item write because a record
+    the <code>Indexer</code> cannot find is a record it does not have. What is <strong>not</strong>
+    on this page, and is not estimated anywhere on it, is the number that actually decides the
+    fact-layer question: gas inside <code>price()</code> for a read. Those results are
+    <a href="https://linear.app/fabrica/issue/ENG-3922">ENG-3922</a>'s and are held pending Tim's
+    acknowledgement of the pre-registered pass mark, so the read-side comparison cannot be tuned
+    after the fact — no read-side figure or verdict appears here until then:</p>
     <ul class="small">
-      <li><span class="src">measured, in Batching above:</span> <code>multiAttest</code> at 1/10/100,
-        <code>multiRevoke</code>, and the ownerless pointer contract's batched write</li>
-      <li><span class="src">measured, in Batching above:</span> a prototype batched
-        <code>writePrice</code> on the custom store, for the same comparison</li>
-      <li><span class="pending">not on this page yet:</span> gas inside <code>price()</code> for a
+      <li><span class="src">measured, in Batching above:</span> <code>multiAttest</code> and
+        <code>indexAttestations</code> at 1/10/100, the ownerless pointer write, and
+        <code>multiRevoke</code></li>
+      <li><span class="src">measured, in Batching above:</span> a batched <code>writePrice</code> on
+        the custom store, for the same comparison</li>
+      <li><span class="pending">held, not on this page:</span> gas inside <code>price()</code> for a
         three-source read on each arm, including the <code>refUID</code> walk depth the seasoning
-        window needs — <em>the go/no-go number</em></li>
-      <li><span class="pending">not on this page yet:</span> <code>indexAttestation</code> — see the
-        warning below; it is a separate write and it is easy to leave out of an EAS estimate</li>
+        window needs — <em>the go/no-go number</em>, under the read-side pass-mark hold</li>
     </ul>
     <p><strong>⚠ On EAS, <code>attest</code> is not the whole write cost, and assuming it is is
     the easiest way to underestimate that arm.</strong> EAS's <code>Indexer</code> does
@@ -860,14 +903,14 @@ total                                                    = ${fmt(m.totalGas)} ga
     <code>Indexer.json</code> in the EAS repo's <code>deployments/mainnet/</code>), which is why
     the adoption survey's Option A carries an ownerless pointer contract of our own instead. So
     the honest comparison is attest + a lookup write against the custom store's single write, not
-    attest alone. <strong>The cost of that indexing write is measured (ENG-3922)</strong> but is
-    deliberately <strong>not folded into the per-item figures above</strong>, which price
-    <code>multiAttest</code>/<code>multiRevoke</code> as the batch dial's named inputs — so the
-    attest-alone number is never silently passed off as the whole arm-1 write.</p>
+    attest alone. <strong>The cost of that indexing write is measured (ENG-3922) and is folded into
+    arm 1's per-item write above</strong> (<code>multiAttest</code> + <code>indexAttestations</code>);
+    arm 2 pays the pointer write instead. The attest-alone number is never passed off as the whole
+    write on either arm.</p>
     <p class="small">The structural point above is a property of EAS's deployed contracts and of
-    the adoption survey. The indexing-write number is ENG-3922's and lives in that ticket's
-    committed report; it is cited from there rather than reproduced here, so the page never carries
-    an EAS write figure that is not backed by a report and a commit.</p>
+    the adoption survey. Every EAS write figure on this page — the attest, the indexing write, the
+    pointer write — is a measured row in ENG-3922's committed report, cited to that report and
+    commit; the page carries no EAS write figure that is not backed by one.</p>
     <p class="small">With the write side measured, this page now shows what it costs to WRITE a fact
     on either arm. It gains its second arm <em>in full</em> when the read-side <code>price()</code>
     gas lands — that, per the adoption survey, is the number that decides the fact-layer choice, and
@@ -1193,9 +1236,10 @@ function sync() {
     `Default ${usd(CHAIN.ethUsd.price)} from Chainlink ETH/USD on mainnet, updated ${CHAIN.ethUsd.updatedAtUtc}.`;
   document.getElementById("batch-hint").innerHTML =
     `Drives the write-side per-item cost of the selected arm — <code>writePriceBatch</code> on the
-     bespoke store, <code>multiAttest</code> on EAS — measured at 1/10/100 (ENG-3922), and round-1
-     registration on the bespoke store (measured to 1,000). 1,000 is registration-only; the write
-     side is measured to 100, where batching has converged.`;
+     bespoke store, attest + its lookup write (<code>indexAttestations</code> or the pointer) on
+     EAS — measured at 1/10/100 (ENG-3922), and round-1 registration on the bespoke store (measured
+     to 1,000). 1,000 is registration-only; the write side is measured to 100, where batching has
+     converged.`;
   document.getElementById("reg-hint").innerHTML =
     `A one-time cost at launch, counted in month 1 only. Round 2 deletes the per-token gate
      (<a href="https://linear.app/fabrica/issue/ENG-3924">ENG-3924</a>, “there is no registry of

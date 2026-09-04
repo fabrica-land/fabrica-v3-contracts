@@ -157,6 +157,7 @@ def parse_arms_batch(path):
     ops = {
         "ownerless writePriceBatch": "writePriceBatch",
         "EAS multiAttest": "multiAttest",
+        "EAS indexAttestations": "indexAttestations",
         "EAS multiRevoke": "multiRevoke",
         "pointer pointBatch": "pointBatch",
     }
@@ -237,29 +238,51 @@ def main():
     # ENG-3938: the write-side batch figures for both arms. The bespoke single-write baseline is
     # the ENG-3913 first write measured in this repo (bench-rows.txt); the EAS arm has no ENG-3913
     # figure, so its baseline is ENG-3922's multiAttest at n=1, which is a single attest.
-    arms = parse_arms_batch(HERE / "reports" / "eng3922-arms.txt")
+    ops = parse_arms_batch(HERE / "reports" / "eng3922-arms.txt")
     source = parse_source(HERE / "reports" / "eng3922-source.txt")
     batch = {
         "sizes": BATCH_SIZES,
         "source": source,
-        "ops": arms,
-        # The primary "write" the dial prices per arm, compared against `single`.
-        "primary": {"bespoke": "writePriceBatch", "eas": "multiAttest"},
-        # Other batched writes on the EAS family, shown as context on that arm.
-        "easRelated": ["multiRevoke", "pointBatch"],
-        # The single-write cost each arm's per-item is read against.
-        "single": {
-            "bespoke": {
+        # Every measured batched op, {n: {total, perItem}}. The template composes per-arm write
+        # costs from these and every addend on the page cites its op here.
+        "ops": ops,
+        # Bespoke: a single fact is one writePrice (the ENG-3913 first write), so the batch dial
+        # at 1 reproduces that per the verification bar. writePriceBatch is the batch entrypoint;
+        # its measured n=1 is shown as its own row so the batching question reads off measured rows.
+        "bespoke": {
+            "single": {
                 "scenario": "writePrice:first",
                 "gas": rows["writePrice:first"]["txTotal"],
                 "source": "reports/bench-rows.txt (ENG-3913)",
             },
-            "eas": {
-                "scenario": "EAS multiAttest n=1",
-                "gas": arms["multiAttest"]["1"]["total"],
-                "source": source["file"] + " (ENG-3922, n=1)",
-            },
+            "batchOp": "writePriceBatch",
         },
+        # EAS: each sub-arm's per-item write is the COMPLETE, additive cost -- a record the arm
+        # cannot find is a record it does not have. Arm 1 (all-EAS Indexer) pays attest plus the
+        # separate indexAttestations write; arm 2 (EAS + pointer) pays attest plus the pointer
+        # write. Every addend is a measured op above, so no number is prose-only.
+        "eas": {
+            "arms": [
+                {"key": "arm1", "label": "all-EAS Indexer",
+                 "note": "multiAttest creates the record; indexAttestation is a separate write, and "
+                         "the Indexer is not deployed on Ethereum mainnet.",
+                 "addends": ["multiAttest", "indexAttestations"]},
+                {"key": "arm2", "label": "EAS + pointer",
+                 "note": "an ownerless pointer contract of our own supplies the (writer, token, "
+                         "kind) lookup the mainnet-absent Indexer would.",
+                 "addends": ["multiAttest", "pointBatch"]},
+            ],
+            # multiRevoke is the revoke cost, shown as context; it is not part of the write.
+            "related": ["multiRevoke"],
+        },
+    }
+    # Labels for the addend ops, so the table can name each measured row it sums.
+    batch["opLabels"] = {
+        "multiAttest": "multiAttest",
+        "indexAttestations": "indexAttestations",
+        "pointBatch": "pointBatch",
+        "writePriceBatch": "writePriceBatch",
+        "multiRevoke": "multiRevoke",
     }
 
     meta = {
