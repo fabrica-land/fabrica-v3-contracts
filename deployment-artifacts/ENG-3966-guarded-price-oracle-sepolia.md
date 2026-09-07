@@ -25,9 +25,17 @@ deployed. It was.
 | `pendingOwner()` | `0x0000000000000000000000000000000000000000` |
 | `IMPLEMENTATION_VERSION()` | `1.0.0` |
 
-Creation transaction (proxy **and** implementation, same block):
-`0x2ce9e684385387ea2b0bffaa3585db89d7115e9302ab81fb78fd8413a7bc0cc5`,
-block `11333976`, status `1 (success)`.
+The deploy script broadcasts **two** transactions — the implementation first,
+then the proxy. Both landed in block `11333976`, back to back:
+
+| # | Transaction | Nonce | Index | Creates | Status |
+| --- | --- | --- | --- | --- | --- |
+| 1 | `0x5cbbc911f60cc6d0092120c323a4d4fec4e06139880b050822b99de65b41dd51` | 396 | 130 | implementation `0xEDd25C20…` | `1 (success)` |
+| 2 | `0x2ce9e684385387ea2b0bffaa3585db89d7115e9302ab81fb78fd8413a7bc0cc5` | 397 | 131 | proxy `0x7f4CE6d3…`, **and initializes it** | `1 (success)` |
+
+Same block is not the same transaction, and the distinction matters for
+provenance: transaction 1 is the implementation's only creation record, and
+transaction 2 is the one that carries the atomic initialization proved below.
 
 ### How it was found
 
@@ -54,7 +62,8 @@ contract, different upgrade model.
 `script/FabricaGuardedSignedPriceOracleDeploy.s.sol:21-22` passes
 `abi.encodeCall(FabricaGuardedSignedPriceOracle.initialize, (owner, name))` as
 `ERC1967Proxy`'s `_data`. The deployed proxy confirms the script was followed:
-the constructor arguments decoded out of the creation transaction's input are
+the constructor arguments decoded out of the **proxy** creation transaction's
+input (transaction 2 above) are
 
 | Field | Value |
 | --- | --- |
