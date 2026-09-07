@@ -79,10 +79,16 @@ forge script \
 Before broadcasting, confirm the derived deployer address equals
 `EXPECTED_TESTNET_DEPLOYER` and that this address is the expected testnet
 deployer/owner for this operation. Never use a mainnet key from this agent lane.
-After deployment, record the proxy address and read it back on Sepolia:
+After deployment, record the proxy address in
+[`deployment-artifacts/`](./deployment-artifacts/) and read it back on Sepolia.
+The current Sepolia proxy, its implementation, and its creation transaction are
+recorded in
+[`deployment-artifacts/ENG-3966-guarded-price-oracle-sepolia.md`](./deployment-artifacts/ENG-3966-guarded-price-oracle-sepolia.md);
+take `GUARDED_ORACLE_PROXY` from there, or from the deployment log for a
+deployment not yet recorded:
 
 ```bash
-: "${GUARDED_ORACLE_PROXY:?set GUARDED_ORACLE_PROXY from the deployment log}"
+: "${GUARDED_ORACLE_PROXY:?set GUARDED_ORACLE_PROXY from deployment-artifacts/ or the deployment log}"
 
 cast call "$GUARDED_ORACLE_PROXY" "owner()(address)" --rpc-url "$SEPOLIA_RPC_URL"
 cast call "$GUARDED_ORACLE_PROXY" "IMPLEMENTATION_VERSION()(string)" --rpc-url "$SEPOLIA_RPC_URL"
