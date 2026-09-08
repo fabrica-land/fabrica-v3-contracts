@@ -32,14 +32,20 @@ cold `SLOAD` per writer inside `price()`, which sits on the pool's borrow path.
 
 `Tim's numbers`, 2026-09-03 18:12Z, plus the round-1 values ENG-3925 carries forward. These are the
 deploy script's defaults (`FabricaImmutableAggregatorDeployScript.defaults()`), pinned by
-`test_defaultsAreTimsNumbers`, and every one is overridable by environment so a redeploy under a
-later ruling needs no code change.
+`test_defaultsAreTimsNumbers`. Each threshold is overridable by environment so a redeploy under a
+later ruling needs no code change, but an override is **bounded, not merely narrowed**: every value
+is read as a `uint256` and checked against its target type before the cast
+(`_bounded` / `EnvValueOutOfRange`). An out-of-range override is REFUSED rather than truncated —
+`FABRICA_AGGREGATOR_MAX_JUMP_BPS=70000` would otherwise have become `4464` and
+`FABRICA_AGGREGATOR_MAX_SILENCE=2**64` would have become `0`, permanently, and the
+intended-vs-deployed readback could not have caught either because it compares the deployed value
+against the same truncated struct. The two addresses are not overridable at all: see below.
 
 <!-- markdownlint-disable MD013 -->
 
 | Parameter | Value | Source |
 | -- | -- | -- |
-| `factStore` | `0xa81f30b0EC22DbE4b25239883850367EDB6f3Edd` | ENG-3924, the live round-2 store |
+| `factStore` | `0xa81f30b0EC22DbE4b25239883850367EDB6f3Edd` | ENG-3924, the live round-2 store; the script refuses any other (`NonCanonicalFactStore`) |
 | `usdc` | `0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238` | canonical Sepolia USDC; the script refuses any other |
 | `writers` | the three oracle sources (Prycd, OpenAVM, Regrid assessor) | Tim's numbers; **no default in the script** |
 | `minLiveSources` | 2 | Tim's numbers, 2 of 3; the contract refuses below 2 |
@@ -52,6 +58,24 @@ later ruling needs no code change.
 | `valueCeilingUsdc6` | 50,000,000 USDC | guard 9, round-1 store default |
 
 <!-- markdownlint-enable MD013 -->
+
+### Both addresses are pinned, and why the fact store had to be
+
+`SEPOLIA_USDC` and `SEPOLIA_FACT_STORE` are constants in the deploy script and are checked together
+in `_validateChainCurrencyAndStore`; neither is overridable by environment. The currency pin is
+inherited from the round-1 script. The fact-store pin is new in this ticket and is not a typo guard:
+**this store has already been redeployed once.** The first round-2 deployment at
+`0x89895c2fCC975c16AeAd2e213d2076dbF0aeb8b8` carried the zero-baseline band bug, is dead, and still
+circulates in briefs — it was named as the store to build against in this ticket's own kickoff.
+
+The aggregator's constructor cannot catch that substitution. The dead store is a real
+`FabricaFactStore`: it is non-zero, carries 12,047 bytes of code, and answers `KIND_PRICE`
+**byte-identically** to the live one (`0x9ef8710b…d6d0`, confirmed on chain by the reviewer against
+both addresses), so it clears every check in `_validateWiring`. The intended-vs-deployed readback
+cannot catch it either, since it compares the deployed value against the same configured address.
+The script is the only layer that can, and binding a pool's price feed to the wrong store is
+permanent here. `test_refusesTheSupersededRound2FactStore` etches the real store runtime at the dead
+address, asserts it is indistinguishable, and shows the refusal.
 
 The writer set has **no default in the deploy script**. The oracle source addresses are a Tim
 decision and their provisioning is [ENG-3926](https://linear.app/fabrica/issue/ENG-3926); a guessed
@@ -183,6 +207,14 @@ second PR.
 `test/Eng3925ImmutableAggregatorSepoliaFork.t.sol` extends `Eng3523OraclePoolSepoliaForkTest`, which
 extends the ENG-3519 launch-pool harness, so one run exercises every round-1 invariant as well as
 the round-2 ones against the live Sepolia fork — 23 tests, all green.
+
+**The green `Foundry project` check on a push or PR does not execute those 23.** The CI step is
+correctly gated to skip rather than silently pass when `SEPOLIA_RPC_URL` is absent, and the suite
+collapses to a single skipped unit when the fork cannot be created, so 0 of 23 run there.
+`FABRICA_REQUIRE_SEPOLIA_FV` — which turns a missing RPC into a loud failure — is set only on the
+scheduled run. The 23/23 recorded here is a local run with the RPC configured, and that is the
+evidence that carries. (The nightly on `main` is separately failing; that is ENG-4052, not this
+ticket.)
 
 `setUp` is deliberately not overridden. The round-2 fixture warps a full seasoning window, and
 Foundry re-runs `setUp` for every test, so a warp there would age the inherited round-1 fixture —
