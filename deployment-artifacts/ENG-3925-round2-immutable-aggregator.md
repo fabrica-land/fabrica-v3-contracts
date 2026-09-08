@@ -1,0 +1,205 @@
+# ENG-3925 — round-2 immutable aggregator and the new Sepolia oracle pool
+
+Round-2 proposal Part A items 1 and 5, decided by Tim on 3 September 2026 17:53Z. Contract:
+`src/FabricaImmutableAggregator.sol`. Deploy script: `script/FabricaImmutableAggregatorDeploy.s.sol`.
+Sepolia only.
+
+The round-1 aggregator `FabricaOracleAggregator`, the round-1 pool `0x6C56d0953377D7AB479BBA85Da8d61050F774c0B`
+and the signed-quote pool all stay deployed and serving. Nothing here upgrades, repoints or
+supersedes any of them on chain: this ticket **adds** an aggregator and a pool.
+
+The fact store this aggregator reads is the round-2 store from
+[ENG-3924](https://linear.app/fabrica/issue/ENG-3924) at
+[`0xa81f30b0EC22DbE4b25239883850367EDB6f3Edd`](https://sepolia.etherscan.io/address/0xa81f30b0ec22dbe4b25239883850367edb6f3edd).
+The earlier address `0x89895c2fCC975c16AeAd2e213d2076dbF0aeb8b8` is **dead** — it carried the
+zero-baseline band bug — and is named here only because it still circulates in briefs.
+
+## What the redeploy removes
+
+Round 1's `FabricaOracleAggregator` is `Ownable2Step` with a pre-freeze owner path — `setFactStore`,
+`setUsdc`, `setValidatorId`, `setSourceIds`, `setKnobs`, `setLandUsePolicy` — plus an opt-in
+`renounceAggregator()` that had to be remembered. Round 2 has none of it. Every parameter is an
+`immutable` written by the constructor into the deployed bytecode, and the deployed ABI contains no
+state-mutating external function at all: no owner, no setter, no freeze step, nothing to renounce.
+A rule change is a new aggregator and a new pool.
+
+The trusted writer set lives in `immutable` slots rather than a constructor-written storage array.
+Storage written only by a constructor would be equally unchangeable, but immutables put the
+addresses in the code itself — readable from the verified source with no storage probe — and save a
+cold `SLOAD` per writer inside `price()`, which sits on the pool's borrow path.
+
+## Constructor parameters
+
+`Tim's numbers`, 2026-09-03 18:12Z, plus the round-1 values ENG-3925 carries forward. These are the
+deploy script's defaults (`FabricaImmutableAggregatorDeployScript.defaults()`), pinned by
+`test_defaultsAreTimsNumbers`, and every one is overridable by environment so a redeploy under a
+later ruling needs no code change.
+
+<!-- markdownlint-disable MD013 -->
+
+| Parameter | Value | Source |
+| -- | -- | -- |
+| `factStore` | `0xa81f30b0EC22DbE4b25239883850367EDB6f3Edd` | ENG-3924, the live round-2 store |
+| `usdc` | `0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238` | canonical Sepolia USDC; the script refuses any other |
+| `writers` | the three oracle sources (Prycd, OpenAVM, Regrid assessor) | Tim's numbers; **no default in the script** |
+| `minLiveSources` | 2 | Tim's numbers, 2 of 3; the contract refuses below 2 |
+| `maxSilence` | 3 days (259,200 s) | Tim's numbers (Fede's number) |
+| `cycleCloseInterval` | 1 day (86,400 s) | Tim's numbers; published, not checked — see below |
+| `seasoningWindow` | 24 hours (86,400 s) | 2 September call |
+| `maxJumpBps` | 5,000 | rate-of-change breaker, as in round 1 |
+| `maxDispersionBps` | 20,000 | dispersion breaker, as in round 1 |
+| `maxFirstPriceUsdc6` | 50,000,000 USDC | guard 8, round-1 store default |
+| `valueCeilingUsdc6` | 50,000,000 USDC | guard 9, round-1 store default |
+
+<!-- markdownlint-enable MD013 -->
+
+The writer set has **no default in the deploy script**. The oracle source addresses are a Tim
+decision and their provisioning is [ENG-3926](https://linear.app/fabrica/issue/ENG-3926); a guessed
+address here would be immutable for the life of the contract, so the script refuses to run without
+`FABRICA_AGGREGATOR_WRITERS` rather than inventing one.
+
+### `cycleCloseInterval` is published, not checked
+
+No branch reads it. The aggregator cannot enforce a writer's cadence — only the writer decides when
+it closes a cycle — so making it a check would be theatre. It is on chain because it is the
+assumption behind `maxSilence`: three days is **three** daily cycle closes, so a writer misses two
+closes before its feed goes dark. `test_round2_deployedParametersAreTimsNumbers` asserts that
+relationship (`maxSilence == 3 * cycleCloseInterval`) rather than the two numbers separately.
+
+## Round-2 rules the aggregator implements
+
+Tim, 3 September 2026 18:47Z and 18:50Z. The 18:17Z–18:44Z Merkle-root and coverage paragraphs on
+ENG-3925 are history and are not implemented.
+
+* Per trusted writer and token, the **newest unrevoked valuation** is the only one considered. The
+  store supersedes by overwriting the row, so this needs no extra work at read time.
+* A **lock, a revocation or a newer write invalidates prior state immediately**. The store's
+  `getLiveFact` folds presence, the writer's lock and the writer's floor into one call, and nothing
+  in the aggregator caches.
+* The writer's **last cycle close must be within `maxSilence`**, and the cycle that close names must
+  still be valid — see the caveat below.
+* **Nothing per read, nothing per quote.** `oracleContext` is unused, per Tim's 18:44Z ruling that
+  buy-now-pay-later calldata is fixed days before execution.
+* **No root, no proof, no coverage check.** A token a writer stops covering is that writer's lock or
+  revocation to send: fail-open by design this round.
+* The read interface stays MetaStreet `IPriceOracle`, so the pool's upstream code is unchanged and
+  no change is needed in `fabrica-land/metastreet-contracts-v2`.
+
+### Both halves of the ENG-3924 cycle-close caveat are checked
+
+`closeCycle` refuses a cycle below the writer's floor **at the time of the call**, but raising the
+floor afterwards does not rewrite an already-recorded close. So `lastCycleClose(writer).cycle` can
+name a cycle `isCycleValid(writer, cycle)` now reports false for. The aggregator checks the close
+for liveness **and** `isCycleValid` for the cycle it names;
+`test_silence_recordedCloseBelowTheWritersRaisedFloorIsNotLiveness` makes the trap executable.
+
+`policyOf` is deliberately not read, and is absent from `IFabricaFactStore` entirely. Per the same
+handoff, a declared limit binds a write and not a writer — a writer can widen its band, write, and
+restore the old value in one transaction — so `policyOf` is evidence of intent and never proof about
+a stored value. The aggregator relies on its own immutable bounds instead.
+
+## The write-time guards ENG-3924 handed over
+
+Numbering follows `bench-reports/eng3922-write-time-guards.md`, as carried by
+`deployment-artifacts/ENG-3924-round2-fact-store.md` and Linear comment `b90c9467`.
+
+<!-- markdownlint-disable MD013 -->
+
+| # | Round-1 guard | Disposition on ENG-3925 |
+| -- | -- | -- |
+| 4 | Price may not be zero | **Re-established.** A `KIND_PRICE` fact with `value == 0` is treated as absent. The store's presence marker is `writtenAt` and it does not interpret `kind`, so this is the aggregator's to enforce (`test_guard4_zeroValuationIsAbsentNotAPriceOfZero`) |
+| 8 | First-price cap | **Re-established** as an immutable read-time bound. A writer's valuation with no history for that `(writer, tokenId)` and `value > maxFirstPriceUsdc6` is dropped as not live. Exactly at the cap is kept, matching round 1, which reverted only strictly above |
+| 9 | Global value ceiling | **Re-established** as an immutable read-time bound. Any valuation above `valueCeilingUsdc6` is dropped as not live |
+| 14 | `writePriceRelayed` (EIP-712 relay) | **Stays dropped.** It is a store-side write path with no aggregator surface; restoring it means bringing EIP-712 back to the store, which neither ticket scopes |
+| — | Land-use check (`CHECK_LAND_USE`, round-1 aggregator) | **Dropped by decision.** Land use is not in the round-2 rules, and the round-2 store's generic `kind` record has no typed attribute read to replace `getAttribute`. Recorded rather than silently omitted |
+| — | `CHECK_REGISTRY`, `CHECK_RECOVERY` (round-1 aggregator) | **Retired with their subjects** — the registry (Tim: there is no registry of tokens) and the recovery writer (replaced by the writer lock) |
+
+<!-- markdownlint-enable MD013 -->
+
+Guards 4, 8 and 9 **drop the offending valuation** rather than reverting the whole read. That is the
+only shape available to a read-time re-establishment of a write-time guard: the bad value already
+exists in the store, and refusing to price a token because one of three writers published nonsense
+would hand any single trusted writer a denial-of-service lever over the pool.
+
+### One honest limitation of guards 8 and 9 at the deploy values
+
+At the round-1 store defaults, `maxFirstPriceUsdc6` and `valueCeilingUsdc6` are the **same number**
+(50,000,000 USDC). Guard 9 applies to every valuation and guard 8 only to a first valuation, so at
+these values guard 9 fires first in every case guard 8 would have caught, and **guard 8 is
+unobservable on the deployed configuration**. It is nonetheless implemented, separately configurable
+and separately tested (`test_guard8_firstValuationAboveTheCapIsDroppedButAtTheCapIsKept` isolates it
+with a cap strictly below the ceiling), so choosing a lower first-price cap is a config change and
+not a code change. This is stated rather than left for a reviewer to notice: the round-1 store
+carried the same coincidence, with the same consequence, behind a comment saying the ceiling was the
+"same as first-price default until class ceilings are set".
+
+## Check set and what each refusal means
+
+`eligibilityReport(currencyToken, tokenId)` returns the first failed check without reverting;
+`price()` reverts with `CheckFailed(checkId)` carrying the same id.
+
+<!-- markdownlint-disable MD013 -->
+
+| Check | Fires when |
+| -- | -- |
+| `CHECK_CURRENCY` | the currency is not the configured USDC |
+| `CHECK_MAX_SILENCE` | fewer than `minLiveSources` trusted writers have a recent, still-valid cycle close — the feeds are dark |
+| `CHECK_MIN_SOURCES` | enough feeds are live but fewer than `minLiveSources` usable valuations survive the filters — the token is not priceable |
+| `CHECK_DISPERSION` | the live valuations disagree by more than `maxDispersionBps` |
+
+<!-- markdownlint-enable MD013 -->
+
+Silence is per writer in round 2, so the two liveness failures had to be separated: a lender reading
+`max_silence` knows to look at the writers, and one reading `min_sources` knows to look at the
+token. Round 1's single `CHECK_HEARTBEAT` could not make that distinction because the heartbeat was
+per validator.
+
+## The pool
+
+The new pool is a `BeaconProxy` created through the live Sepolia `PoolFactory.createProxied` on the
+shared pool beacon, exactly as ENG-3519's launch path specifies, with the launch duration and rate
+tiers and `priceOracle` set to this aggregator.
+
+<!-- markdownlint-disable MD013 -->
+
+| Component | Sepolia address |
+| -- | -- |
+| `PoolFactory` | `0x110bD40421Bf418A8B0d8AbA6568fB020c42Ee83` |
+| Pool beacon (`UpgradeableBeacon`) | `0xe1B74Cbf78a693e6289dc1C983D8BC2E5097139e` |
+| Collateral token (`FabricaToken`) | `0xb52ED2Dc8EBD49877De57De3f454Fd71b75bc1fD` |
+| Currency token (USDC) | `0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238` |
+
+<!-- markdownlint-enable MD013 -->
+
+**No change is needed in `fabrica-land/metastreet-contracts-v2`.** Its existing
+`script/FabricaLendingPoolCreateWithAggregator.s.sol` takes the oracle as
+`FABRICA_LENDING_AGGREGATOR` and passes it straight into the pool's initializer as an
+`IPriceOracle`; because the round-2 aggregator keeps that interface, the round-1 launch script
+creates the round-2 pool unmodified. That repo therefore gets deployment artifacts only, not a
+second PR.
+
+## Verification
+
+`test/Eng3925ImmutableAggregatorSepoliaFork.t.sol` extends `Eng3523OraclePoolSepoliaForkTest`, which
+extends the ENG-3519 launch-pool harness, so one run exercises every round-1 invariant as well as
+the round-2 ones against the live Sepolia fork — 23 tests, all green.
+
+`setUp` is deliberately not overridden. The round-2 fixture warps a full seasoning window, and
+Foundry re-runs `setUp` for every test, so a warp there would age the inherited round-1 fixture —
+its heartbeat would go stale and its seasoned observation would stop binding — and would silently
+rewrite the round-1 acceptances this suite exists to keep green. The round-2 stack is built per test
+by `_setUpRound2()` instead.
+
+## Deployed addresses
+
+Filled in by the as-shipped Sepolia run; see the PR for transaction hashes, the
+intended-vs-deployed parameter table and `cast` output for every verification clause.
+
+<!-- DEPLOYMENT:sepolia -->
+
+| Contract | Network | Address |
+| -- | -- | -- |
+| `FabricaImmutableAggregator` | Sepolia | _pending deploy_ |
+| Round-2 oracle pool (`BeaconProxy`) | Sepolia | _pending deploy_ |
+
+<!-- /DEPLOYMENT:sepolia -->

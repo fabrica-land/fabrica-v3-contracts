@@ -518,6 +518,20 @@ contract FabricaFactStoreTest is Test {
     ///      with EMPTY return data, while an implemented function that reverts carries a reason.
     ///      `historyDepth()` is the positive control — without it, "everything reverted" would also
     ///      be satisfied by probing the wrong address.
+    ///
+    ///      RESIDUAL BOUND ON THIS PROBE (ENG-3924 review finding N16, recorded here on ENG-3925
+    ///      because contracts#44 merged before it landed). The verdict is "reverted with empty data
+    ///      means absent", so a privileged function that reverts with EMPTY data — a bare
+    ///      `revert()`, or an `assert`-style panic-free abort — is still classified absent. The
+    ///      reviewer demonstrated it with a hidden-admin `setKnobs` guarded by a bare `revert()`;
+    ///      this probe passed against it. That bounds the TEST, not the shipped contract: the store
+    ///      at `0xa81f30b0EC22DbE4b25239883850367EDB6f3Edd` provably has no such shape, because its
+    ///      verified source is in this repo and contains no privileged function at all. A probe that
+    ///      closed the gap would have to read the deployed bytecode's dispatch table rather than
+    ///      infer it from call behaviour, which is why the round-2 aggregator asserts the stronger
+    ///      property a different way: `FabricaImmutableAggregatorTest` walks the compiled ABI and
+    ///      requires every external function to be `view` or `pure`, so there is no state-mutating
+    ///      selector for any probe to miss.
     function test_noPrivilegedSurface_ownerAndAdminSelectorsDoNotExist() public {
         string[8] memory names = [
             "owner()",
