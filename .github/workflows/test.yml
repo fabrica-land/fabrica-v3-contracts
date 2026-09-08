@@ -95,7 +95,7 @@ jobs:
             echo "SLACK_BOT_TOKEN not configured, skipping notification"
             exit 0
           fi
-          curl -X POST "https://slack.com/api/chat.postMessage" \
+          response="$(curl --fail --silent --show-error -X POST "https://slack.com/api/chat.postMessage" \
             -H "Authorization: Bearer $SLACK_BOT_TOKEN" \
             -H "Content-Type: application/json" \
             -d '{
@@ -112,4 +112,11 @@ jobs:
                   }
                 ]
               }]
-            }'
+            }')"
+          if ! echo "$response" | jq -e '.ok == true' > /dev/null; then
+            echo "Slack chat.postMessage rejected response:"
+            echo "$response" | jq -c '.'
+            exit 1
+          fi
+          ts="$(echo "$response" | jq -r '.ts // empty')"
+          echo "Slack notification posted${ts:+: $ts}"
