@@ -275,8 +275,16 @@ intended-vs-deployed parameter table and `cast` output for every verification cl
 
 Aggregator deployed 2026-09-08, transaction
 [`0xb693a0fd…37b0`](https://sepolia.etherscan.io/tx/0xb693a0fd30d3ac261b1bbc92d88da455eaffc9b1340a21cf9e02f4a7fe1337b0),
-Etherscan-verified, runtime **7,148 bytes** — the figure `forge build --sizes` reports, which is how
-we know the deployed code is the compiled code. Pool created through the live `PoolFactory` in
+Etherscan-verified, runtime **7,148 bytes**. That size agrees with `forge build --sizes`, but a size
+is only a consistency check: two different contracts can share a byte count, so a length never
+establishes provenance. What establishes it is byte comparison. Rebuilding this source and diffing
+against `cast code 0xbDD420cB…` with the 37 immutable spans (19 slots, 1,184 bytes) masked on both
+sides gives **zero differing offsets across all 7,148 bytes**, executable region and trailing
+metadata alike, at an identical solc tag (`64736f6c63430008230033`, 0.8.35), which Etherscan
+independently reports alongside optimizer-on / `runs = 1` matching `foundry.toml`. That is the claim
+worth making: the deployed executable code IS this source's output, so the source's properties —
+no owner, no setter, 23 functions all `view` — are properties of the deployed contract rather than
+inferences about it. Pool created through the live `PoolFactory` in
 [`0x032be2af…12d8`](https://sepolia.etherscan.io/tx/0x032be2af05e0afb735cb5d150b8a7eaf45c5cb2484407bb535e258f04deb12d8):
 451-byte `BeaconProxy` on the shared beacon, `priceOracle` = the aggregator, `admin` = the factory,
 `isPool` true, `IMPLEMENTATION_VERSION` 2.15.
@@ -297,7 +305,14 @@ set is immutable, adopting the real keys means a new aggregator and a new pool, 
 round-2 design working as intended rather than a surprise.
 
 **The fact store has no writer gate, so a misdirected source fails silently.** The round-2
-`FabricaFactStore` is permissionless: it authorises nobody and it rejects nobody. A real oracle
+`FabricaFactStore` is permissionless in the sense that matters here: it authorises no particular set
+of writers, and there is no owner, no allowlist and no gate in front of a write. The one thing it
+does reject is impersonation — every mutating entry point (`writeFact`, `closeCycle`, `setLock`,
+`setMinValidCycle`, `declarePolicy`) runs `_requireWriter`, which reverts `NotWriter` unless the
+`writer` argument equals `msg.sender`. It restricts what you may write *as*, not who may write, and
+that restriction is load-bearing rather than pedantic: self-attribution is the whole reason an
+immutable trusted-writer set is worth anything. If any address could write facts attributed to
+`0x89C52827…`, the set in this aggregator's constructor would be decorative. A real oracle
 source that writes from an address outside this aggregator's immutable trusted set does **not** get
 an error. The write succeeds, the fact is stored and is readable by anyone; this aggregator simply
 never reads it. The observable failure is a missing source, not a reverted transaction, so nothing
