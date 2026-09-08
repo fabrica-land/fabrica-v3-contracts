@@ -296,6 +296,23 @@ signers is [ENG-3926](https://linear.app/fabrica/issue/ENG-3926)'s provisioning;
 set is immutable, adopting the real keys means a new aggregator and a new pool, which is the
 round-2 design working as intended rather than a surprise.
 
+**The fact store has no writer gate, so a misdirected source fails silently.** The round-2
+`FabricaFactStore` is permissionless: it authorises nobody and it rejects nobody. A real oracle
+source that writes from an address outside this aggregator's immutable trusted set does **not** get
+an error. The write succeeds, the fact is stored and is readable by anyone; this aggregator simply
+never reads it. The observable failure is a missing source, not a reverted transaction, so nothing
+on the write side will ever surface the mistake — the aggregator's live-source count is where it
+shows up. At the shipped 2-of-3 minimum, one misdirected writer is absorbed silently and a second
+takes `price()` to `CheckFailed(CHECK_MIN_SOURCES)` and the pool with it, which is the
+`0xdE70d398…` refusal recorded in the FV comment. Trusted-writer enforcement is a read-side
+property of the aggregator, never a write-side check in the store.
+
+This is also why adopting the ENG-3926 keys is a new aggregator and a new pool rather than a
+re-pointing. There is no writer allowlist anywhere to update: the only way a real source's prices
+reach a pool is for the aggregator's immutable constructor argument to already hold that source's
+address, and that argument is fixed at deploy. Writing to the same store from the real keys against
+*this* aggregator would be accepted by the store and ignored by the feed.
+
 **Throwaway, not part of the launch:** `0xd57df0bf6e4cb03742afc5802268795dd37fd4d5` is a second
 aggregator against the same store, identical in every constructor argument except `maxSilence = 1
 second`, deployed only to exercise the literal timestamp branch that a 3-day threshold cannot reach
