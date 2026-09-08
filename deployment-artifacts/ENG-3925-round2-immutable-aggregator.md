@@ -279,12 +279,17 @@ Etherscan-verified, runtime **7,148 bytes**. That size agrees with `forge build 
 is only a consistency check: two different contracts can share a byte count, so a length never
 establishes provenance. What establishes it is byte comparison. Rebuilding this source and diffing
 against `cast code 0xbDD420cB…` with the 37 immutable spans (19 slots, 1,184 bytes) masked on both
-sides gives **zero differing offsets across all 7,148 bytes**, executable region and trailing
-metadata alike, at an identical solc tag (`64736f6c63430008230033`, 0.8.35), which Etherscan
-independently reports alongside optimizer-on / `runs = 1` matching `foundry.toml`. That is the claim
-worth making: the deployed executable code IS this source's output, so the source's properties —
-no owner, no setter, 23 functions all `view` — are properties of the deployed contract rather than
-inferences about it. Pool created through the live `PoolFactory` in
+sides gives **zero differing offsets across the 7,095-byte executable region**, at an identical solc
+tag (`64736f6c63430008230033`, 0.8.35), which Etherscan independently reports alongside optimizer-on
+/ `runs = 1` matching `foundry.toml`. The remaining 53 bytes are the CBOR metadata trailer, whose
+32-byte IPFS hash digests the compiler's *input* JSON and is therefore build-environment dependent.
+It matched here because this rebuild ran on the machine that produced the deploy; **a rebuild
+anywhere else will differ in exactly that span and nowhere else**, which is expected and is not
+evidence of a different contract. Reproduce the executable-region result rather than the
+whole-runtime one — that is the part any verifier can check, and it is the part that carries the
+claim worth making: the deployed executable code IS this source's output, so the source's
+properties — no owner, no setter, 23 functions all `view` — are properties of the deployed contract
+rather than inferences about it. Pool created through the live `PoolFactory` in
 [`0x032be2af…12d8`](https://sepolia.etherscan.io/tx/0x032be2af05e0afb735cb5d150b8a7eaf45c5cb2484407bb535e258f04deb12d8):
 451-byte `BeaconProxy` on the shared beacon, `priceOracle` = the aggregator, `admin` = the factory,
 `isPool` true, `IMPLEMENTATION_VERSION` 2.15.
