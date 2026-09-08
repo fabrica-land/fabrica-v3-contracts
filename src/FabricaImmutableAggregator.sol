@@ -299,13 +299,16 @@ contract FabricaImmutableAggregator is IPriceOracle {
         uint128 currentMin = type(uint128).max;
         uint128 currentMax;
         uint256 n = writerCount;
+        // Collected once and handed to the temporal floor. Recomputing them there would double every
+        // fact-store call this read makes, and `price()` is on the pool's quote and borrow path.
+        Valuation[] memory valuations = new Valuation[](n);
         for (uint256 i; i < n; ++i) {
-            Valuation memory valuation = _valuationOf(_writerAt(i), tokenId);
-            if (valuation.fresh) ++freshCount;
-            if (!valuation.live) continue;
+            valuations[i] = _valuationOf(_writerAt(i), tokenId);
+            if (valuations[i].fresh) ++freshCount;
+            if (!valuations[i].live) continue;
             ++liveCount;
-            if (valuation.value < currentMin) currentMin = valuation.value;
-            if (valuation.value > currentMax) currentMax = valuation.value;
+            if (valuations[i].value < currentMin) currentMin = valuations[i].value;
+            if (valuations[i].value > currentMax) currentMax = valuations[i].value;
         }
         // Reported before min_sources so a dark feed is never mistaken for an unpriceable token: a
         // lender reading `max_silence` knows to look at the writers, not at this token.
@@ -319,7 +322,7 @@ contract FabricaImmutableAggregator is IPriceOracle {
         if (ratioBps > uint256(maxDispersionBps)) {
             return (false, CHECK_DISPERSION, 0);
         }
-        return (true, bytes32(0), uint256(_applyTemporalFloor(tokenId, currentMin)));
+        return (true, bytes32(0), uint256(_applyTemporalFloor(tokenId, currentMin, valuations)));
     }
 
     /// @notice One writer's valuation of one token, after every round-2 filter.
@@ -378,18 +381,21 @@ contract FabricaImmutableAggregator is IPriceOracle {
     }
 
     /// @notice Asymmetric seasoning: an increase must age through the window, a decrease counts at once.
-    function _applyTemporalFloor(uint256 tokenId, uint128 currentMin) internal view returns (uint128 usable) {
+    /// @param valuations The valuations `_evaluate` already collected, indexed by writer position.
+    function _applyTemporalFloor(uint256 tokenId, uint128 currentMin, Valuation[] memory valuations)
+        internal
+        view
+        returns (uint128 usable)
+    {
         usable = currentMin;
         if (seasoningWindow == 0) return usable;
         uint64 targetTs = uint64(block.timestamp) > seasoningWindow ? uint64(block.timestamp) - seasoningWindow : 0;
         uint128 pastMin = type(uint128).max;
         bool anyPast;
-        uint256 n = writerCount;
+        uint256 n = valuations.length;
         for (uint256 i; i < n; ++i) {
-            address writer = _writerAt(i);
-            Valuation memory valuation = _valuationOf(writer, tokenId);
-            if (!valuation.live) continue;
-            (bool found, uint128 pastValue) = _valueAsOf(writer, tokenId, valuation, targetTs);
+            if (!valuations[i].live) continue;
+            (bool found, uint128 pastValue) = _valueAsOf(_writerAt(i), tokenId, valuations[i], targetTs);
             if (!found) continue;
             if (pastValue < pastMin) pastMin = pastValue;
             anyPast = true;

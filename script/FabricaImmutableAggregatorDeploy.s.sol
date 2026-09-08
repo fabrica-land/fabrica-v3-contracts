@@ -28,12 +28,25 @@ contract FabricaImmutableAggregatorDeployScript is Script {
     error MainnetIsNotInScope(uint256 chainId);
     error UnsupportedChain(uint256 chainId);
     error NonCanonicalUsdc(address configured, address expected);
+    error NonCanonicalFactStore(address configured, address expected);
     error NoWritersConfigured();
+    error EnvValueOutOfRange(string field, uint256 value, uint256 max);
     error IntendedVsDeployedMismatch(string field);
 
     uint256 internal constant MAINNET_CHAIN_ID = 1;
     uint256 internal constant SEPOLIA_CHAIN_ID = 11155111;
     address internal constant SEPOLIA_USDC = 0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238;
+
+    /// @notice The live round-2 fact store (ENG-3924), pinned the way the currency is pinned.
+    /// @dev Not paranoia about a typo: this store has ALREADY been redeployed once. The first
+    ///      round-2 deployment at 0x89895c2fCC975c16AeAd2e213d2076dbF0aeb8b8 carried the
+    ///      zero-baseline band bug, is dead, and still circulates in briefs. The aggregator's own
+    ///      constructor cannot catch that mistake — it rejects a zero address, a codeless address
+    ///      and a store whose `KIND_PRICE` disagrees, and the dead store passes all three — and the
+    ///      readback cannot either, because it compares the deployed value against the same
+    ///      configured address. Binding a pool's price feed to the wrong store is permanent here,
+    ///      so the script refuses rather than trusting the environment.
+    address internal constant SEPOLIA_FACT_STORE = 0xa81f30b0EC22DbE4b25239883850367EDB6f3Edd;
 
     /* Tim's numbers, 2026-09-03 18:12Z, and the round-1 values ENG-3925 carries forward. These are
        DEFAULTS, not the only accepted values: each is overridable by env so a redeploy under a later
@@ -60,7 +73,7 @@ contract FabricaImmutableAggregatorDeployScript is Script {
         public
         returns (FabricaImmutableAggregator aggregator)
     {
-        _validateChainAndCurrency(params.usdc);
+        _validateChainCurrencyAndStore(params.usdc, params.factStore);
         _logIntended(params);
         vm.startBroadcast();
         aggregator = new FabricaImmutableAggregator(params);
@@ -112,29 +125,81 @@ contract FabricaImmutableAggregatorDeployScript is Script {
             factStore: vm.envAddress("FABRICA_FACT_STORE"),
             usdc: vm.envAddress("FABRICA_LENDING_USDC"),
             writers: writers,
-            minLiveSources: uint8(vm.envOr("FABRICA_AGGREGATOR_MIN_LIVE_SOURCES", uint256(DEFAULT_MIN_LIVE_SOURCES))),
-            maxSilence: uint64(vm.envOr("FABRICA_AGGREGATOR_MAX_SILENCE", uint256(DEFAULT_MAX_SILENCE))),
-            cycleCloseInterval: uint64(
-                vm.envOr("FABRICA_AGGREGATOR_CYCLE_CLOSE_INTERVAL", uint256(DEFAULT_CYCLE_CLOSE_INTERVAL))
+            minLiveSources: uint8(
+                _bounded(
+                    "minLiveSources",
+                    vm.envOr("FABRICA_AGGREGATOR_MIN_LIVE_SOURCES", uint256(DEFAULT_MIN_LIVE_SOURCES)),
+                    type(uint8).max
+                )
             ),
-            seasoningWindow: uint64(vm.envOr("FABRICA_AGGREGATOR_SEASONING_WINDOW", uint256(DEFAULT_SEASONING_WINDOW))),
-            maxJumpBps: uint16(vm.envOr("FABRICA_AGGREGATOR_MAX_JUMP_BPS", uint256(DEFAULT_MAX_JUMP_BPS))),
+            maxSilence: uint64(
+                _bounded(
+                    "maxSilence",
+                    vm.envOr("FABRICA_AGGREGATOR_MAX_SILENCE", uint256(DEFAULT_MAX_SILENCE)),
+                    type(uint64).max
+                )
+            ),
+            cycleCloseInterval: uint64(
+                _bounded(
+                    "cycleCloseInterval",
+                    vm.envOr("FABRICA_AGGREGATOR_CYCLE_CLOSE_INTERVAL", uint256(DEFAULT_CYCLE_CLOSE_INTERVAL)),
+                    type(uint64).max
+                )
+            ),
+            seasoningWindow: uint64(
+                _bounded(
+                    "seasoningWindow",
+                    vm.envOr("FABRICA_AGGREGATOR_SEASONING_WINDOW", uint256(DEFAULT_SEASONING_WINDOW)),
+                    type(uint64).max
+                )
+            ),
+            maxJumpBps: uint16(
+                _bounded(
+                    "maxJumpBps",
+                    vm.envOr("FABRICA_AGGREGATOR_MAX_JUMP_BPS", uint256(DEFAULT_MAX_JUMP_BPS)),
+                    type(uint16).max
+                )
+            ),
             maxDispersionBps: uint16(
-                vm.envOr("FABRICA_AGGREGATOR_MAX_DISPERSION_BPS", uint256(DEFAULT_MAX_DISPERSION_BPS))
+                _bounded(
+                    "maxDispersionBps",
+                    vm.envOr("FABRICA_AGGREGATOR_MAX_DISPERSION_BPS", uint256(DEFAULT_MAX_DISPERSION_BPS)),
+                    type(uint16).max
+                )
             ),
             maxFirstPriceUsdc6: uint128(
-                vm.envOr("FABRICA_AGGREGATOR_MAX_FIRST_PRICE_USDC6", uint256(DEFAULT_MAX_FIRST_PRICE_USDC6))
+                _bounded(
+                    "maxFirstPriceUsdc6",
+                    vm.envOr("FABRICA_AGGREGATOR_MAX_FIRST_PRICE_USDC6", uint256(DEFAULT_MAX_FIRST_PRICE_USDC6)),
+                    type(uint128).max
+                )
             ),
             valueCeilingUsdc6: uint128(
-                vm.envOr("FABRICA_AGGREGATOR_VALUE_CEILING_USDC6", uint256(DEFAULT_VALUE_CEILING_USDC6))
+                _bounded(
+                    "valueCeilingUsdc6",
+                    vm.envOr("FABRICA_AGGREGATOR_VALUE_CEILING_USDC6", uint256(DEFAULT_VALUE_CEILING_USDC6)),
+                    type(uint128).max
+                )
             )
         });
     }
 
-    function _validateChainAndCurrency(address usdc) internal view {
+    function _validateChainCurrencyAndStore(address usdc, address factStore) internal view {
         if (block.chainid == MAINNET_CHAIN_ID) revert MainnetIsNotInScope(block.chainid);
         if (block.chainid != SEPOLIA_CHAIN_ID) revert UnsupportedChain(block.chainid);
         if (usdc != SEPOLIA_USDC) revert NonCanonicalUsdc(usdc, SEPOLIA_USDC);
+        if (factStore != SEPOLIA_FACT_STORE) revert NonCanonicalFactStore(factStore, SEPOLIA_FACT_STORE);
+    }
+
+    /// @dev Every override arrives as a `uint256` and is narrowed into an immutable. Narrowing a
+    ///      mistyped value silently is the worst available outcome: `MAX_JUMP_BPS=70000` would
+    ///      become 4,464 and `MAX_SILENCE=2**64` would become 0, the readback would compare the
+    ///      deployed value against the same truncated struct and agree, and the wrong rule would be
+    ///      permanent for the life of the contract. Round 1's script carried these bounds
+    ///      (`_bps`, `_uint64`, `_uint8MinLiveSources`); this restores them.
+    function _bounded(string memory field, uint256 value, uint256 max) internal pure returns (uint256) {
+        if (value > max) revert EnvValueOutOfRange(field, value, max);
+        return value;
     }
 
     /// @notice The INTENDED half of the review gate ENG-3925 requires pasted into the PR.

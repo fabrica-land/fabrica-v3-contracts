@@ -79,6 +79,9 @@ contract Eng3925ImmutableAggregatorSepoliaForkTest is Eng3523OraclePoolSepoliaFo
        ===================================================================== */
 
     function test_round2_poolIsBeaconProxyWiredToTheImmutableAggregator() public {
+        /* Read the round-1 pool's oracle BEFORE the round-2 stack exists, so the "untouched" claim
+           below compares against a value captured before anything could have changed it. */
+        address round1OracleBefore = ILaunchPool(LIVE_POOL).priceOracle();
         _setUpRound2();
         address beaconFromSlot = address(uint160(uint256(vm.load(round2Pool, ERC1967Utils.BEACON_SLOT))));
         assertEq(beaconFromSlot, BEACON, "round-2 pool must be a BeaconProxy on the live beacon");
@@ -101,7 +104,15 @@ contract Eng3925ImmutableAggregatorSepoliaForkTest is Eng3523OraclePoolSepoliaFo
         /* The round-1 and signed-quote pools keep running: this ticket adds a pool, it does not
            repoint one. */
         assertTrue(round2Pool != LIVE_POOL, "a NEW pool, not the live round-1 pool");
-        assertEq(ILaunchPool(LIVE_POOL).priceOracle(), ILaunchPool(LIVE_POOL).priceOracle(), "round-1 pool untouched");
+        assertEq(
+            ILaunchPool(LIVE_POOL).priceOracle(),
+            round1OracleBefore,
+            "round-1 pool still points at the oracle it pointed at before the round-2 deploy"
+        );
+        assertTrue(
+            round1OracleBefore != address(round2Aggregator),
+            "round-1 pool must not be repointed at the round-2 aggregator"
+        );
     }
 
     /// @notice Reads the LIVE aggregator, so a constructor-argument transposition cannot pass.

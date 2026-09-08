@@ -17,6 +17,7 @@ contract FabricaImmutableAggregatorDeployTest is Test {
     uint256 internal constant MAINNET_CHAIN_ID = 1;
     uint256 internal constant SEPOLIA_CHAIN_ID = 11155111;
     address internal constant SEPOLIA_USDC = 0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238;
+    address internal constant SEPOLIA_FACT_STORE = 0xa81f30b0EC22DbE4b25239883850367EDB6f3Edd;
 
     FabricaImmutableAggregatorDeployScript internal script;
     FabricaFactStore internal store;
@@ -27,10 +28,13 @@ contract FabricaImmutableAggregatorDeployTest is Test {
 
     function setUp() public {
         script = new FabricaImmutableAggregatorDeployScript();
-        store = new FabricaFactStore(48);
-        /* The canonical Sepolia USDC needs code for the aggregator's constructor check; off-fork it
-           has none, so give it some. Nothing ever calls it. */
+        /* The script pins BOTH the currency and the fact store to their canonical Sepolia addresses,
+           so off-fork the fixture has to put real code at each. USDC is never called, so any code
+           will do; the fact store IS called (`KIND_PRICE`), so a real one is deployed and its
+           runtime copied to the canonical address. */
         vm.etch(SEPOLIA_USDC, hex"60006000fd");
+        vm.etch(SEPOLIA_FACT_STORE, address(new FabricaFactStore(48)).code);
+        store = FabricaFactStore(SEPOLIA_FACT_STORE);
         vm.chainId(SEPOLIA_CHAIN_ID);
     }
 
@@ -99,6 +103,25 @@ contract FabricaImmutableAggregatorDeployTest is Test {
         script.runWithConfig(_config());
     }
 
+    /// @notice The dead round-2 store is refused: the constructor cannot tell it from the live one.
+    /// @dev `0x89895c2f…` was the first round-2 deployment, carries the zero-baseline band bug and
+    ///      still circulates in briefs. It is a real `FabricaFactStore`, so it has code and reports
+    ///      the right `KIND_PRICE` — every constructor check passes. Only the script's pin stops it.
+    function test_refusesTheSupersededRound2FactStore() public {
+        address deadStore = 0x89895c2fCC975c16AeAd2e213d2076dbF0aeb8b8;
+        vm.etch(deadStore, address(new FabricaFactStore(48)).code);
+        FabricaImmutableAggregator.Config memory config = _config();
+        config.factStore = deadStore;
+        /* The aggregator itself would happily accept it — that is the point of the pin. */
+        assertEq(FabricaFactStore(deadStore).KIND_PRICE(), store.KIND_PRICE(), "the dead store looks identical");
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                FabricaImmutableAggregatorDeployScript.NonCanonicalFactStore.selector, deadStore, SEPOLIA_FACT_STORE
+            )
+        );
+        script.runWithConfig(config);
+    }
+
     function test_refusesANonCanonicalCurrency() public {
         address impostor = makeAddr("not-sepolia-usdc");
         vm.etch(impostor, hex"60006000fd");
@@ -118,7 +141,7 @@ contract FabricaImmutableAggregatorDeployTest is Test {
         writers[1] = openAvm;
         writers[2] = regrid;
         return FabricaImmutableAggregator.Config({
-            factStore: address(store),
+            factStore: SEPOLIA_FACT_STORE,
             usdc: SEPOLIA_USDC,
             writers: writers,
             minLiveSources: 2,
@@ -142,16 +165,17 @@ contract FabricaImmutableAggregatorDeployTest is Test {
 contract FabricaImmutableAggregatorDeployEnvTest is Test {
     uint256 internal constant SEPOLIA_CHAIN_ID = 11155111;
     address internal constant SEPOLIA_USDC = 0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238;
+    address internal constant SEPOLIA_FACT_STORE = 0xa81f30b0EC22DbE4b25239883850367EDB6f3Edd;
 
     function test_environmentDrivesTheDeployWithTimsNumbersAsDefaults() public {
         FabricaImmutableAggregatorDeployScript script = new FabricaImmutableAggregatorDeployScript();
-        FabricaFactStore store = new FabricaFactStore(48);
         vm.etch(SEPOLIA_USDC, hex"60006000fd");
+        vm.etch(SEPOLIA_FACT_STORE, address(new FabricaFactStore(48)).code);
         vm.chainId(SEPOLIA_CHAIN_ID);
         address prycd = makeAddr("env-writer-prycd");
         address openAvm = makeAddr("env-writer-openavm");
         address regrid = makeAddr("env-writer-regrid");
-        vm.setEnv("FABRICA_FACT_STORE", vm.toString(address(store)));
+        vm.setEnv("FABRICA_FACT_STORE", vm.toString(SEPOLIA_FACT_STORE));
         vm.setEnv("FABRICA_LENDING_USDC", vm.toString(SEPOLIA_USDC));
 
         /* The writer set has no default: a guessed oracle source address would be immutable. */
@@ -164,7 +188,7 @@ contract FabricaImmutableAggregatorDeployEnvTest is Test {
             string.concat(vm.toString(prycd), ",", vm.toString(openAvm), ",", vm.toString(regrid))
         );
         FabricaImmutableAggregator aggregator = script.run();
-        assertEq(address(aggregator.factStore()), address(store), "factStore from the environment");
+        assertEq(address(aggregator.factStore()), SEPOLIA_FACT_STORE, "factStore from the environment");
         assertEq(aggregator.usdc(), SEPOLIA_USDC, "usdc from the environment");
         assertEq(aggregator.writerCount(), 3, "writers parsed from the environment");
         assertEq(aggregator.writers()[2], regrid, "writer order is preserved through the environment");
@@ -181,5 +205,23 @@ contract FabricaImmutableAggregatorDeployEnvTest is Test {
         assertEq(overridden.maxSilence(), 1 days, "overridden maximum silence");
         assertEq(overridden.maxFirstPriceUsdc6(), 1_000e6, "overridden first-price cap");
         assertEq(overridden.seasoningWindow(), 24 hours, "an untouched default still applies");
+
+        /* An out-of-range override is REFUSED, never silently narrowed. 70,000 would become 4,464
+           in a uint16, and the readback would compare the deployed value against the same truncated
+           struct and agree, so nothing downstream would catch it. */
+        vm.setEnv("FABRICA_AGGREGATOR_MAX_JUMP_BPS", "70000");
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                FabricaImmutableAggregatorDeployScript.EnvValueOutOfRange.selector,
+                "maxJumpBps",
+                uint256(70_000),
+                uint256(type(uint16).max)
+            )
+        );
+        script.run();
+
+        /* And a value that fits is still accepted, so the bound is not simply refusing everything. */
+        vm.setEnv("FABRICA_AGGREGATOR_MAX_JUMP_BPS", "6000");
+        assertEq(script.run().maxJumpBps(), 6000, "an in-range override still applies");
     }
 }
