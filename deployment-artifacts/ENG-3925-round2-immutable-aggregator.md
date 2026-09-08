@@ -268,7 +268,48 @@ intended-vs-deployed parameter table and `cast` output for every verification cl
 
 | Contract | Network | Address |
 | -- | -- | -- |
-| `FabricaImmutableAggregator` | Sepolia | _pending deploy_ |
-| Round-2 oracle pool (`BeaconProxy`) | Sepolia | _pending deploy_ |
+| `FabricaImmutableAggregator` | Sepolia | [`0xbDD420cB9b171e743EDb8Ad7584aF52347F6CA57`](https://sepolia.etherscan.io/address/0xbDD420cB9b171e743EDb8Ad7584aF52347F6CA57) |
+| Round-2 oracle pool (`BeaconProxy`) | Sepolia | [`0xdE70d398Be943BB1CCd77a5c081e38046Ca17764`](https://sepolia.etherscan.io/address/0xdE70d398Be943BB1CCd77a5c081e38046Ca17764) |
 
 <!-- /DEPLOYMENT:sepolia -->
+
+Aggregator deployed 2026-09-08, transaction
+[`0xb693a0fd…37b0`](https://sepolia.etherscan.io/tx/0xb693a0fd30d3ac261b1bbc92d88da455eaffc9b1340a21cf9e02f4a7fe1337b0),
+Etherscan-verified, runtime **7,148 bytes** — the figure `forge build --sizes` reports, which is how
+we know the deployed code is the compiled code. Pool created through the live `PoolFactory` in
+[`0x032be2af…12d8`](https://sepolia.etherscan.io/tx/0x032be2af05e0afb735cb5d150b8a7eaf45c5cb2484407bb535e258f04deb12d8):
+451-byte `BeaconProxy` on the shared beacon, `priceOracle` = the aggregator, `admin` = the factory,
+`isPool` true, `IMPLEMENTATION_VERSION` 2.15.
+
+`owner()` does not exist on the deployed bytecode, and neither does any other state-mutating
+selector: the verified ABI is 23 functions, every one `view`. All fourteen constructor parameters
+read back equal to the intended values. Full as-shipped evidence — every clause, with literal `cast`
+output and transaction hashes — is the FV comment on
+[fabrica-v3-contracts#50](https://github.com/fabrica-land/fabrica-v3-contracts/pull/50), bound to
+head `9629b54f`.
+
+The trusted writer set is three **lane-generated signer EOAs**, not the real oracle sources' keys:
+`0x89C52827A397E031f902694d2d301001C7cC709d` (Prycd slot),
+`0x16d37D507D684341E1b5c9fAc403CF04Ebb1886f` (OpenAVM slot),
+`0xDc3B2ECe86FD99cE953BCFeB9152bfe9D950CE48` (Regrid assessor slot). Mapping those slots to the real
+signers is [ENG-3926](https://linear.app/fabrica/issue/ENG-3926)'s provisioning; because the writer
+set is immutable, adopting the real keys means a new aggregator and a new pool, which is the
+round-2 design working as intended rather than a surprise.
+
+**Throwaway, not part of the launch:** `0xd57df0bf6e4cb03742afc5802268795dd37fd4d5` is a second
+aggregator against the same store, identical in every constructor argument except `maxSilence = 1
+second`, deployed only to exercise the literal timestamp branch that a 3-day threshold cannot reach
+inside a session. It is wired to no pool and nothing should reference it. It is also the only deploy
+recorded under `broadcast/FabricaImmutableAggregatorDeploy.s.sol/11155111/` — the shipped aggregator
+was deployed through the lane's vault wallet, which produces no broadcast file, so that directory
+must not be read as naming the launch contract.
+
+That throwaway was deployed from a disposable Foundry keystore generated in-process, never written to
+argv, environment, logs or output, and deleted immediately afterwards along with forge's cached
+sensitive-values file. The shipped aggregator and the pool were both deployed from the lane's vault
+wallet. The round-1 deployer key `0xBF03…69dF` was never used: it is the ENG-3895 cycle-close runner's
+key and that runner owns its nonce.
+
+Round-1 `FabricaOracleAggregator`, the round-1 pool `0x6C56d0953377D7AB479BBA85Da8d61050F774c0B` and
+the signed-quote pool are untouched and still serving — verified after the deploy by reading
+`LIVE_POOL.priceOracle()`, which still returns `0x522C7F01B535b36eca6b27C32A65Ee79e7c4df45`.
