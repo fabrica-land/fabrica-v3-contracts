@@ -66,16 +66,27 @@ in `_validateChainCurrencyAndStore`; neither is overridable by environment. The 
 inherited from the round-1 script. The fact-store pin is new in this ticket and is not a typo guard:
 **this store has already been redeployed once.** The first round-2 deployment at
 `0x89895c2fCC975c16AeAd2e213d2076dbF0aeb8b8` carried the zero-baseline band bug, is dead, and still
-circulates in briefs — it was named as the store to build against in this ticket's own kickoff.
+circulates in briefs.
 
-The aggregator's constructor cannot catch that substitution. The dead store is a real
-`FabricaFactStore`: it is non-zero, carries 12,047 bytes of code, and answers `KIND_PRICE`
-**byte-identically** to the live one (`0x9ef8710b…d6d0`, confirmed on chain by the reviewer against
-both addresses), so it clears every check in `_validateWiring`. The intended-vs-deployed readback
-cannot catch it either, since it compares the deployed value against the same configured address.
-The script is the only layer that can, and binding a pool's price feed to the wrong store is
-permanent here. `test_refusesTheSupersededRound2FactStore` etches the real store runtime at the dead
-address, asserts it is indistinguishable, and shows the refusal.
+The aggregator's constructor cannot catch that substitution. `_validateWiring` asks three questions
+of the configured store — is it non-zero, does it carry code, does its `KIND_PRICE` match — and the
+dead store answers all three exactly as the live one does. Read from Sepolia against both addresses:
+
+| Store | Runtime bytes | `KIND_PRICE()` |
+| -- | -- | -- |
+| `0xa81f30b0…` live | 6,036 | `0x9ef8710b2d7ed0121d9ca0862acabaf24b456f4c111b9e9f438f4e4cc9e7d6d0` |
+| `0x89895c2f…` dead | 6,022 | `0x9ef8710b2d7ed0121d9ca0862acabaf24b456f4c111b9e9f438f4e4cc9e7d6d0` |
+
+The two are **not** identical — they differ in bytecode and by 14 bytes of runtime — but they are
+indistinguishable *to the checks the constructor performs*, which is the property that matters. The
+6,036 figure cross-checks against `forge build --sizes` for `FabricaFactStore`. (Take the byte count
+from `cast code | wc -c` and you get ~12,046: that is hex CHARACTERS, about twice the byte count.)
+
+The intended-vs-deployed readback cannot catch the substitution either, since it compares the
+deployed value against the same configured address. The script is the only layer that can, and
+binding a pool's price feed to the wrong store is permanent here.
+`test_refusesTheSupersededRound2FactStore` etches the real store runtime at the dead address,
+asserts the two are indistinguishable to those same checks, and shows the refusal.
 
 The writer set has **no default in the deploy script**. The oracle source addresses are a Tim
 decision and their provisioning is [ENG-3926](https://linear.app/fabrica/issue/ENG-3926); a guessed
