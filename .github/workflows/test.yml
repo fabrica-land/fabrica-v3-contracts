@@ -6,12 +6,6 @@ on:
   schedule:
     - cron: "17 8 * * *"
   workflow_dispatch:
-    inputs:
-      force_notify_failure:
-        description: "ENG-4052 temporary dry-run: fail the check job to prove Slack notify"
-        required: false
-        default: false
-        type: boolean
 
 jobs:
   check:
@@ -48,14 +42,6 @@ jobs:
         run: |
           forge test -vvv
         id: test
-
-      - name: Force ENG-4052 notify dry-run failure
-        if: ${{ github.event_name == 'workflow_dispatch' && inputs.force_notify_failure }}
-        run: |
-          diagnosis="ENG-4052 deliberate notify dry-run failure."
-          echo "$diagnosis" >> "$GITHUB_STEP_SUMMARY"
-          echo "::error::$diagnosis"
-          exit 1
 
       - name: Check Sepolia fork RPC secret
         if: ${{ github.event_name == 'schedule' }}
