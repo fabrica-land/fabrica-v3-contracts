@@ -233,6 +233,32 @@ its heartbeat would go stale and its seasoned observation would stop binding —
 rewrite the round-1 acceptances this suite exists to keep green. The round-2 stack is built per test
 by `_setUpRound2()` instead.
 
+## Before the broadcast
+
+The deploy is permanent: the aggregator has no owner and no setter, so a wrong parameter or a
+regression that reaches Sepolia is corrected only by deploying a new aggregator and a new pool. The
+green `Foundry project` check is **not** sufficient evidence to broadcast on, for the reason recorded
+under Verification — on a push or PR it executes none of the 23 fork invariants.
+
+So the fork suite is a **precondition of the broadcast**, run deliberately, not inferred from CI:
+
+```bash
+set -a; . ./.env; set +a          # SEPOLIA_RPC_URL must be set
+FABRICA_REQUIRE_SEPOLIA_FV=1 \
+  forge test --match-contract Eng3925ImmutableAggregatorSepoliaForkTest -vvv
+```
+
+`FABRICA_REQUIRE_SEPOLIA_FV=1` is the load-bearing half: without it a missing or broken RPC makes
+the suite **skip** and report `ok`, which is indistinguishable from a pass at a glance. With it, a
+missing RPC is a loud failure. Expect 23 passed / 0 failed / 0 skipped — a run reporting any skips
+has not verified anything and does not authorise a broadcast. Record that run's output alongside the
+deploy evidence.
+
+This states the discipline for THIS deploy. It does not change the repo's CI gating, which is shared
+with the ENG-3523 step and is ENG-4052's to settle, and it does not restate the repo's shipping
+playbook (`CLAUDE.md`, step 3 fork-test before step 4 Sepolia ship), which already puts fork-testing
+ahead of the deploy.
+
 ## Deployed addresses
 
 Filled in by the as-shipped Sepolia run; see the PR for transaction hashes, the
