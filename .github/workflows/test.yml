@@ -43,6 +43,18 @@ jobs:
           forge test -vvv
         id: test
 
+      - name: Check Sepolia fork RPC secret
+        if: ${{ github.event_name == 'schedule' }}
+        env:
+          SEPOLIA_RPC_URL: ${{ secrets.SEPOLIA_RPC_URL }}
+        run: |
+          if [ -z "$SEPOLIA_RPC_URL" ]; then
+            diagnosis="SEPOLIA_RPC_URL repository Actions secret is required for scheduled Sepolia oracle-pool invariant runs."
+            echo "$diagnosis" >> "$GITHUB_STEP_SUMMARY"
+            echo "::error::$diagnosis"
+            exit 1
+          fi
+
       - name: Run ENG-3523 Sepolia oracle-pool invariants
         env:
           SEPOLIA_RPC_URL: ${{ secrets.SEPOLIA_RPC_URL }}
@@ -61,3 +73,50 @@ jobs:
         run: |
           forge test --match-contract Eng3925ImmutableAggregatorSepoliaForkTest -vvv
         id: eng3925-sepolia-fv
+
+  notify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    needs: [check]
+    if: ${{ always() && failure() && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') }}
+    steps:
+      - name: Determine status
+        id: status
+        run: |
+          echo "status=failure" >> "$GITHUB_OUTPUT"
+          echo "color=danger" >> "$GITHUB_OUTPUT"
+          echo "emoji=:x:" >> "$GITHUB_OUTPUT"
+
+      - name: Send Slack notification
+        env:
+          SLACK_BOT_TOKEN: ${{ secrets.SLACK_BOT_TOKEN }}
+        run: |
+          if [ -z "$SLACK_BOT_TOKEN" ]; then
+            echo "SLACK_BOT_TOKEN not configured, skipping notification"
+            exit 0
+          fi
+          response="$(curl --fail --silent --show-error -X POST "https://slack.com/api/chat.postMessage" \
+            -H "Authorization: Bearer $SLACK_BOT_TOKEN" \
+            -H "Content-Type: application/json" \
+            -d '{
+              "channel": "#engineering_robots",
+              "attachments": [{
+                "color": "${{ steps.status.outputs.color }}",
+                "blocks": [
+                  {
+                    "type": "section",
+                    "text": {
+                      "type": "mrkdwn",
+                      "text": "${{ steps.status.outputs.emoji }} *fabrica-v3-contracts* CI ${{ steps.status.outputs.status }} on `${{ github.event_name }}`\n*Commit:* <${{ github.server_url }}/${{ github.repository }}/commit/${{ github.sha }}|`${{ github.sha }}`>\n*Workflow:* <${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}|`${{ github.workflow }}` run ${{ github.run_id }}>"
+                    }
+                  }
+                ]
+              }]
+            }')"
+          if ! echo "$response" | jq -e '.ok == true' > /dev/null; then
+            echo "Slack chat.postMessage rejected response:"
+            echo "$response" | jq -c '.'
+            exit 1
+          fi
+          ts="$(echo "$response" | jq -r '.ts // empty')"
+          echo "Slack notification posted${ts:+: $ts}"
