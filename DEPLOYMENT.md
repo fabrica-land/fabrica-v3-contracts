@@ -371,10 +371,13 @@ properties of the deployment rather than inferences about it.
 **Name and bound the span that will not match elsewhere.** The trailing CBOR
 metadata (~53 bytes, holding a 32-byte IPFS hash) digests the compiler's *input*
 JSON and is therefore build-environment dependent. It matches only when the
-rebuild runs on the machine that produced the deploy. **A rebuild anywhere else
-will differ in exactly that span and nowhere else, and that is expected — not
-evidence of tampering.** Say so in the record, with the byte count, so a later
-verifier is not left deciding whether they have found a problem.
+rebuild runs on the machine that produced the deploy. **Once the declared
+immutable spans are masked, a rebuild anywhere else differs in exactly that
+span and nowhere else, and that is expected — not evidence of tampering.** The
+masking qualifier is load-bearing: unmasked, an off-machine rebuild also differs
+across every immutable span, which is the difference the record's own
+differing-offset count is made of. Say so in the record, with both byte counts,
+so a later verifier is not left deciding whether they have found a problem.
 
 **Tell the verifier which result to reproduce**: the executable-region
 comparison, not the whole-runtime one. The whole-runtime match is not

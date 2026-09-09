@@ -184,9 +184,12 @@ to the answer.
 
 The trailing **53-byte CBOR metadata** holds a 32-byte IPFS hash digesting the compiler's
 *input* JSON and is build-environment dependent. It matched here only because this rebuild ran
-on the machine that produced the deploy. **A rebuild anywhere else will differ in exactly that
-span and nowhere else, which is expected and is not evidence of tampering.** Reproduce the
-executable-region result, not the whole-runtime one.
+on the machine that produced the deploy. **With the 37 declared immutable spans masked, a rebuild
+anywhere else differs in exactly that span and nowhere else, which is expected and is not evidence
+of tampering.** The masking qualifier matters: unmasked, an off-machine rebuild differs across
+those 1,184 immutable bytes as well — that is the 218 differing offsets in the table above, which
+this deploy's own on-machine rebuild still shows. Reproduce the executable-region result, not the
+whole-runtime one.
 
 ## Before the broadcast
 
