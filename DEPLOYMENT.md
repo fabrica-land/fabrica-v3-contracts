@@ -153,6 +153,35 @@ DEPLOYER_ACCOUNT=fabrica-sepolia-deployer
 FOUNDRY_KEYSTORE_PASSWORD=replace-with-keystore-password
 ```
 
+### `TESTNET_DEPLOYER_PRIVATE_KEY` is fenced — agent lanes must not use it
+
+The key `.env` carries under `TESTNET_DEPLOYER_PRIVATE_KEY` is the **ENG-3895
+cycle-close runner's EOA** (`0xBF03…69dF`). That runner owns the key's nonce and
+sends on a timer, so a lane that borrows it races the runner and can strand
+either transaction. It is also the round-1 `FabricaAttributeOracle`'s owner and
+only authorised publisher, which makes it the wrong blast radius for a throwaway
+deploy. Do not use it, and do not "just this once".
+
+The path an agent lane uses instead, and the reason for each step:
+
+1. Generate a **disposable keystore in-process**: create the keypair inside a
+   short script that writes the encrypted V3 JSON keystore and a random password
+   file (both `0600`, both outside the repo) and prints **only the address**.
+   The key must never reach argv, the environment, a log, or command output.
+   Piping a key into an interactive prompt is banned — see *Secret handling
+   rules*; a PTY transcript can capture it.
+2. **Fund that address from the wallet pool.** Do not try to deploy through the
+   pool's own send path: it cannot carry a contract's init code. ENG-3925 spent
+   ~0.0033 ETH on a status-0 transaction proving this with ~21 KB of init code.
+3. Deploy with `--keystore <file> --password-file <file>`.
+4. **Sweep the remainder back to the pool, then shred** the keystore, the
+   password file, and Foundry's `cache/<Script>.s.sol/<chain-id>/run-latest.json`
+   sensitive-values file. Sweep *before* shredding — a destroyed key strands
+   whatever is left. Expect to strand one transaction's worth of dust; record it
+   rather than rounding it away.
+
+Name the environment variable, never a value, in any ticket, PR or record.
+
 `foundry.toml`'s `[rpc_endpoints]` block declares the network names that
 `--rpc-url <name>` resolves to. Currently: `mainnet`, `sepolia`.
 (base-sepolia retired 2026-08-27 per Tim — ENG-3853.) Add a new entry when
@@ -307,6 +336,53 @@ forge verify-contract \
 
 `--watch` polls Etherscan until verification completes; for unattended
 deploys, omit it and check status manually.
+
+### `cast interface` is not a verification check
+
+`cast interface <address>` queries the **legacy** Etherscan endpoint and will
+report `Contract source code not verified` for a contract that verified
+successfully minutes earlier. That message is an artifact of the endpoint it
+asks, not a statement about the contract. Do not read it as a failed
+verification, and do not re-run a deploy because of it.
+
+To confirm a verification, or to pull a deployed ABI, use the Etherscan **v2**
+API, or `forge inspect <contract> abi` against the source you deployed.
+
+## Claiming bytecode provenance
+
+A provenance claim says *the code deployed at this address is the output of this
+source*. Only one kind of evidence establishes that, and one common kind does
+not.
+
+**A size is never proof.** Two different contracts can share a byte count, so
+"the runtime is 7,148 bytes and `forge build --sizes` agrees" is a consistency
+check that a wrong contract can pass. Report it as a cross-check, never as the
+claim.
+
+**The reproducible result is executable-region byte identity.** Rebuild the
+source, `cast code <address>`, mask the immutable spans on both sides — a
+constructor writes those into the code, so they differ by construction and their
+count and width are known from the source — and compare the remainder byte for
+byte. Zero differing offsets across the executable region, at the same solc
+version and optimizer settings, is the claim worth making: the deployed
+executable code IS this source's output, so the source's properties are
+properties of the deployment rather than inferences about it.
+
+**Name and bound the span that will not match elsewhere.** The trailing CBOR
+metadata (~53 bytes, holding a 32-byte IPFS hash) digests the compiler's *input*
+JSON and is therefore build-environment dependent. It matches only when the
+rebuild runs on the machine that produced the deploy. **Once the declared
+immutable spans are masked, a rebuild anywhere else differs in exactly that
+span and nowhere else, and that is expected — not evidence of tampering.** The
+masking qualifier is load-bearing: unmasked, an off-machine rebuild also differs
+across every immutable span, which is the difference the record's own
+differing-offset count is made of. Say so in the record, with both byte counts,
+so a later verifier is not left deciding whether they have found a problem.
+
+**Tell the verifier which result to reproduce**: the executable-region
+comparison, not the whole-runtime one. The whole-runtime match is not
+reproducible off the deploying machine, and a record that asks for it will
+manufacture a false alarm.
 
 ## When NOT to use `forge script`
 

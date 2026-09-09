@@ -283,9 +283,10 @@ sides gives **zero differing offsets across the 7,095-byte executable region**, 
 tag (`64736f6c63430008230033`, 0.8.35), which Etherscan independently reports alongside optimizer-on
 / `runs = 1` matching `foundry.toml`. The remaining 53 bytes are the CBOR metadata trailer, whose
 32-byte IPFS hash digests the compiler's *input* JSON and is therefore build-environment dependent.
-It matched here because this rebuild ran on the machine that produced the deploy; **a rebuild
-anywhere else will differ in exactly that span and nowhere else**, which is expected and is not
-evidence of a different contract. Reproduce the executable-region result rather than the
+It matched here because this rebuild ran on the machine that produced the deploy; **with the 37
+immutable spans masked, a rebuild anywhere else differs in exactly that span and nowhere else**,
+which is expected and is not evidence of a different contract. Unmasked it differs across those
+1,184 immutable bytes too, which is the comparison this paragraph has already set aside. Reproduce the executable-region result rather than the
 whole-runtime one — that is the part any verifier can check, and it is the part that carries the
 claim worth making: the deployed executable code IS this source's output, so the source's
 properties — no owner, no setter, 23 functions all `view` — are properties of the deployed contract
