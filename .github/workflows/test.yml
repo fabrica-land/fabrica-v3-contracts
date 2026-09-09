@@ -50,3 +50,14 @@ jobs:
         run: |
           forge test --match-contract Eng3523OraclePoolSepoliaForkTest -vvv
         id: eng3523-sepolia-fv
+
+      # ENG-3925 extends the ENG-3523 suite, so this run also re-executes every round-1
+      # invariant above against the round-2 stack's fixture. Kept as its own step so a
+      # round-2 regression is named as one in the checks list.
+      - name: Run ENG-3925 Sepolia round-2 immutable-aggregator invariants
+        env:
+          SEPOLIA_RPC_URL: ${{ secrets.SEPOLIA_RPC_URL }}
+          FABRICA_REQUIRE_SEPOLIA_FV: ${{ github.event_name == 'schedule' && '1' || '' }}
+        run: |
+          forge test --match-contract Eng3925ImmutableAggregatorSepoliaForkTest -vvv
+        id: eng3925-sepolia-fv
