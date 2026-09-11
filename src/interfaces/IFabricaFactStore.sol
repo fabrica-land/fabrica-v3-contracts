@@ -3,7 +3,7 @@ pragma solidity ^0.8.24;
 
 /// @notice Read surface of the round-2 permissionless fact store (ENG-3924, `FabricaFactStore`).
 /// @dev Reads only. The round-2 aggregator never writes, so the mutating half of the store
-///      (`writeFact`, `closeCycle`, `setLock`, `setMinValidCycle`, `declarePolicy`) is deliberately
+///      (`writeFact`, `writeFacts`, `closeCycle`, `setLock`, `setMinValidCycle`, `declarePolicy`) is deliberately
 ///      absent: an interface an immutable consumer cannot use is a surface a reviewer has to rule
 ///      out by hand. Struct layouts are copied verbatim from `src/FabricaFactStore.sol`; the
 ///      aggregator's constructor pins `KIND_PRICE` against the live store so a mismatched or
