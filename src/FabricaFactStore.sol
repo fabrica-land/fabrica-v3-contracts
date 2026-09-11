@@ -34,6 +34,11 @@ contract FabricaFactStore {
     /// @notice Basis-point denominator for a writer's declared band.
     uint16 public constant BPS_DENOMINATOR = 10_000;
 
+    /// @notice Hard cap on `writeFacts` length.
+    /// @dev Live Sepolia gasLimit 59,941,408 at block 11,683,400; ENG-3924 regime-1 whole-tx
+    ///      98,668 gas/fact; half-block 29,970,704 / 98,668 = 303.7, floored to 256.
+    uint256 public constant MAX_BATCH = 256;
+
     // -------------------------------------------------------------------------
     // Types
     // -------------------------------------------------------------------------
@@ -122,6 +127,8 @@ contract FabricaFactStore {
     error InvalidBand(uint16 maxDownBps);
     error HistoryDepthZero();
     error HistoryIndexOutOfBounds(uint256 index, uint256 length);
+    error EmptyBatch();
+    error BatchTooLarge(uint256 given, uint256 max);
 
     // -------------------------------------------------------------------------
     // Events
@@ -189,39 +196,21 @@ contract FabricaFactStore {
     ///      to run a cycle. `closeCycle` is the only thing that writes the cycle-close record.
     function writeFact(address writer, FactInput calldata input) external {
         _requireWriter(writer);
-        uint64 nowTs = uint64(block.timestamp);
-        uint64 valuedAt = input.valuedAt == 0 ? nowTs : input.valuedAt;
-        if (valuedAt > nowTs) revert InvalidValuedAt(valuedAt, nowTs);
-        uint64 floor = minValidCycle[writer];
-        if (input.cycle < floor) revert CycleBelowFloor(floor, input.cycle);
-        Fact storage current = _facts[writer][input.tokenId][input.kind];
-        uint64 writtenAt = current.writtenAt;
-        if (writtenAt != 0) {
-            uint64 storedCycle = current.cycle;
-            if (input.cycle < storedCycle) revert CycleNotMonotonic(storedCycle, input.cycle);
-            // A row the writer has already killed by raising its own floor is a dead baseline: the
-            // band and the interval are measured against a value the writer has disowned, so they
-            // do not apply and the write is treated as a fresh first write. Round 1 did the same
-            // (`_validatePriceWrite`'s `resetBaseline`).
-            if (storedCycle >= floor) {
-                _enforcePolicy(writer, current.value, input.value, writtenAt, nowTs);
-            }
-            // The superseded value is retained whether or not it is still valid; a consumer walking
-            // history filters dead cycles itself, exactly as it does for the current fact.
-            uint256 count = _historyCount[writer][input.tokenId][input.kind];
-            _history[writer][input.tokenId][input.kind][count % historyDepth] =
-                HistoryEntry({value: current.value, writtenAt: writtenAt, cycle: storedCycle});
-            _historyCount[writer][input.tokenId][input.kind] = count + 1;
+        _writeFact(writer, input);
+    }
+
+    /// @notice Publish `inputs.length` facts under `writer`'s own row, all or nothing.
+    /// @dev The keeper (ENG-4204) can pre-simulate every batch with eth_call and bisect a reverting
+    ///      batch off-chain at zero gas. Inner custom errors bubble unchanged; there is no
+    ///      wrapping error and no self-call. A batch write does not close a cycle.
+    function writeFacts(address writer, FactInput[] calldata inputs) external {
+        _requireWriter(writer);
+        uint256 n = inputs.length;
+        if (n == 0) revert EmptyBatch();
+        if (n > MAX_BATCH) revert BatchTooLarge(n, MAX_BATCH);
+        for (uint256 i; i < n; ++i) {
+            _writeFact(writer, inputs[i]);
         }
-        current.value = input.value;
-        current.confidence = input.confidence;
-        current.valuedAt = valuedAt;
-        current.writtenAt = nowTs;
-        current.cycle = input.cycle;
-        current.data = input.data;
-        emit FactWritten(
-            writer, input.tokenId, input.kind, input.value, input.confidence, valuedAt, input.cycle, input.data
-        );
     }
 
     /// @notice Record that `writer` has finished a cycle, carrying the cycle number and nothing else.
@@ -348,6 +337,43 @@ contract FabricaFactStore {
 
     function _requireWriter(address writer) internal view {
         if (writer != msg.sender) revert NotWriter(writer, msg.sender);
+    }
+
+    /// @dev Shared write body. Caller has already proved `writer == msg.sender`.
+    function _writeFact(address writer, FactInput calldata input) internal {
+        uint64 nowTs = uint64(block.timestamp);
+        uint64 valuedAt = input.valuedAt == 0 ? nowTs : input.valuedAt;
+        if (valuedAt > nowTs) revert InvalidValuedAt(valuedAt, nowTs);
+        uint64 floor = minValidCycle[writer];
+        if (input.cycle < floor) revert CycleBelowFloor(floor, input.cycle);
+        Fact storage current = _facts[writer][input.tokenId][input.kind];
+        uint64 writtenAt = current.writtenAt;
+        if (writtenAt != 0) {
+            uint64 storedCycle = current.cycle;
+            if (input.cycle < storedCycle) revert CycleNotMonotonic(storedCycle, input.cycle);
+            // A row the writer has already killed by raising its own floor is a dead baseline: the
+            // band and the interval are measured against a value the writer has disowned, so they
+            // do not apply and the write is treated as a fresh first write. Round 1 did the same
+            // (`_validatePriceWrite`'s `resetBaseline`).
+            if (storedCycle >= floor) {
+                _enforcePolicy(writer, current.value, input.value, writtenAt, nowTs);
+            }
+            // The superseded value is retained whether or not it is still valid; a consumer walking
+            // history filters dead cycles itself, exactly as it does for the current fact.
+            uint256 count = _historyCount[writer][input.tokenId][input.kind];
+            _history[writer][input.tokenId][input.kind][count % historyDepth] =
+                HistoryEntry({value: current.value, writtenAt: writtenAt, cycle: storedCycle});
+            _historyCount[writer][input.tokenId][input.kind] = count + 1;
+        }
+        current.value = input.value;
+        current.confidence = input.confidence;
+        current.valuedAt = valuedAt;
+        current.writtenAt = nowTs;
+        current.cycle = input.cycle;
+        current.data = input.data;
+        emit FactWritten(
+            writer, input.tokenId, input.kind, input.value, input.confidence, valuedAt, input.cycle, input.data
+        );
     }
 
     /// @dev The writer's own rate limit and band, applied to a write that supersedes a live value.
