@@ -66,6 +66,19 @@ jobs:
       # ENG-3925 extends the ENG-3523 suite, so this run also re-executes every round-1
       # invariant above against the round-2 stack's fixture. Kept as its own step so a
       # round-2 regression is named as one in the checks list.
+      # ENG-4203: asserts the aggregator script's PINNED fact store against the real chain. The
+      # unit suite etches a correct store at whatever address the pin names, so it cannot tell a
+      # right pin from a wrong one; only this step can. It needs its own env block — the plain
+      # "Run Forge tests" step above carries no SEPOLIA_RPC_URL, so without this the suite would
+      # silently SKIP and report green while proving nothing.
+      - name: Run ENG-4203 round-3 fact-store pin invariants
+        env:
+          SEPOLIA_RPC_URL: ${{ secrets.SEPOLIA_RPC_URL }}
+          FABRICA_REQUIRE_SEPOLIA_FV: ${{ github.event_name == 'schedule' && '1' || '' }}
+        run: |
+          forge test --match-contract Eng4203Round3FactStorePinSepoliaForkTest -vvv
+        id: eng4203-sepolia-pin
+
       - name: Run ENG-3925 Sepolia round-2 immutable-aggregator invariants
         env:
           SEPOLIA_RPC_URL: ${{ secrets.SEPOLIA_RPC_URL }}

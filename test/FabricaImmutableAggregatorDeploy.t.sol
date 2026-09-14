@@ -112,8 +112,12 @@ contract FabricaImmutableAggregatorDeployTest is Test {
         vm.etch(deadStore, address(new FabricaFactStore(48)).code);
         FabricaImmutableAggregator.Config memory config = _config();
         config.factStore = deadStore;
-        /* The aggregator itself would happily accept it — that is the point of the pin. */
-        assertEq(FabricaFactStore(deadStore).KIND_PRICE(), store.KIND_PRICE(), "the dead store looks identical");
+        /* The aggregator itself would happily accept it — that is the point of the pin. Asserted
+           against the literal hash, not against another etched copy of this same build: comparing
+           two fixtures etched from one runtime cannot fail and would prove nothing. */
+        assertEq(
+            FabricaFactStore(deadStore).KIND_PRICE(), keccak256("fabrica.fact.price"), "the dead store looks identical"
+        );
         vm.expectRevert(
             abi.encodeWithSelector(
                 FabricaImmutableAggregatorDeployScript.NonCanonicalFactStore.selector, deadStore, SEPOLIA_FACT_STORE
@@ -122,24 +126,51 @@ contract FabricaImmutableAggregatorDeployTest is Test {
         script.runWithConfig(config);
     }
 
-    /// @notice The round-2 store is refused now that round 3 has superseded it.
+    /// @notice The round-2 store's ADDRESS is refused now that round 3 has superseded it.
     /// @dev Distinct from `test_refusesTheSupersededRound2FactStore`, and the more dangerous case.
-    ///      `0xa81f30b0…` (ENG-3924) is not buggy and not dead — it is live, correct and still
-    ///      serving the ENG-3925 and ENG-3926 aggregators. It is refused because it predates
-    ///      `writeFacts`: an aggregator bound to it would read a store the batched keeper
-    ///      (ENG-4204) no longer writes to, so the feed would go quiet with every contract
-    ///      reporting healthy. Nothing on the write side reports that mistake, which is why it has
-    ///      to be caught here.
+    ///      `0xa81f30b0…` (ENG-3924) is not buggy and not dead — it is live and correct, and both
+    ///      round-2-backed aggregators still read it. On chain it is refusable on two independent
+    ///      grounds: its address is not the pin, and it predates `writeFacts` so it cannot answer
+    ///      `MAX_BATCH()`.
+    ///
+    ///      This test exercises the FIRST ground only, and says so rather than implying otherwise.
+    ///      The fixture etches round-3 runtime at the round-2 address, so the etched code DOES
+    ///      carry `writeFacts` and this test cannot and does not demonstrate the generation
+    ///      hazard. `test_refusesAStoreThatCannotAnswerMaxBatch` covers that ground with a fixture
+    ///      that genuinely lacks the entry point, and the fork test asserts the real chain state.
     function test_refusesTheRound2FactStoreSupersededByRound3() public {
         address roundTwoStore = 0xa81f30b0EC22DbE4b25239883850367EDB6f3Edd;
         vm.etch(roundTwoStore, address(new FabricaFactStore(48)).code);
         FabricaImmutableAggregator.Config memory config = _config();
         config.factStore = roundTwoStore;
-        /* Byte-identical `KIND_PRICE`, so no constructor check can separate the two stores. */
-        assertEq(FabricaFactStore(roundTwoStore).KIND_PRICE(), store.KIND_PRICE(), "the round-2 store looks identical");
+        /* Byte-identical `KIND_PRICE` across every generation, because it is a compile-time
+           constant — so no constructor check can separate ANY two of these stores, not just these
+           two. Asserted against the literal hash rather than another etched copy of this build. */
+        assertEq(
+            FabricaFactStore(roundTwoStore).KIND_PRICE(),
+            keccak256("fabrica.fact.price"),
+            "the round-2 store looks identical"
+        );
         vm.expectRevert(
             abi.encodeWithSelector(
                 FabricaImmutableAggregatorDeployScript.NonCanonicalFactStore.selector, roundTwoStore, SEPOLIA_FACT_STORE
+            )
+        );
+        script.runWithConfig(config);
+    }
+
+    /// @notice A store at the PINNED address that cannot answer `MAX_BATCH()` is still refused.
+    /// @dev This is the hazard `test_refusesTheRound2FactStoreSupersededByRound3` cannot model,
+    ///      because its fixture etches round-3 runtime. Here the pinned address carries code that
+    ///      is not a round-3 store, so the address check passes and only the property check stands
+    ///      between the operator and a permanent binding to a store the batched keeper cannot use.
+    function test_refusesAStoreThatCannotAnswerMaxBatch() public {
+        /* Code that reverts on every call: has a codehash, answers nothing. */
+        vm.etch(SEPOLIA_FACT_STORE, hex"60006000fd");
+        FabricaImmutableAggregator.Config memory config = _config();
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                FabricaImmutableAggregatorDeployScript.FactStoreLacksBatchWrites.selector, SEPOLIA_FACT_STORE
             )
         );
         script.runWithConfig(config);

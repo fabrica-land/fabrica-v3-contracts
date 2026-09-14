@@ -15,7 +15,16 @@ store plus `writeFacts(address,FactInput[])` and its `MAX_BATCH` cap. `historyDe
 `FabricaFactStore` is not upgradeable — no proxy, no owner, no setter. A new entry point is a new
 deployment. The round-2 store
 [`0xa81f30b0EC22DbE4b25239883850367EDB6f3Edd`](https://sepolia.etherscan.io/address/0xa81f30b0ec22dbe4b25239883850367edb6f3edd)
-([ENG-3924](https://linear.app/fabrica/issue/ENG-3924)) stays deployed, untouched and serving.
+([ENG-3924](https://linear.app/fabrica/issue/ENG-3924)) stays deployed and untouched, and both
+round-2-backed aggregators still read it.
+
+**It is not, however, serving a price.** That feed has been fail-closed since the staging keeper
+cron was disabled under [ENG-4202](https://linear.app/fabrica/issue/ENG-4202): all three writers'
+last cycle closes are now older than the 3-day `maxSilence`, and `price()` on both the ENG-3925 and
+ENG-3926 aggregators reverts `CheckFailed(keccak256("max_silence"))` — measured, not inferred. No
+round-2-backed pool is quoting. That is fail-closed by design following a deliberate operator
+decision, and it predates this deployment; nothing in this record caused it. The distinction
+matters because "the store is untouched" is true of the contract and false of the feed.
 
 The aggregator holds its store address in an `immutable` slot and the pool reads the aggregator, so
 adopting this store means a new aggregator and a new pool — the round-3 stack. Tim released that
@@ -77,10 +86,28 @@ Verified by `cast call` after the deploy:
 
 No aggregator or pool transaction was broadcast.
 
+## Acceptance criteria not satisfied by this record
+
+Stated here rather than left to be noticed. Both are gaps; neither is waived by this document.
+
+- **Item 3 — the receipt-validated gas table at batch sizes 1, 10, 50 and 100 is NOT delivered.**
+  What this record contains is a 12-fact demonstration in two regimes, which is a smaller and
+  differently shaped measurement. It is not a substitute and is not offered as one. The table is
+  satisfiable and remains outstanding work on this ticket.
+- **Item 4d — `DEPLOYMENT.md` was not updated.** The AC appears unsatisfiable as written: that
+  document holds no address registry, and its own "Post-deploy: capture the address" section routes
+  addresses to `UPGRADE-RUNBOOK.md`, a new per-family doc, the `broadcast/` artifacts and the
+  downstream consumers — which is where this deployment's address has gone. Two of the three prior
+  round-2 redeploys also did not touch it. Unsatisfiable is a reason to say so, not a licence to
+  omit silently.
+
 ## There is no writer registration, on this store or any other
 
 ENG-4203 item 4 asks for writers to be "re-registered/authorized exactly as on `0xa81f30b0`". **That
-is a no-op, and the ticket's premise does not hold.** `FabricaFactStore` is ownerless by
+is a no-op, and the ticket's premise does not hold.** This is a correction to the AC's premise, not
+a judgement that the AC was unimportant, and it is surfaced in the PR description and as a comment
+on ENG-4203 rather than only at line 100 of a long artifact — a gap stated where nobody reads it has
+been stated to nobody. It is not treated as satisfied until the operator acknowledges it. `FabricaFactStore` is ownerless by
 construction: no owner, no writer allowlist, no recovery writer, no lock authority, no gate. Its
 only access check is `src/FabricaFactStore.sol:339`:
 
@@ -97,8 +124,25 @@ Confirmed on the new store, **for the queried key only**: `isFactLive(writer, 42
 returns false for each of `0xfA2c254f…`, `0x70ED67c1…` and `0x24E52f31…`. That is a single
 (tokenId, kind) probe per source and it does not prove their namespaces are empty — no finite sample
 could. The load-bearing facts are stronger than the probe anyway: this contract was deployed in this
-transaction and only two transactions have ever written to it, both from `0xDD2dB187…` under its own
-row, and no oracle-source key was created or used at any point in this deploy.
+transaction, and an exhaustive log sweep — `eth_getLogs` over the store from its deploy block to
+latest — returns **24 events, all `FactWritten`, across exactly 2 transactions, from a single writer
+topic `0xDD2dB187…`**. That sweep is exhaustive in a way a nonce is not: every mutating function in
+this contract emits an event, so no write can escape it, whereas a nonce bounds only one EOA's own
+outgoing transactions and this store is permissionless — any address may write under its own row,
+and an internal call from a contract consumes no nonce at all. No oracle-source key was created or
+used at any point in this deploy.
+
+**Those twelve rows are permanent.** The writer key was destroyed after the sweep, and the store is
+ownerless with no delete: `setLock`, `setMinValidCycle` and any superseding write all route through
+`_requireWriter`, so nobody — including Fabrica — can ever lock, revoke or supersede them. They are
+not a pricing hazard, because `0xDD2dB187…` is in no aggregator's immutable `writers[]`. They are an
+**indexing** hazard: a consumer that indexes `FactWritten` by store address without filtering on a
+trusted writer will surface twelve fabricated valuations permanently. Applying a trusted-writer
+filter is therefore a requirement on
+[ENG-4205](https://linear.app/fabrica/issue/ENG-4205) and on any keeper or API consumer, recorded
+there rather than only here. The token ids used (4203001–4203012) do not collide with any id in use
+and sit roughly 4.2 million ahead of the current Sepolia sequence; they share the same `uint256`
+space, so that is a statement about distance, not an impossibility.
 
 ## Verification: one real `writeFacts` transaction
 
@@ -136,9 +180,14 @@ chain conditions differ from the ENG-3924 measurement. A batch size alone does n
 comparable.
 
 PR #52's bench reported 74,763 gas/fact whole-transaction at n = 100. That figure was **not**
-re-measured on chain here and this record does not claim to reproduce it. Per-fact cost is expected
-to fall as the batch grows, because the 21,000-gas transaction floor is amortised further — so a
-12-fact batch should sit above a 100-fact batch on the marginal curve, not below it.
+re-measured on chain here and this record does not claim to reproduce it. It is also not comparable
+to the steady-state row above: `_measureWriteFacts` in `test/Eng4203FactStoreBatchGas.t.sol`
+constructs a fresh `FabricaFactStore` on every call, so every row it measures has `writtenAt == 0`
+and the 74,763 figure is a **first-write** number. Comparing it against a steady-state receipt is
+the exact error this section spends the preceding paragraphs ruling out.
+
+This record therefore draws **no conclusion about how per-fact cost varies with batch size.** It has
+not measured the same regime at two batch sizes, so it is not entitled to one.
 
 What this transaction does establish, without qualification: `writeFacts` works on chain at a real
 batch size, all-or-nothing, one event per fact, with the history ring behaving as designed.
@@ -171,12 +220,37 @@ address, not new handler code.
 
 ## Bytecode provenance
 
-**Method, stated exactly so it can be re-run.** The local side is
-`out/FabricaFactStore.sol/FabricaFactStore.json` → `deployedBytecode.object`, hex-decoded. The
-chain side is `eth_getCode` on the deployed address at latest, hex-decoded. The two byte strings
-are compared index by index over their whole length. Offsets are then partitioned using the spans
-the compiler itself declares in the artifact's `deployedBytecode.immutableReferences` — taken from
-the compiler output, never inferred from the diff, so the masking cannot be fitted to the answer.
+**Method, stated exactly so it can be re-run.** The local artifact was produced in this worktree at
+commit `ec09c2f` with:
+
+```sh
+forge build --skip test
+```
+
+`foundry.toml` sets `auto_detect_solc = true` and pins no `evm_version`, so the toolchain is not
+fixed by the repo. The build that produced the compared artifact reports **solc 0.8.35, optimizer
+on, `runs = 1`, `evmVersion` osaka** in its own metadata — the same settings Etherscan verified
+against. A rebuild on a machine that resolves a different solc or EVM target may differ in the
+executable region, not merely in the metadata trailer, so reproduce with those settings or treat a
+mismatch as inconclusive rather than as evidence of tampering. (Pinning `solc_version` and
+`evm_version` in `foundry.toml` would remove that caveat; it is repo-wide hardening, out of scope
+for this ticket.)
+
+The local side is `out/FabricaFactStore.sol/FabricaFactStore.json` → `deployedBytecode.object`,
+hex-decoded. The chain side is `eth_getCode` on the deployed address, hex-decoded. The two byte
+strings are compared index by index over their whole length. Offsets are then partitioned using the
+spans the compiler itself declares in the artifact's `deployedBytecode.immutableReferences` — taken
+from the compiler output, never inferred from the diff, so the masking cannot be fitted to the
+answer.
+
+**Two different byte counts are in play and this record previously conflated them.** Following the
+convention the sibling records use (ENG-3926: 7,148 − 53 = 7,095), the **executable region is the
+runtime minus the trailing CBOR metadata**: the last two bytes read `0x0033` = 51, so the trailer is
+53 bytes at offsets 6,340–6,392 and the executable region is **6,340 bytes**. Separately, and
+disjointly, 128 bytes of declared immutable spans are masked. An earlier draft of this record
+reported the region as 6,265 bytes (6,393 − 128), which is the immutable-masked count, not the
+house-rule region — the two maskings do not overlap, so the zero-difference result is unchanged
+either way, but the label was wrong.
 
 <!-- markdownlint-disable MD013 -->
 
@@ -187,7 +261,9 @@ the compiler output, never inferred from the diff, so the masking cannot be fitt
 | Immutable spans, from `immutableReferences` | 4 spans, one slot (id `64740`), 32 bytes each, 128 bytes total |
 | Total differing offsets | 4 |
 | Differing offsets inside declared immutable spans | 4 |
-| **Differing offsets across the 6,265-byte executable region** | **0** |
+| Trailing CBOR metadata | 53 bytes, offsets 6,340–6,392 (build-environment dependent) |
+| **Differing offsets across the 6,340-byte executable region** | **0** |
+| **Differing offsets anywhere outside the 128 masked immutable bytes** | **0** |
 
 <!-- markdownlint-enable MD013 -->
 
@@ -274,12 +350,38 @@ Error: script failed: NonCanonicalFactStore(0x97fC2C3A…, 0xa81f30b0…)
 ```
 
 **The guard is correct and was preserved, not removed.** It exists because this store has now been
-redeployed twice and every superseded address still circulates in briefs; the aggregator's
-constructor cannot separate them, because `KIND_PRICE` is byte-identical across all three. The
-constant was re-pointed to the round-3 address, its rationale rewritten to cover both superseded
-stores, and a distinct test added for the new failure mode: the round-2 store is refused even
-though — unlike the dead `0x89895c2f…` — it is alive and correct, because an aggregator bound to it
-would read a store the batched keeper no longer writes to while every contract reports healthy.
+redeployed twice and every superseded address still circulates in briefs. The aggregator's
+constructor cannot separate any two of these stores: `KIND_PRICE` is a compile-time constant, so it
+is byte-identical across every generation — that is a universal property of the design, not a
+peculiarity of the round-2 store. The constant was re-pointed to the round-3 address and its
+rationale rewritten to cover both superseded stores.
+
+**The pin alone was not enough, and the board was right about that.** An address pin enforces a hex
+literal, which is only ever as good as the review that last read it; nothing in the repository could
+tell a correct pin from an incorrect one, and the binding it produces is an `immutable` — permanent
+and unfixable. The guard now also *proves the property the literal stands for*, with a `MAX_BATCH()`
+staticcall that must succeed. The two checks are complementary and neither subsumes the other: a pin
+cannot separate two round-3-shaped stores, and a property check cannot separate round 3 from a
+future round 4.
+
+The discriminator is verified by execution, not by scanning bytecode for a selector — a four-byte
+string in runtime code is a heuristic, not proof of dispatcher capability:
+
+| Probe (`eth_call`) | Round-3 `0x97fC2C3A…` | Round-2 `0xa81f30b0…` | Dead `0x89895c2f…` |
+| -- | -- | -- | -- |
+| `writeFacts(…, [])` | reverts `0xc2e5347d` = `EmptyBatch()` | reverts, no return data | reverts, no return data |
+| `MAX_BATCH()` | returns 256 | reverts, no return data | reverts, no return data |
+
+A custom-error selector coming back from the round-3 store is positive proof the function is
+reachable and ran its own guard; the empty-data reverts are consistent independent negatives.
+
+Two tests cover the two grounds separately, because one fixture cannot model both:
+`test_refusesTheRound2FactStoreSupersededByRound3` exercises address inequality only — its fixture
+etches round-3 runtime, so it cannot demonstrate the generation hazard and now says so —
+while `test_refusesAStoreThatCannotAnswerMaxBatch` uses a fixture that genuinely cannot answer.
+`Eng4203Round3FactStorePinSepoliaForkTest` then asserts the pin against the real chain, with its own
+CI step supplying `SEPOLIA_RPC_URL`; without that step a fork suite silently skips and proves
+nothing.
 
 `test/Eng3925ImmutableAggregatorSepoliaFork.t.sol` was left entirely unchanged: its
 `SHIPPED_FACT_STORE` asserts about the shipped `0xbDD420cB…` aggregator, which genuinely does still

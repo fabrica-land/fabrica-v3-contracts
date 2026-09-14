@@ -56,7 +56,7 @@ before this deploy, never from the ENG-3925 record**. Only `writers` differs.
 
 | Parameter | Value | Source |
 | -- | -- | -- |
-| `factStore` | `0xa81f30b0EC22DbE4b25239883850367EDB6f3Edd` | readback; the script refuses any other (`NonCanonicalFactStore`) |
+| `factStore` | `0xa81f30b0EC22DbE4b25239883850367EDB6f3Edd` | readback; the script refused any other (`NonCanonicalFactStore`) **at the time of this deploy — superseded by [ENG-4203](https://linear.app/fabrica/issue/ENG-4203), which re-pinned that constant to the round-3 store** |
 | `usdc` | `0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238` | readback; the script refuses any other |
 | `writers` | the three ENG-3926 signer addresses below | **the only change in this deploy** |
 | `minLiveSources` | 2 | readback |

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
-/// @notice Round-2 permissionless fact store: the on-chain record of what each oracle source says
+/// @notice Permissionless fact store: the on-chain record of what each oracle source says
 ///         about each token, with no privileged roles of any kind.
 /// @dev Replaces `FabricaAttributeOracle` (round 1, ENG-3518) rather than upgrading it; the round-1
 ///      store stays deployed and untouched. Shape selected by ENG-3922's measurement, which put a

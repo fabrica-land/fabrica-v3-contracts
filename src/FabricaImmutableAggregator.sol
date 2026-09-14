@@ -4,8 +4,9 @@ pragma solidity ^0.8.24;
 import {IPriceOracle} from "./interfaces/IPriceOracle.sol";
 import {IFabricaFactStore} from "./interfaces/IFabricaFactStore.sol";
 
-/// @notice Round-2 immutable aggregator: turns the round-2 fact store's facts about a token into one
-///         lendable price, or a refusal naming the check that failed.
+/// @notice Immutable aggregator: turns a fact store's facts about a token into one lendable price,
+///         or a refusal naming the check that failed. Introduced for round 2 (ENG-3925); deployments
+///         from ENG-4203 onward bind the round-3 batched store.
 /// @dev Replaces `FabricaOracleAggregator` (round 1, ENG-3519) rather than upgrading it; the round-1
 ///      aggregator stays deployed and serving its own pool. Round-2 proposal Part A item 5, ruled by
 ///      Tim on 3 September 2026: the trusted writer set and every threshold are fixed at deploy so
@@ -133,7 +134,10 @@ contract FabricaImmutableAggregator is IPriceOracle {
     // Immutable configuration
     // -------------------------------------------------------------------------
 
-    /// @notice Round-2 permissionless fact store (ENG-3924).
+    /// @notice The permissionless fact store this aggregator reads, fixed at construction.
+    /// @dev Generation is whatever the deploy pinned: ENG-3924's round-2 store for the shipped
+    ///      ENG-3925/ENG-3926 aggregators, ENG-4203's round-3 batched store from the next deploy on.
+    ///      Naming a single generation here goes stale on every redeploy, and this slot is immutable.
     IFabricaFactStore public immutable factStore;
     /// @notice The only accepted currency (USDC).
     address public immutable usdc;

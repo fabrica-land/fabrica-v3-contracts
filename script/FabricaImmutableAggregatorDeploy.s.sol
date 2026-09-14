@@ -5,7 +5,7 @@ import {Script, console} from "forge-std/Script.sol";
 import {FabricaImmutableAggregator} from "../src/FabricaImmutableAggregator.sol";
 
 /// @notice Deploy the immutable aggregator. Introduced by ENG-3925 for round 2; now pinned to the
-///         round-3 fact store (ENG-4203), which is the only thing that changed.
+///         round-3 fact store (ENG-4203), which is the only behavioural change.
 /// @dev There is no owner argument, no freeze step and no post-deploy call, which is the point of
 ///      the redeploy. The round-1 script (`FabricaOracleAggregatorDeployScript`) had to name a
 ///      transient owner, deploy, and then remember to call `renounceAggregator()` in the same
@@ -30,6 +30,7 @@ contract FabricaImmutableAggregatorDeployScript is Script {
     error UnsupportedChain(uint256 chainId);
     error NonCanonicalUsdc(address configured, address expected);
     error NonCanonicalFactStore(address configured, address expected);
+    error FactStoreLacksBatchWrites(address factStore);
     error NoWritersConfigured();
     error EnvValueOutOfRange(string field, uint256 value, uint256 max);
     error IntendedVsDeployedMismatch(string field);
@@ -92,6 +93,16 @@ contract FabricaImmutableAggregatorDeployScript is Script {
     /// @dev Public so the intended half of the review gate can be produced without broadcasting.
     function config() external view returns (FabricaImmutableAggregator.Config memory) {
         return _config();
+    }
+
+    /// @notice The pinned canonical fact store, exposed for the Sepolia fork suite.
+    /// @dev Read-only accessor so `Eng4203Round3FactStorePinSepoliaForkTest` can assert the pin
+    ///      against the real chain without restating the literal and drifting from it. Deliberately
+    ///      NOT consumed by `_config()`: the unit fixtures must keep supplying the address
+    ///      independently, or every happy-path assertion becomes tautological with respect to the
+    ///      pin and a desynced literal would stop failing the suite.
+    function pinnedFactStore() external pure returns (address) {
+        return SEPOLIA_FACT_STORE;
     }
 
     /// @notice Tim's numbers, as this script will apply them when the environment does not override.
@@ -194,6 +205,21 @@ contract FabricaImmutableAggregatorDeployScript is Script {
         if (block.chainid != SEPOLIA_CHAIN_ID) revert UnsupportedChain(block.chainid);
         if (usdc != SEPOLIA_USDC) revert NonCanonicalUsdc(usdc, SEPOLIA_USDC);
         if (factStore != SEPOLIA_FACT_STORE) revert NonCanonicalFactStore(factStore, SEPOLIA_FACT_STORE);
+        _requireBatchCapableStore(factStore);
+    }
+
+    /// @notice Prove on chain that the pinned store is a round-3 generation, rather than trusting hex.
+    /// @dev The pin above enforces a LITERAL; this enforces the PROPERTY the literal stands for. Both
+    ///      are needed and neither subsumes the other: a pin cannot separate two round-3-shaped
+    ///      stores, and a property check cannot separate round 3 from a future round 4. The
+    ///      discriminator is free — `MAX_BATCH()` answers on the round-3 store and reverts on both
+    ///      superseded ones, which predate `writeFacts` and never declared the constant. Without
+    ///      this, the only thing standing between a pool and a permanently wrong immutable feed is
+    ///      a hex literal that is exactly as good as the review that last looked at it.
+    function _requireBatchCapableStore(address factStore) internal view {
+        (bool ok, bytes memory returned) = factStore.staticcall(abi.encodeWithSignature("MAX_BATCH()"));
+        if (!ok || returned.length != 32) revert FactStoreLacksBatchWrites(factStore);
+        if (abi.decode(returned, (uint256)) == 0) revert FactStoreLacksBatchWrites(factStore);
     }
 
     /// @dev Every override arrives as a `uint256` and is narrowed into an immutable. Narrowing a
