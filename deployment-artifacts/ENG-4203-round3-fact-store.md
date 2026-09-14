@@ -180,7 +180,10 @@ table is below, and it is what the batch-size conclusions rest on.**
 
 Ten transactions against this store, from a fresh disposable writer on its own rows, five disjoint
 id buckets, each bucket written once fresh and then rewritten once at `cycle + 1`. Identical
-synthetic payload throughout, no declared writer policy, every send capped at 3 gwei. All ten
+synthetic payload held constant *within* each regime — the first-write pass writes value 1,000,000
+at cycle 1 and the steady-state pass writes 1,050,000 at cycle 2, and `valuedAt` is block time, so
+the two passes are deliberately not byte-identical to each other — no declared writer policy, every
+send capped at 3 gwei. All ten
 receipts returned status 1 with no retries and no nonce gaps.
 
 **Both regimes carry a matched bare-`writeFact` control**, which is what makes these numbers a claim
@@ -346,7 +349,8 @@ for any build that does enable via-IR — what changes here is the conclusion, n
 
 That measurement was made by the ENG-4203 round-1 review coordinator in an independent rebuild, not
 by this lane; its full output is published at `wrap-ups/artifacts/ENG-4203-slot-evidence-6b302e6.md`
-on fabrica-v3 root `main` (commit `f57f07c`), which is the source of truth for it. **Either command reproduces this record's comparison**, so the claim below is
+on fabrica-v3 root `main` (commit `f57f07c`, with a correction appended at `4511533`), which is the
+source of truth for it. **Either command reproduces this record's comparison**, so the claim below is
 reproducible rather than scoped to one build shape.
 
 The toolchain is likewise not fixed by the repo: `foundry.toml` sets `auto_detect_solc = true` and
@@ -422,17 +426,18 @@ The size agreement is a consistency check, not proof: two different contracts ca
 count. What establishes provenance is the executable-region byte identity with the immutable spans
 masked, plus the four masked words each resolving to the expected constructor value.
 
-**An independent off-machine reproduction confirms both the result and why the region definition had
+**An independent rebuild confirms both the result and why the region definition had
 to be corrected.** The round-1 review coordinator repeated this comparison in an **independent
 rebuild** — one that was not this deployment's own build run — masking by the compiler's own
 `immutableReferences`
 (id `67019`, offsets 1144 / 2469 / 2754 / 3960, 32 bytes each). Their full output is at
-`wrap-ups/artifacts/ENG-4203-slot-evidence-6b302e6.md` (root `main`, commit `f57f07c`); the summary
+`wrap-ups/artifacts/ENG-4203-slot-evidence-6b302e6.md` (root `main`, commit `f57f07c`, corrected at
+`4511533` — read both); the summary
 below is a pointer to it, not a second source:
 
 <!-- markdownlint-disable MD013 -->
 
-| Measure | Their machine | This machine |
+| Measure | Independent rebuild | This run's own rebuild |
 | -- | -- | -- |
 | total differing offsets | 36 | 4 |
 | inside declared immutable spans | 4 (local 0 → chain 48 each) | 4 (identical) |
