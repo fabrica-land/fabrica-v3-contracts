@@ -306,6 +306,17 @@ The size agreement is a consistency check, not proof: two different contracts ca
 count. What establishes provenance is the executable-region byte identity with the immutable spans
 masked, plus the four masked words each resolving to the expected constructor value.
 
+**The compared build is `ec09c2f`, not this branch's head, and that distinction is load-bearing
+here.** After the deploy, this PR corrected a stale `Round-2 permissionless fact store` self-label
+in `src/FabricaFactStore.sol` and two generation-specific NatSpec lines in
+`src/FabricaImmutableAggregator.sol`. Those edits are comment-only and change no executable byte —
+but Solidity's metadata hash digests the compiler's *input* JSON, and source text including comments
+is part of that input. **So a rebuild at this branch's head will NOT reproduce the deployed
+contract's metadata trailer, and that is expected rather than a provenance failure.** Rebuild at
+`ec09c2f` to compare trailers; compare the executable region at either commit. This is also why the
+region definition in the preceding paragraphs matters: with the trailer excluded, the comment
+corrections are invisible to the comparison, which is the correct outcome.
+
 The trailing CBOR metadata holds an IPFS hash digesting the compiler's *input* JSON and is
 build-environment dependent. It matched here because this rebuild ran on the machine that produced
 the deploy. A rebuild elsewhere may differ in that region without indicating tampering; reproduce
