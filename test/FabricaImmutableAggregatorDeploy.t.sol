@@ -17,7 +17,7 @@ contract FabricaImmutableAggregatorDeployTest is Test {
     uint256 internal constant MAINNET_CHAIN_ID = 1;
     uint256 internal constant SEPOLIA_CHAIN_ID = 11155111;
     address internal constant SEPOLIA_USDC = 0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238;
-    address internal constant SEPOLIA_FACT_STORE = 0xa81f30b0EC22DbE4b25239883850367EDB6f3Edd;
+    address internal constant SEPOLIA_FACT_STORE = 0x97fC2C3A41d4DB570363C5e3425C3676E4B81c5D;
 
     FabricaImmutableAggregatorDeployScript internal script;
     FabricaFactStore internal store;
@@ -122,6 +122,29 @@ contract FabricaImmutableAggregatorDeployTest is Test {
         script.runWithConfig(config);
     }
 
+    /// @notice The round-2 store is refused now that round 3 has superseded it.
+    /// @dev Distinct from `test_refusesTheSupersededRound2FactStore`, and the more dangerous case.
+    ///      `0xa81f30b0…` (ENG-3924) is not buggy and not dead — it is live, correct and still
+    ///      serving the ENG-3925 and ENG-3926 aggregators. It is refused because it predates
+    ///      `writeFacts`: an aggregator bound to it would read a store the batched keeper
+    ///      (ENG-4204) no longer writes to, so the feed would go quiet with every contract
+    ///      reporting healthy. Nothing on the write side reports that mistake, which is why it has
+    ///      to be caught here.
+    function test_refusesTheRound2FactStoreSupersededByRound3() public {
+        address roundTwoStore = 0xa81f30b0EC22DbE4b25239883850367EDB6f3Edd;
+        vm.etch(roundTwoStore, address(new FabricaFactStore(48)).code);
+        FabricaImmutableAggregator.Config memory config = _config();
+        config.factStore = roundTwoStore;
+        /* Byte-identical `KIND_PRICE`, so no constructor check can separate the two stores. */
+        assertEq(FabricaFactStore(roundTwoStore).KIND_PRICE(), store.KIND_PRICE(), "the round-2 store looks identical");
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                FabricaImmutableAggregatorDeployScript.NonCanonicalFactStore.selector, roundTwoStore, SEPOLIA_FACT_STORE
+            )
+        );
+        script.runWithConfig(config);
+    }
+
     function test_refusesANonCanonicalCurrency() public {
         address impostor = makeAddr("not-sepolia-usdc");
         vm.etch(impostor, hex"60006000fd");
@@ -165,7 +188,7 @@ contract FabricaImmutableAggregatorDeployTest is Test {
 contract FabricaImmutableAggregatorDeployEnvTest is Test {
     uint256 internal constant SEPOLIA_CHAIN_ID = 11155111;
     address internal constant SEPOLIA_USDC = 0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238;
-    address internal constant SEPOLIA_FACT_STORE = 0xa81f30b0EC22DbE4b25239883850367EDB6f3Edd;
+    address internal constant SEPOLIA_FACT_STORE = 0x97fC2C3A41d4DB570363C5e3425C3676E4B81c5D;
 
     function test_environmentDrivesTheDeployWithTimsNumbersAsDefaults() public {
         FabricaImmutableAggregatorDeployScript script = new FabricaImmutableAggregatorDeployScript();

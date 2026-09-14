@@ -4,7 +4,8 @@ pragma solidity ^0.8.24;
 import {Script, console} from "forge-std/Script.sol";
 import {FabricaImmutableAggregator} from "../src/FabricaImmutableAggregator.sol";
 
-/// @notice ENG-3925 — deploy the round-2 immutable aggregator.
+/// @notice Deploy the immutable aggregator. Introduced by ENG-3925 for round 2; now pinned to the
+///         round-3 fact store (ENG-4203), which is the only thing that changed.
 /// @dev There is no owner argument, no freeze step and no post-deploy call, which is the point of
 ///      the redeploy. The round-1 script (`FabricaOracleAggregatorDeployScript`) had to name a
 ///      transient owner, deploy, and then remember to call `renounceAggregator()` in the same
@@ -12,7 +13,7 @@ import {FabricaImmutableAggregator} from "../src/FabricaImmutableAggregator.sol"
 ///      holds nothing at any point, so there is no window to forget.
 ///
 ///      Sepolia only. Mainnet is refused outright rather than left to the operator's care: this
-///      contract is a testnet round-2 artifact and nothing about it has been through the mainnet
+///      contract is a testnet artifact and nothing about it has been through the mainnet
 ///      gate. The round-1 aggregator, the signed-quote pool and the ENG-3924 fact store are separate
 ///      deployments and are not touched, upgraded or superseded by this script.
 ///
@@ -22,7 +23,7 @@ import {FabricaImmutableAggregator} from "../src/FabricaImmutableAggregator.sol"
 ///
 ///      Then create the pool with metastreet-contracts-v2's existing
 ///      `script/FabricaLendingPoolCreateWithAggregator.s.sol`, passing this address as
-///      `FABRICA_LENDING_AGGREGATOR`. That script takes any `IPriceOracle`, so the round-2 launch
+///      `FABRICA_LENDING_AGGREGATOR`. That script takes any `IPriceOracle`, so the round-3 launch
 ///      needs no change in that repo.
 contract FabricaImmutableAggregatorDeployScript is Script {
     error MainnetIsNotInScope(uint256 chainId);
@@ -37,16 +38,20 @@ contract FabricaImmutableAggregatorDeployScript is Script {
     uint256 internal constant SEPOLIA_CHAIN_ID = 11155111;
     address internal constant SEPOLIA_USDC = 0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238;
 
-    /// @notice The live round-2 fact store (ENG-3924), pinned the way the currency is pinned.
-    /// @dev Not paranoia about a typo: this store has ALREADY been redeployed once. The first
-    ///      round-2 deployment at 0x89895c2fCC975c16AeAd2e213d2076dbF0aeb8b8 carried the
-    ///      zero-baseline band bug, is dead, and still circulates in briefs. The aggregator's own
-    ///      constructor cannot catch that mistake — it rejects a zero address, a codeless address
-    ///      and a store whose `KIND_PRICE` disagrees, and the dead store passes all three — and the
+    /// @notice The live round-3 fact store (ENG-4203), pinned the way the currency is pinned.
+    /// @dev Not paranoia about a typo: this store has now been redeployed TWICE, and each
+    ///      superseded address still circulates in briefs. The first round-2 deployment at
+    ///      0x89895c2fCC975c16AeAd2e213d2076dbF0aeb8b8 carried the zero-baseline band bug and is
+    ///      dead. The second, 0xa81f30b0EC22DbE4b25239883850367EDB6f3Edd (ENG-3924), is alive and
+    ///      correct but predates `writeFacts`, so an aggregator bound to it would feed a pool from
+    ///      a store the batched keeper no longer writes to. The aggregator's own constructor
+    ///      cannot catch either mistake — it rejects a zero address, a codeless address and a
+    ///      store whose `KIND_PRICE` disagrees, and BOTH superseded stores pass all three, the
+    ///      round-2 store because its `KIND_PRICE` is byte-identical to this one — and the
     ///      readback cannot either, because it compares the deployed value against the same
     ///      configured address. Binding a pool's price feed to the wrong store is permanent here,
     ///      so the script refuses rather than trusting the environment.
-    address internal constant SEPOLIA_FACT_STORE = 0xa81f30b0EC22DbE4b25239883850367EDB6f3Edd;
+    address internal constant SEPOLIA_FACT_STORE = 0x97fC2C3A41d4DB570363C5e3425C3676E4B81c5D;
 
     /* Tim's numbers, 2026-09-03 18:12Z, and the round-1 values ENG-3925 carries forward. These are
        DEFAULTS, not the only accepted values: each is overridable by env so a redeploy under a later
@@ -202,9 +207,9 @@ contract FabricaImmutableAggregatorDeployScript is Script {
         return value;
     }
 
-    /// @notice The INTENDED half of the review gate ENG-3925 requires pasted into the PR.
+    /// @notice The INTENDED half of the review gate ENG-3925 established and ENG-4203 carries forward.
     function _logIntended(FabricaImmutableAggregator.Config memory params) internal pure {
-        console.log("=== ENG-3925 round-2 immutable aggregator: INTENDED parameters ===");
+        console.log("=== ENG-4203 round-3 immutable aggregator: INTENDED parameters ===");
         console.log("factStore          ", params.factStore);
         console.log("usdc               ", params.usdc);
         for (uint256 i; i < params.writers.length; ++i) {
@@ -222,7 +227,7 @@ contract FabricaImmutableAggregatorDeployScript is Script {
 
     /// @notice The DEPLOYED half, read back off the contract rather than echoed from the inputs.
     function _logDeployed(FabricaImmutableAggregator aggregator) internal view {
-        console.log("=== ENG-3925 round-2 immutable aggregator: DEPLOYED parameters ===");
+        console.log("=== ENG-4203 round-3 immutable aggregator: DEPLOYED parameters ===");
         console.log("address            ", address(aggregator));
         console.log("factStore          ", address(aggregator.factStore()));
         console.log("usdc               ", aggregator.usdc());
