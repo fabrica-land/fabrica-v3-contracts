@@ -86,17 +86,6 @@ Verified by `cast call` after the deploy:
 
 No aggregator or pool transaction was broadcast.
 
-## Acceptance criteria not satisfied by this record
-
-Stated here rather than left to be noticed, and not waived by this document.
-
-- **Item 4d — `DEPLOYMENT.md` was not updated.** The AC appears unsatisfiable as written: that
-  document holds no address registry, and its own "Post-deploy: capture the address" section routes
-  addresses to `UPGRADE-RUNBOOK.md`, a new per-family doc, the `broadcast/` artifacts and the
-  downstream consumers — which is where this deployment's address has gone. Two of the three prior
-  round-2 redeploys also did not touch it. Unsatisfiable is a reason to say so, not a licence to
-  omit silently.
-
 ## There is no writer registration, on this store or any other
 
 ENG-4203 item 4 asks for writers to be "re-registered/authorized exactly as on `0xa81f30b0`". **That
@@ -237,12 +226,19 @@ arithmetic, not a measurement.
 | Funding tx 2 | [`0x7352cb56…1b03`](https://sepolia.etherscan.io/tx/0x7352cb560c766c02dd53471096fd4d9a618dfed1c3d5fff591fd211dbd6c1b03) — 0.05 ETH |
 | Total funded | 0.10 ETH (authorised cap 0.15; remaining headroom untouched) |
 | Balance after the 10 calls | 0.076071777134618049 ETH |
-| **Spend on the 10 calls** | **0.023928222865381953 ETH** |
-| Sweep back to pool | [`0xf1099f6f…26ff`](https://sepolia.etherscan.io/tx/0xf1099f6f7566ccc8cbbe6d37533816ad2a8fa2e42a33c5706bcb18b6b38626ff) — 0.076 ETH, status 1 |
+| **Spend on the 10 calls** | **0.023928222865381951 ETH** |
+| Sweep back to pool | [`0xf1099f6f…26ff`](https://sepolia.etherscan.io/tx/0xf1099f6f7566ccc8cbbe6d37533816ad2a8fa2e42a33c5706bcb18b6b38626ff) — status 1, value 0.076008777134618049 ETH |
+| Sweep fee | 0.000023966211759 ETH (21,000 gas × 1,141,248,179 wei) |
 | Stranded dust | 0.000039033788241 ETH |
+| **Reconciliation** | 23,928,222,865,381,951 + 76,008,777,134,618,049 + 23,966,211,759,000 + 39,033,788,241,000 = **100,000,000,000,000,000 wei**, exactly the amount funded |
 | Final nonce | 11 — 10 measurement calls + 1 sweep, no gaps and no retries |
 
 <!-- markdownlint-enable MD013 -->
+
+All figures above are exact wei converted with decimal arithmetic. An earlier draft of this record
+gave the ten-call spend as `0.023928222865381953` — two wei high, a float-precision artifact — and
+described the sweep as "0.076 ETH" when its literal value is 0.076008777134618049. Both were caught
+by independent chain verification. Nothing here is rounded.
 
 Every send was capped with `--gas-price 3000000000` (maxFeePerGas) and
 `--priority-gas-price 100000000`; base fee was read before each send with an abort path if it

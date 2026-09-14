@@ -290,11 +290,18 @@ When a deploy lands, record the new address in:
 2. **A new doc** if this is a brand-new contract family (the Fabrica lending
    pool contracts and their deploy records live in the
    `fabrica-land/metastreet-contracts-v2` fork, not this repo)
-3. **The `.broadcast/` artifacts** — Foundry's `--broadcast` writes
+3. **`deployment-artifacts/<TICKET>-<slug>.md`** — the per-deployment record:
+   constructor parameters and where each value was read from, the deployed
+   address, receipt, verification status, bytecode provenance and the deployer
+   path used. One file per deployment, never edited in place by a later one, so
+   superseded deployments stay readable. Existing records are the index: e.g.
+   `ENG-3924-round2-fact-store.md`, `ENG-3926-real-writer-aggregator.md`,
+   `ENG-4203-round3-fact-store.md`.
+4. **The `.broadcast/` artifacts** — Foundry's `--broadcast` writes
    per-network JSON files under `broadcast/<script>/<chain-id>/` that
    record the transaction hash and deployed address. Commit these when
    they reflect a real deploy; they're the historical record.
-4. **Soil-app + fabrica-v3-api** — every consumer that references the
+5. **Soil-app + fabrica-v3-api** — every consumer that references the
    contract address needs to be updated. A typical change touches:
    - `fabrica-v3-api/config/{develop,staging,production}.json` —
      per-network contract addresses
