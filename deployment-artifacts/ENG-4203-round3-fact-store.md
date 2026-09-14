@@ -348,8 +348,8 @@ whole-compilation-graph phenomenon, so under the standard pipeline skipping test
 perturb `src/` bytecode. The ENG-3231 rationale is kept above because it remains the right caution
 for any build that does enable via-IR — what changes here is the conclusion, not the context.
 
-That measurement was made by the ENG-4203 round-1 review coordinator on a different machine, not by
-this lane; its full output is published at `wrap-ups/artifacts/ENG-4203-slot-evidence-6b302e6.md`
+That measurement was made by the ENG-4203 round-1 review coordinator in an independent rebuild, not
+by this lane; its full output is published at `wrap-ups/artifacts/ENG-4203-slot-evidence-6b302e6.md`
 on fabrica-v3 root `main` (commit `f57f07c`), which is the source of truth for it. **Either command reproduces this record's comparison**, so the claim below is
 reproducible rather than scoped to one build shape.
 
@@ -370,11 +370,23 @@ answer.
 **Two different byte counts are in play and this record previously conflated them.** Following the
 convention the sibling records use (ENG-3926: 7,148 − 53 = 7,095), the **executable region is the
 runtime minus the trailing CBOR metadata**: the last two bytes read `0x0033` = 51, so the trailer is
-53 bytes at offsets 6,340–6,392 and the executable region is **6,340 bytes**. Separately, and
-disjointly, 128 bytes of declared immutable spans are masked. An earlier draft of this record
-reported the region as 6,265 bytes (6,393 − 128), which is the immutable-masked count, not the
-house-rule region — the two maskings do not overlap, so the zero-difference result is unchanged
-either way, but the label was wrong.
+53 bytes at offsets 6,340–6,392. **Zero differences requires BOTH maskings, and neither alone is
+enough** — this record's earlier drafts got that wrong in two different ways:
+
+<!-- markdownlint-disable MD013 -->
+
+| Region | Size | Differing offsets under an independent rebuild |
+| -- | -- | -- |
+| pre-trailer only (runtime − 53 B trailer) | 6,340 B | **4** — the immutable words, which this region still contains |
+| immutables-masked only (runtime − 128 B) | 6,265 B | **32** — the CBOR trailer, which this region still contains |
+| **both masked (the certification region)** | **6,212 B** | **0** |
+
+<!-- markdownlint-enable MD013 -->
+
+So the correct statement is **zero differing offsets across the 6,212-byte region excluding both the
+compiler-declared immutable spans and the 53-byte metadata trailer.** An earlier draft reported
+6,265 bytes, which masks only the immutables; a later draft reported 6,340, which masks only the
+trailer. Both are regions that genuinely contain differences.
 
 <!-- markdownlint-disable MD013 -->
 
@@ -385,9 +397,9 @@ either way, but the label was wrong.
 | Immutable spans, from `immutableReferences` | 4 spans, one slot (id `64740`), 32 bytes each, 128 bytes total |
 | Total differing offsets | 4 |
 | Differing offsets inside declared immutable spans | 4 |
-| Trailing CBOR metadata | 53 bytes, offsets 6,340–6,392 (build-environment dependent) |
-| **Differing offsets across the 6,340-byte executable region** | **0** |
-| **Differing offsets anywhere outside the 128 masked immutable bytes** | **0** |
+| Trailing CBOR metadata | 53 bytes, offsets 6,340–6,392 (varies between independent builds) |
+| Differing offsets in the 6,340-byte pre-trailer region | 4 (the immutable words) |
+| **Differing offsets across the 6,212-byte region, both maskings applied** | **0** |
 
 <!-- markdownlint-enable MD013 -->
 
@@ -415,8 +427,9 @@ count. What establishes provenance is the executable-region byte identity with t
 masked, plus the four masked words each resolving to the expected constructor value.
 
 **An independent off-machine reproduction confirms both the result and why the region definition had
-to be corrected.** The round-1 review coordinator repeated this comparison on a different machine
-from the one that produced the deploy, masking by the compiler's own `immutableReferences`
+to be corrected.** The round-1 review coordinator repeated this comparison in an **independent
+rebuild** — one that was not this deployment's own build run — masking by the compiler's own
+`immutableReferences`
 (id `67019`, offsets 1144 / 2469 / 2754 / 3960, 32 bytes each). Their full output is at
 `wrap-ups/artifacts/ENG-4203-slot-evidence-6b302e6.md` (root `main`, commit `f57f07c`); the summary
 below is a pointer to it, not a second source:
@@ -428,18 +441,24 @@ below is a pointer to it, not a second source:
 | total differing offsets | 36 | 4 |
 | inside declared immutable spans | 4 (local 0 → chain 48 each) | 4 (identical) |
 | inside the 53-byte CBOR trailer | 32 | 0 |
-| **differing offsets in the 6,340-byte executable region** | **0** | **0** |
+| **differing offsets in the 6,212-byte region, both maskings applied** | **0** | **0** |
 
 <!-- markdownlint-enable MD013 -->
 
 This is the concrete reason the earlier 6,265-byte figure was not merely a mislabelling. That figure
 masked *only* the immutable spans, so the metadata trailer sat **inside** the region the record
-certified as zero. It read as zero here because this rebuild ran on the machine that produced the
-deploy and the trailer therefore matched. **On any other machine the trailer differs — 32 offsets in
-their run — and those 32 landed inside a region this record had certified as containing none.** A
-reader following the original instruction off-machine would have found 32 differences in a
-certified-zero region with no way to distinguish that from tampering. Under the corrected 6,340-byte
-definition their count is zero, measured, on a machine that never touched the deploy.
+certified as zero. In this deployment's own build run the trailer happened to match, so the count
+read as zero. **Under an independent rebuild the trailer differs — 32 offsets — and those 32 land
+inside a region this record had certified as containing none.** A reader following the original
+instruction would have found 32 differences in a certified-zero region with no way to distinguish
+that from tampering.
+
+**Why this run's rebuild reproduced the trailer is not established.** The obvious story is that it
+was the deploy's own build, but that was never tested, and asserting it would be a cause offered
+without isolation — the same standard applied to the n = 1 gas anomaly above. What the measurement
+establishes is narrower and sufficient: *an independent rebuild differs in the trailer while the
+executable region matches exactly*, so any certification region containing the trailer is not safely
+reproducible.
 
 It also demonstrates rather than merely asserts the metadata caveat below: the same mechanism means
 this PR's comment-only `src/` edits move the trailer at branch head while leaving the executable
@@ -457,9 +476,10 @@ region definition in the preceding paragraphs matters: with the trailer excluded
 corrections are invisible to the comparison, which is the correct outcome.
 
 The trailing CBOR metadata holds an IPFS hash digesting the compiler's *input* JSON and is
-build-environment dependent. It matched here because this rebuild ran on the machine that produced
-the deploy. A rebuild elsewhere may differ in that region without indicating tampering; reproduce
-the executable-region result, not the whole-runtime one.
+build-environment dependent. It matched in this run's own rebuild; **why it matched is not
+established** and is deliberately not guessed at here. An independent rebuild may differ in that
+region without indicating tampering — measured above, 32 differing offsets. Reproduce the
+executable-region result with both maskings applied, not the whole-runtime one.
 
 ## How this was deployed
 
