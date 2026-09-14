@@ -88,15 +88,8 @@ No aggregator or pool transaction was broadcast.
 
 ## Acceptance criteria not satisfied by this record
 
-Stated here rather than left to be noticed. Both are gaps; neither is waived by this document.
+Stated here rather than left to be noticed, and not waived by this document.
 
-- **Item 3 — the receipt-validated gas table at batch sizes 1, 10, 50 and 100 is NOT delivered.**
-  What this record contains is a 12-fact demonstration in two regimes, which is a smaller and
-  differently shaped measurement. It is not a substitute and is not offered as one. The table is
-  satisfiable and remains outstanding work on this ticket.
-- **Provenance is scoped to a non-canonical build shape.** The compared artifact came from
-  `forge build --skip test`, not from `forge clean && forge build`. Re-measuring under the canonical
-  build is outstanding; see *Bytecode provenance*.
 - **Item 4d — `DEPLOYMENT.md` was not updated.** The AC appears unsatisfiable as written: that
   document holds no address registry, and its own "Post-deploy: capture the address" section routes
   addresses to `UPGRADE-RUNBOOK.md`, a new per-family doc, the `broadcast/` artifacts and the
@@ -191,8 +184,106 @@ constructs a fresh `FabricaFactStore` on every call, so every row it measures ha
 and the 74,763 figure is a **first-write** number. Comparing it against a steady-state receipt is
 the exact error this section spends the preceding paragraphs ruling out.
 
-This record therefore draws **no conclusion about how per-fact cost varies with batch size.** It has
-not measured the same regime at two batch sizes, so it is not entitled to one.
+The 12-fact rows above are a demonstration, not the acceptance measurement. **Acceptance item 3's
+table is below, and it is what the batch-size conclusions rest on.**
+
+## Item 3: receipt-validated gas per fact at n = 1, 10, 50, 100
+
+Ten transactions against this store, from a fresh disposable writer on its own rows, five disjoint
+id buckets, each bucket written once fresh and then rewritten once at `cycle + 1`. Identical
+synthetic payload throughout, no declared writer policy, every send capped at 3 gwei. All ten
+receipts returned status 1 with no retries and no nonce gaps.
+
+**Both regimes carry a matched bare-`writeFact` control**, which is what makes these numbers a claim
+about *batching* rather than a comparison of two different code paths.
+
+<!-- markdownlint-disable MD013 -->
+
+| n | first-write `gasUsed` | gas/fact | steady-state `gasUsed` | gas/fact |
+| -- | -- | -- | -- | -- |
+| 1 | 78,518 | 78,518.0000 | 93,013 | 93,013.0000 |
+| 10 | 564,572 | 56,457.2000 | 691,534 | 69,153.4000 |
+| 50 | 2,724,812 | 54,496.2400 | 3,351,813 | 67,036.2600 |
+| 100 | 5,425,112 | 54,251.1200 | 6,677,593 | 66,775.9300 |
+| **control** — bare `writeFact` | **77,825** | 77,825.0000 | **92,320** | 92,320.0000 |
+
+<!-- markdownlint-enable MD013 -->
+
+`gasUsed` is the integer from each receipt; the per-fact column is that integer divided by `n`,
+carried to four decimals. Nothing on chain meters a single fact inside a batch, so the quotient is
+arithmetic, not a measurement.
+
+### Transaction hashes and spend reconciliation
+
+<!-- markdownlint-disable MD013 -->
+
+| # | call | tx |
+| -- | -- | -- |
+| 1 | `writeFacts` n=1 first-write | [`0xcaa0b029…f22b`](https://sepolia.etherscan.io/tx/0xcaa0b02970b794edb09f2ffe869f7b6505421e2cbe848ae9af86e4659452f22b) |
+| 2 | `writeFacts` n=10 first-write | [`0x35f7f359…ae9c`](https://sepolia.etherscan.io/tx/0x35f7f35967a659b835ba678b98df2f6e8cfbd52779b0b111dff10ffa1048ae9c) |
+| 3 | `writeFacts` n=50 first-write | [`0x006625eb…ab16`](https://sepolia.etherscan.io/tx/0x006625ebcb00acde1147e3e8dccf5db98d4a9d9b7c9122275e4b52a78909ab16) |
+| 4 | `writeFacts` n=100 first-write | [`0x92e9f75c…a271`](https://sepolia.etherscan.io/tx/0x92e9f75c5543223129a51ed47a795f0393243287377e4008d2e5bf99bb542a71) |
+| 5 | `writeFacts` n=1 steady-state | [`0xb317bd98…fa5b`](https://sepolia.etherscan.io/tx/0xb317bd98e8e24f823f31bf29602bd6260c2c708bfce8be0ae8fe7b227f28fa5b) |
+| 6 | `writeFacts` n=10 steady-state | [`0x99f10f4c…d3fa`](https://sepolia.etherscan.io/tx/0x99f10f4c0647db242d951b49c39231cd69f1a077930f012ecda4ffbf1debd3fa) |
+| 7 | `writeFacts` n=50 steady-state | [`0x5daa0d19…e9b6`](https://sepolia.etherscan.io/tx/0x5daa0d194aba1aa42f32ae1361b20fa947b2b2adc48424439b5796e08068e9b6) |
+| 8 | `writeFacts` n=100 steady-state | [`0x622ae91f…175d7`](https://sepolia.etherscan.io/tx/0x622ae91f743957abe66f2e8c96c9e49f9a5485f9c30421f2aef6e546c2f175d7) |
+| 9 | `writeFact` bare, first-write (control) | [`0xa5ebc246…b15bce`](https://sepolia.etherscan.io/tx/0xa5ebc2460b43b89bf546ec1ba13a8a543fe2960d6a6e11a3b5309f6518b15bce) |
+| 10 | `writeFact` bare, steady-state (control) | [`0x0105452a…b2fe`](https://sepolia.etherscan.io/tx/0x0105452a8e66bc2e5d4af170e0bf3d8dc182586ddd077f0fe4a5f6229197b2fe) |
+
+| Item | Value |
+| -- | -- |
+| Measurement writer | `0xe8BcD9BFD65978D3Ce9FCa130d2Ec7608D5456bf` (fresh disposable EOA, own rows only) |
+| Funding tx 1 | [`0x852f6c0b…dffe`](https://sepolia.etherscan.io/tx/0x852f6c0b166fccf35f9cfa9d17ac879d62fd3e0e9dd2736783a57ece4093dffe) — 0.05 ETH |
+| Funding tx 2 | [`0x7352cb56…1b03`](https://sepolia.etherscan.io/tx/0x7352cb560c766c02dd53471096fd4d9a618dfed1c3d5fff591fd211dbd6c1b03) — 0.05 ETH |
+| Total funded | 0.10 ETH (authorised cap 0.15; remaining headroom untouched) |
+| Balance after the 10 calls | 0.076071777134618049 ETH |
+| **Spend on the 10 calls** | **0.023928222865381953 ETH** |
+| Sweep back to pool | [`0xf1099f6f…26ff`](https://sepolia.etherscan.io/tx/0xf1099f6f7566ccc8cbbe6d37533816ad2a8fa2e42a33c5706bcb18b6b38626ff) — 0.076 ETH, status 1 |
+| Stranded dust | 0.000039033788241 ETH |
+| Final nonce | 11 — 10 measurement calls + 1 sweep, no gaps and no retries |
+
+<!-- markdownlint-enable MD013 -->
+
+Every send was capped with `--gas-price 3000000000` (maxFeePerGas) and
+`--priority-gas-price 100000000`; base fee was read before each send with an abort path if it
+reached the ceiling. It never did — effective gas prices ranged 1.146–1.303 gwei.
+
+### Read-backs and isolation
+
+Spot-checked one row per bucket (`4203100001`, `4203110001`, `4203120001`, `4203130001`,
+`4203140001`): each returns value 1,050,000, confidence 8,000, `cycle` 2, `live` true — the
+steady-state pass. The five buckets are disjoint, and none overlaps the 4203001–4203012
+demonstration rows. Cross-check that the two data sets did not mix: row 4203001 is live under the
+demonstration writer `0xDD2dB187…` and **not** live under the measurement writer, which is the
+per-writer row isolation the design intends.
+
+### What the table supports
+
+Within each regime the curve is now measured at four sizes, so the batch-size conclusion this record
+previously declined to draw is available:
+
+- **Per-fact cost falls as the batch grows, and flattens.** Most of the saving is captured by n = 10;
+  n = 50 and n = 100 add little. The 21,000-gas transaction floor is amortised away early.
+- **Against the matched control, n = 100 is 30.3% cheaper per fact first-write and 27.7% cheaper
+  steady-state.**
+- **At n = 1, `writeFacts` costs +693 gas more than bare `writeFact`** — the same figure in both
+  regimes. That is the measured delta for these two calls and nothing more. A plausible cause is
+  calldata/array-decode overhead, but **this was not isolated and the attribution is unproven**;
+  the difference could arise anywhere on the two paths. Recorded as a measurement, not as a
+  recommendation — nothing here assigns a change to the keeper or to any other consumer.
+
+### Against PR #52's bench figure, which this does not reproduce
+
+#52 reported 74,763 gas/fact at n = 100. The comparable row here is **first-write n = 100 =
+54,251.12** — `_measureWriteFacts` constructs a fresh store per call, so the bench figure is a
+first-write number. That is roughly **27% below** the bench, not a reproduction of it.
+
+**The gap is unexplained and this record does not attribute it.** The two numbers were produced by
+different means — a Foundry harness there, real transaction receipts here — and several differences
+between those paths could contribute, but none has been isolated and measured. Offering a cause
+without that work would be a guess presented as a finding. This record neither claims to have
+reproduced #52's bench nor claims it is wrong; it reports its own receipts and the size of the
+difference.
 
 What this transaction does establish, without qualification: `writeFacts` works on chain at a real
 batch size, all-or-nothing, one event per fact, with the history ring behaving as designed.
@@ -232,20 +323,24 @@ produced in this worktree at commit `ec09c2f` with:
 forge build --skip test
 ```
 
-**That is not the repo's canonical build, and this record therefore does NOT assert third-party
-reproducibility.** The canonical re-measure is `forge clean && forge build --sizes` with no `--skip`
-of any path. The distinction is not pedantic: per the ENG-3231 postmortem, via-IR codegen for the
-whole compilation graph can shift under `--skip`, and a `--skip` build was once measured 102 bytes
-denser than canonical, falsifying a headline size claim. Whether `--skip` perturbs *this* contract
-is an empirical question that has not been answered here — answering it needs a clean full build,
-which was not available when this record was written.
+**That is not the repo's canonical build**, which is `forge clean && forge build --sizes` with no
+`--skip` of any path. The distinction is not pedantic: per the ENG-3231 postmortem, via-IR codegen
+for the whole compilation graph can shift under `--skip`, and a `--skip` build was once measured 102
+bytes denser than canonical, falsifying a headline size claim. So whether `--skip` perturbs *this*
+contract was a real empirical question, and this record did not assert third-party reproducibility
+until it had been answered.
 
-So the honest statement is bounded: under the build shape named above, the comparison below yields
-zero differing offsets outside the declared immutable spans. A reader who rebuilds cleanly may see
-executable-region differences arising from the build shape rather than from the deployment, and
-should treat that as inconclusive, not as evidence of tampering. **Re-measuring under
-`forge clean && forge build` and confirming the same result is outstanding work on this ticket**;
-until it is done, treat the provenance claim as scoped to this build shape.
+**It has now been answered by measurement, and the two build shapes agree exactly.** At `ec09c2f`,
+`forge clean && forge build` and `forge clean && forge build --skip test` both produce a 6,393-byte
+`deployedBytecode`, and the two artifacts are **byte-identical** (`cmp` clean). The reason is that
+`foundry.toml` sets **`via_ir = false`**: the ENG-3231 effect is specifically a via-IR
+whole-compilation-graph phenomenon, so under the standard pipeline skipping test sources does not
+perturb `src/` bytecode. The ENG-3231 rationale is kept above because it remains the right caution
+for any build that does enable via-IR — what changes here is the conclusion, not the context.
+
+That measurement was made by the ENG-4203 round-1 review coordinator on a different machine, not by
+this lane. **Either command reproduces this record's comparison**, so the claim below is
+reproducible rather than scoped to one build shape.
 
 The toolchain is likewise not fixed by the repo: `foundry.toml` sets `auto_detect_solc = true` and
 pins no `evm_version`. The build that produced the compared artifact reports **solc 0.8.35,
@@ -307,6 +402,35 @@ fully explained rather than merely tolerated.
 The size agreement is a consistency check, not proof: two different contracts can share a byte
 count. What establishes provenance is the executable-region byte identity with the immutable spans
 masked, plus the four masked words each resolving to the expected constructor value.
+
+**An independent off-machine reproduction confirms both the result and why the region definition had
+to be corrected.** The round-1 review coordinator repeated this comparison on a different machine
+from the one that produced the deploy, masking by the compiler's own `immutableReferences`
+(id `67019`, offsets 1144 / 2469 / 2754 / 3960, 32 bytes each):
+
+<!-- markdownlint-disable MD013 -->
+
+| Measure | Their machine | This machine |
+| -- | -- | -- |
+| total differing offsets | 36 | 4 |
+| inside declared immutable spans | 4 (local 0 → chain 48 each) | 4 (identical) |
+| inside the 53-byte CBOR trailer | 32 | 0 |
+| **differing offsets in the 6,340-byte executable region** | **0** | **0** |
+
+<!-- markdownlint-enable MD013 -->
+
+This is the concrete reason the earlier 6,265-byte figure was not merely a mislabelling. That figure
+masked *only* the immutable spans, so the metadata trailer sat **inside** the region the record
+certified as zero. It read as zero here because this rebuild ran on the machine that produced the
+deploy and the trailer therefore matched. **On any other machine the trailer differs — 32 offsets in
+their run — and those 32 landed inside a region this record had certified as containing none.** A
+reader following the original instruction off-machine would have found 32 differences in a
+certified-zero region with no way to distinguish that from tampering. Under the corrected 6,340-byte
+definition their count is zero, measured, on a machine that never touched the deploy.
+
+It also demonstrates rather than merely asserts the metadata caveat below: the same mechanism means
+this PR's comment-only `src/` edits move the trailer at branch head while leaving the executable
+region identical.
 
 **The compared build is `ec09c2f`, not this branch's head, and that distinction is load-bearing
 here.** After the deploy, this PR corrected a stale `Round-2 permissionless fact store` self-label
