@@ -94,6 +94,9 @@ Stated here rather than left to be noticed. Both are gaps; neither is waived by 
   What this record contains is a 12-fact demonstration in two regimes, which is a smaller and
   differently shaped measurement. It is not a substitute and is not offered as one. The table is
   satisfiable and remains outstanding work on this ticket.
+- **Provenance is scoped to a non-canonical build shape.** The compared artifact came from
+  `forge build --skip test`, not from `forge clean && forge build`. Re-measuring under the canonical
+  build is outstanding; see *Bytecode provenance*.
 - **Item 4d — `DEPLOYMENT.md` was not updated.** The AC appears unsatisfiable as written: that
   document holds no address registry, and its own "Post-deploy: capture the address" section routes
   addresses to `UPGRADE-RUNBOOK.md`, a new per-family doc, the `broadcast/` artifacts and the
@@ -220,21 +223,34 @@ address, not new handler code.
 
 ## Bytecode provenance
 
-**Method, stated exactly so it can be re-run.** The local artifact was produced in this worktree at
-commit `ec09c2f` with:
+**Method, stated exactly — and stated with its limits, which are real.** The local artifact was
+produced in this worktree at commit `ec09c2f` with:
 
 ```sh
 forge build --skip test
 ```
 
-`foundry.toml` sets `auto_detect_solc = true` and pins no `evm_version`, so the toolchain is not
-fixed by the repo. The build that produced the compared artifact reports **solc 0.8.35, optimizer
-on, `runs = 1`, `evmVersion` osaka** in its own metadata — the same settings Etherscan verified
-against. A rebuild on a machine that resolves a different solc or EVM target may differ in the
-executable region, not merely in the metadata trailer, so reproduce with those settings or treat a
-mismatch as inconclusive rather than as evidence of tampering. (Pinning `solc_version` and
-`evm_version` in `foundry.toml` would remove that caveat; it is repo-wide hardening, out of scope
-for this ticket.)
+**That is not the repo's canonical build, and this record therefore does NOT assert third-party
+reproducibility.** The canonical re-measure is `forge clean && forge build --sizes` with no `--skip`
+of any path. The distinction is not pedantic: per the ENG-3231 postmortem, via-IR codegen for the
+whole compilation graph can shift under `--skip`, and a `--skip` build was once measured 102 bytes
+denser than canonical, falsifying a headline size claim. Whether `--skip` perturbs *this* contract
+is an empirical question that has not been answered here — answering it needs a clean full build,
+which was not available when this record was written.
+
+So the honest statement is bounded: under the build shape named above, the comparison below yields
+zero differing offsets outside the declared immutable spans. A reader who rebuilds cleanly may see
+executable-region differences arising from the build shape rather than from the deployment, and
+should treat that as inconclusive, not as evidence of tampering. **Re-measuring under
+`forge clean && forge build` and confirming the same result is outstanding work on this ticket**;
+until it is done, treat the provenance claim as scoped to this build shape.
+
+The toolchain is likewise not fixed by the repo: `foundry.toml` sets `auto_detect_solc = true` and
+pins no `evm_version`. The build that produced the compared artifact reports **solc 0.8.35,
+optimizer on, `runs = 1`, `evmVersion` osaka** in its own metadata — the same settings Etherscan
+verified against — so reproduce with those settings or, again, treat a mismatch as inconclusive.
+(Pinning `solc_version` and `evm_version` would remove that half of the caveat; it is repo-wide
+hardening, out of scope for this ticket.)
 
 The local side is `out/FabricaFactStore.sol/FabricaFactStore.json` → `deployedBytecode.object`,
 hex-decoded. The chain side is `eth_getCode` on the deployed address, hex-decoded. The two byte
