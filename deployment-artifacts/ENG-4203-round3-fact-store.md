@@ -262,15 +262,25 @@ per-writer row isolation the design intends.
 Within each regime the curve is now measured at four sizes, so the batch-size conclusion this record
 previously declined to draw is available:
 
-- **Per-fact cost falls as the batch grows, and flattens.** Most of the saving is captured by n = 10;
-  n = 50 and n = 100 add little. The 21,000-gas transaction floor is amortised away early.
+Each statement below is read off the rows above, **within a single regime**. The first-write and
+steady-state series are never compared with each other: they differ in whether a history-ring write
+occurs, which is exactly the mismatch that made an earlier draft of this record wrong.
+
+- **Per-fact cost falls as the batch grows, and flattens.** First-write: 78,518.0000 → 56,457.2000 →
+  54,496.2400 → 54,251.1200. Steady-state: 93,013.0000 → 69,153.4000 → 67,036.2600 → 66,775.9300.
+  In both series most of the movement is between n = 1 and n = 10, and n = 50 → n = 100 changes
+  little.
+- **Part of that shape is arithmetic rather than a property of `writeFacts`.** A transaction's
+  21,000-gas floor divided across the batch is 21,000 / 2,100 / 420 / 210 per fact at n = 1 / 10 /
+  50 / 100, so of the 22,060.8000 first-write drop between n = 1 and n = 10, 18,900 is the floor
+  spreading out. The remainder is not attributed here.
 - **Against the matched control, n = 100 is 30.3% cheaper per fact first-write and 27.7% cheaper
-  steady-state.**
+  steady-state.** Both comparisons are control-to-batch inside one regime.
 - **At n = 1, `writeFacts` costs +693 gas more than bare `writeFact`** — the same figure in both
-  regimes. That is the measured delta for these two calls and nothing more. A plausible cause is
-  calldata/array-decode overhead, but **this was not isolated and the attribution is unproven**;
-  the difference could arise anywhere on the two paths. Recorded as a measurement, not as a
-  recommendation — nothing here assigns a change to the keeper or to any other consumer.
+  regimes. That is the measured delta between those two calls and nothing more. **No cause is
+  offered**: isolating one would need measurements this run did not make, and a plausible-sounding
+  mechanism is precisely what a record should not carry. Nothing here assigns a change to the
+  keeper or to any other consumer.
 
 ### Against PR #52's bench figure, which this does not reproduce
 
@@ -339,7 +349,8 @@ perturb `src/` bytecode. The ENG-3231 rationale is kept above because it remains
 for any build that does enable via-IR — what changes here is the conclusion, not the context.
 
 That measurement was made by the ENG-4203 round-1 review coordinator on a different machine, not by
-this lane. **Either command reproduces this record's comparison**, so the claim below is
+this lane; its full output is published at `wrap-ups/artifacts/ENG-4203-slot-evidence-6b302e6.md`
+on fabrica-v3 root `main` (commit `f57f07c`), which is the source of truth for it. **Either command reproduces this record's comparison**, so the claim below is
 reproducible rather than scoped to one build shape.
 
 The toolchain is likewise not fixed by the repo: `foundry.toml` sets `auto_detect_solc = true` and
@@ -406,7 +417,9 @@ masked, plus the four masked words each resolving to the expected constructor va
 **An independent off-machine reproduction confirms both the result and why the region definition had
 to be corrected.** The round-1 review coordinator repeated this comparison on a different machine
 from the one that produced the deploy, masking by the compiler's own `immutableReferences`
-(id `67019`, offsets 1144 / 2469 / 2754 / 3960, 32 bytes each):
+(id `67019`, offsets 1144 / 2469 / 2754 / 3960, 32 bytes each). Their full output is at
+`wrap-ups/artifacts/ENG-4203-slot-evidence-6b302e6.md` (root `main`, commit `f57f07c`); the summary
+below is a pointer to it, not a second source:
 
 <!-- markdownlint-disable MD013 -->
 
