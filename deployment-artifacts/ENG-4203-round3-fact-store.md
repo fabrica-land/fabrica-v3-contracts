@@ -107,10 +107,12 @@ Stated here rather than left to be noticed. Both are gaps; neither is waived by 
 ## There is no writer registration, on this store or any other
 
 ENG-4203 item 4 asks for writers to be "re-registered/authorized exactly as on `0xa81f30b0`". **That
-is a no-op, and the ticket's premise does not hold.** This is a correction to the AC's premise, not
-a judgement that the AC was unimportant, and it is surfaced in the PR description and as a comment
-on ENG-4203 rather than only at line 100 of a long artifact — a gap stated where nobody reads it has
-been stated to nobody. It is not treated as satisfied until the operator acknowledges it. `FabricaFactStore` is ownerless by
+is a no-op, and the ticket's premise does not hold.** This is a factual correction backed by the
+source cited below, not a judgement that the AC was unimportant and not a discretionary call: the
+criterion asks for a registration step that does not exist anywhere in this contract, so there is
+nothing to exercise discretion about. It is surfaced in the PR description and as a comment on
+ENG-4203 as well as here, because a gap stated only at line 100 of a long artifact has been stated
+to nobody. `FabricaFactStore` is ownerless by
 construction: no owner, no writer allowlist, no recovery writer, no lock authority, no gate. Its
 only access check is `src/FabricaFactStore.sol:339`:
 
