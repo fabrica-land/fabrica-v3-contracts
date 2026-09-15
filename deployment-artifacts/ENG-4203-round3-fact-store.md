@@ -283,7 +283,7 @@ occurs, which is exactly the mismatch that made an earlier draft of this record 
 
 ### Against PR #52's bench figure, which this does not reproduce
 
-#52 reported 74,763 gas/fact at n = 100. The comparable row here is **first-write n = 100 =
+PR `#52` reported 74,763 gas/fact at n = 100. The comparable row here is **first-write n = 100 =
 54,251.12** — `_measureWriteFacts` constructs a fresh store per call, so the bench figure is a
 first-write number. That is roughly **27% below** the bench, not a reproduction of it.
 
