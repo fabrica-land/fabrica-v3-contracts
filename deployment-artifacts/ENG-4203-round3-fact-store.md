@@ -115,27 +115,31 @@ finite sample could. The load-bearing facts are stronger than the probe anyway: 
 deployed in this transaction, and an exhaustive log sweep — `eth_getLogs` over the store from its
 deploy block 11,704,139 to block **11,704,149** (the block of the second demonstration `writeFacts`;
 not "to latest") — returns **24 events, all `FactWritten`, across exactly 2 transactions, from a
-single writer `0xDD2dB187d3d4EBBedCBbbaa9e1F5BafF91FB8a79`**. Re-read 2026-09-17 at chain head
-11,726,614: 348 events / 12 transactions. The extra 324 events / 10 transactions are this record's
-own item-3 measurement hashes, which landed from block 11,704,708. The 24/2 count is the sweep
-through 11,704,149, not a claim about the chain at an unbounded "latest". That sweep is exhaustive
-in a way a nonce is not: every mutating function in this contract emits an event, so no write can
-escape it, whereas a nonce bounds only one EOA's own outgoing transactions and this store is
-permissionless — any address may write under its own row, and an internal call from a contract
-consumes no nonce at all. No oracle-source key was created or used at any point in this deploy.
+single writer `0xDD2dB187d3d4EBBedCBbbaa9e1F5BafF91FB8a79`**. Re-read 2026-09-17 at block
+**11,726,790** (chain head at that measurement): 348 events / 12 transactions / **174 unique
+untrusted `(writer, tokenId)` pairs** / 0 unique trusted pairs. The extra 324 events / 10
+transactions / 162 pairs are this record's own item-3 measurement hashes, which landed from block
+11,704,708. The 24/2 count is the sweep through 11,704,149, not a claim about the chain at an
+unbounded "latest". That sweep is exhaustive in a way a nonce is not: every mutating function in
+this contract emits an event, so no write can escape it, whereas a nonce bounds only one EOA's own
+outgoing transactions and this store is permissionless — any address may write under its own row,
+and an internal call from a contract consumes no nonce at all. No oracle-source key was created or
+used at any point in this deploy.
 
-**Those twelve rows are permanent.** The writer key was destroyed after the sweep, and the store is
-ownerless with no delete: `setLock`, `setMinValidCycle` and any superseding write all route through
-`_requireWriter`, so nobody — including Fabrica — can ever lock, revoke or supersede them. They are
-not a pricing hazard, because `0xDD2dB187d3d4EBBedCBbbaa9e1F5BafF91FB8a79` is in no aggregator's
-immutable `writers[]`. They are an
-**indexing** hazard: a consumer that indexes `FactWritten` by store address without filtering on a
-trusted writer will surface twelve fabricated valuations permanently. Applying a trusted-writer
-filter is therefore a requirement on
+**Those twelve demonstration rows are permanent**, and so are the 162 measurement rows. The writer
+keys were destroyed after the sweep, and the store is ownerless with no delete: `setLock`,
+`setMinValidCycle` and any superseding write all route through `_requireWriter`, so nobody —
+including Fabrica — can ever lock, revoke or supersede them. They are not a pricing hazard, because
+neither `0xDD2dB187d3d4EBBedCBbbaa9e1F5BafF91FB8a79` nor `0xe8BcD9BFD65978D3Ce9FCa130d2Ec7608D5456bf`
+is in any aggregator's immutable `writers[]`. They are an **indexing** hazard: a consumer that
+indexes `FactWritten` by store address without filtering on a trusted writer will surface **174
+unique untrusted `(writer, tokenId)` pairs permanently** (12 demonstration + 162 measurement; 348
+events / 12 txs at to-block 11,726,790 — unique pairs, not events and not txs). Applying a
+trusted-writer filter is therefore a requirement on
 [ENG-4205](https://linear.app/fabrica/issue/ENG-4205) and on any keeper or API consumer, recorded
-there rather than only here. The token ids used (4203001–4203012) do not collide with any id in use
-and sit roughly 4.2 million ahead of the current Sepolia sequence; they share the same `uint256`
-space, so that is a statement about distance, not an impossibility.
+there rather than only here. The demonstration token ids (4203001–4203012) do not collide with any
+id in use and sit roughly 4.2 million ahead of the current Sepolia sequence; they share the same
+`uint256` space, so that is a statement about distance, not an impossibility.
 
 ## Verification: one real `writeFacts` transaction
 
