@@ -176,6 +176,42 @@ contract FabricaImmutableAggregatorDeployTest is Test {
         script.runWithConfig(config);
     }
 
+    /// @notice `MAX_BATCH()` returning 0 is refused. The old `== 0` conjunct is now the `!= 256`
+    ///         check; this fixture keeps that branch red if the value comparison is dropped.
+    function test_refusesAStoreWhoseMaxBatchIsZero() public {
+        vm.etch(SEPOLIA_FACT_STORE, address(new AnswersMaxBatch(0)).code);
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                FabricaImmutableAggregatorDeployScript.FactStoreLacksBatchWrites.selector, SEPOLIA_FACT_STORE
+            )
+        );
+        script.runWithConfig(_config());
+    }
+
+    /// @notice `MAX_BATCH()` returning 1 is refused. A nonzero-only guard would accept this.
+    function test_refusesAStoreWhoseMaxBatchIsOne() public {
+        vm.etch(SEPOLIA_FACT_STORE, address(new AnswersMaxBatch(1)).code);
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                FabricaImmutableAggregatorDeployScript.FactStoreLacksBatchWrites.selector, SEPOLIA_FACT_STORE
+            )
+        );
+        script.runWithConfig(_config());
+    }
+
+    /// @notice A 64-byte `MAX_BATCH()` return is refused even when the first word is 256.
+    /// @dev The extra word is the point: `abi.decode` of the first 32 bytes would yield 256 and
+    ///      pass the value check, so only `returned.length != 32` rejects this fixture.
+    function test_refusesAStoreWhoseMaxBatchReturnIsNot32Bytes() public {
+        vm.etch(SEPOLIA_FACT_STORE, address(new AnswersMaxBatchWithExtraWord()).code);
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                FabricaImmutableAggregatorDeployScript.FactStoreLacksBatchWrites.selector, SEPOLIA_FACT_STORE
+            )
+        );
+        script.runWithConfig(_config());
+    }
+
     function test_refusesANonCanonicalCurrency() public {
         address impostor = makeAddr("not-sepolia-usdc");
         vm.etch(impostor, hex"60006000fd");
@@ -277,5 +313,31 @@ contract FabricaImmutableAggregatorDeployEnvTest is Test {
         /* And a value that fits is still accepted, so the bound is not simply refusing everything. */
         vm.setEnv("FABRICA_AGGREGATOR_MAX_JUMP_BPS", "6000");
         assertEq(script.run().maxJumpBps(), 6000, "an in-range override still applies");
+    }
+}
+
+/// @dev Etched at the pin so `_requireBatchCapableStore` is reached. Immutable `value` is baked
+///      into the runtime `vm.etch` copies.
+contract AnswersMaxBatch {
+    uint256 public immutable value;
+
+    constructor(uint256 value_) {
+        value = value_;
+    }
+
+    function MAX_BATCH() external view returns (uint256) {
+        return value;
+    }
+}
+
+/// @dev Returns 256 as the first word and a trailing zero word (64 bytes). Decode of the first
+///      32 bytes would pass `== 256`; only the length conjunct rejects it.
+contract AnswersMaxBatchWithExtraWord {
+    function MAX_BATCH() external pure {
+        assembly {
+            mstore(0, 256)
+            mstore(32, 0)
+            return(0, 64)
+        }
     }
 }

@@ -45,7 +45,7 @@ against the same truncated struct. The two addresses are not overridable at all:
 
 | Parameter | Value | Source |
 | -- | -- | -- |
-| `factStore` | `0xa81f30b0EC22DbE4b25239883850367EDB6f3Edd` | ENG-3924, the round-2 store; the script refused any other (`NonCanonicalFactStore`) **at the time of this deploy — superseded by [ENG-4203](https://linear.app/fabrica/issue/ENG-4203), which re-pinned that constant to the round-3 store** |
+| `factStore` | `0xa81f30b0EC22DbE4b25239883850367EDB6f3Edd` | ENG-3924, the live round-2 store; the script refuses any other (`NonCanonicalFactStore`) |
 | `usdc` | `0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238` | canonical Sepolia USDC; the script refuses any other |
 | `writers` | the three oracle sources (Prycd, OpenAVM, Regrid assessor) | Tim's numbers; **no default in the script** |
 | `minLiveSources` | 2 | Tim's numbers, 2 of 3; the contract refuses below 2 |

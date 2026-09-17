@@ -9,6 +9,8 @@ on:
 
 jobs:
   check:
+    permissions:
+      contents: read
     strategy:
       fail-fast: true
 

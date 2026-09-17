@@ -56,7 +56,7 @@ store before the deploy.
 
 | Parameter | Value | Source |
 | -- | -- | -- |
-| `historyDepth_` | 48 | `cast call 0xa81f30b0… "historyDepth()(uint8)"` returned 48 on the live store |
+| `historyDepth_` | 48 | `cast call 0xa81f30b0EC22DbE4b25239883850367EDB6f3Edd "historyDepth()(uint8)"` returned 48 on the live store |
 
 <!-- markdownlint-enable MD013 -->
 
@@ -78,9 +78,9 @@ Verified by `cast call` after the deploy:
 | Deployment | Sepolia address | State after this deploy |
 | -- | -- | -- |
 | Round-2 fact store | `0xa81f30b0EC22DbE4b25239883850367EDB6f3Edd` | runtime still 6,036 bytes, unchanged |
-| Round-1 pool | `0x6C56d0953377D7AB479BBA85Da8d61050F774c0B` | `priceOracle()` = `0x522C7F01…` (unchanged) |
-| ENG-3925 pool | `0xdE70d398Be943BB1CCd77a5c081e38046Ca17764` | `priceOracle()` = `0xbDD420cB…` (unchanged) |
-| ENG-3926 pool | `0x42C26Fd01B0D8217eDD5009078D6A53c6eE023E5` | `priceOracle()` = `0x1b17C9b2…` (unchanged) |
+| Round-1 pool | `0x6C56d0953377D7AB479BBA85Da8d61050F774c0B` | `priceOracle()` = `0x522C7F01B535b36eca6b27C32A65Ee79e7c4df45` (unchanged) |
+| ENG-3925 pool | `0xdE70d398Be943BB1CCd77a5c081e38046Ca17764` | `priceOracle()` = `0xbDD420cB9b171e743EDb8Ad7584aF52347F6CA57` (unchanged) |
+| ENG-3926 pool | `0x42C26Fd01B0D8217eDD5009078D6A53c6eE023E5` | `priceOracle()` = `0x1b17C9b2a5C0d8E9717b84eD4B214a4d2CedA52b` (unchanged) |
 
 <!-- markdownlint-enable MD013 -->
 
@@ -108,21 +108,27 @@ aggregator's `immutable` `writers[]` constructor argument, which is exactly why 
 a new aggregator.
 
 Confirmed on the new store, **for the queried key only**: `isFactLive(writer, 4203001, KIND_PRICE)`
-returns false for each of `0xfA2c254f…`, `0x70ED67c1…` and `0x24E52f31…`. That is a single
-(tokenId, kind) probe per source and it does not prove their namespaces are empty — no finite sample
-could. The load-bearing facts are stronger than the probe anyway: this contract was deployed in this
-transaction, and an exhaustive log sweep — `eth_getLogs` over the store from its deploy block to
-latest — returns **24 events, all `FactWritten`, across exactly 2 transactions, from a single writer
-topic `0xDD2dB187…`**. That sweep is exhaustive in a way a nonce is not: every mutating function in
-this contract emits an event, so no write can escape it, whereas a nonce bounds only one EOA's own
-outgoing transactions and this store is permissionless — any address may write under its own row,
-and an internal call from a contract consumes no nonce at all. No oracle-source key was created or
-used at any point in this deploy.
+returns false for each of `0xfA2c254f7f4DEf5B0f3CD1D6243F52192D3fC044`,
+`0x70ED67c1f4FE4f5a295E5bf3CDadCF54458Da7c7` and `0x24E52f31fc519692A814D73439BB16F44B86DfE1`. That is
+a single (tokenId, kind) probe per source and it does not prove their namespaces are empty — no
+finite sample could. The load-bearing facts are stronger than the probe anyway: this contract was
+deployed in this transaction, and an exhaustive log sweep — `eth_getLogs` over the store from its
+deploy block 11,704,139 to block **11,704,149** (the block of the second demonstration `writeFacts`;
+not "to latest") — returns **24 events, all `FactWritten`, across exactly 2 transactions, from a
+single writer `0xDD2dB187d3d4EBBedCBbbaa9e1F5BafF91FB8a79`**. Re-read 2026-09-17 at chain head
+11,726,614: 348 events / 12 transactions. The extra 324 events / 10 transactions are this record's
+own item-3 measurement hashes, which landed from block 11,704,708. The 24/2 count is the sweep
+through 11,704,149, not a claim about the chain at an unbounded "latest". That sweep is exhaustive
+in a way a nonce is not: every mutating function in this contract emits an event, so no write can
+escape it, whereas a nonce bounds only one EOA's own outgoing transactions and this store is
+permissionless — any address may write under its own row, and an internal call from a contract
+consumes no nonce at all. No oracle-source key was created or used at any point in this deploy.
 
 **Those twelve rows are permanent.** The writer key was destroyed after the sweep, and the store is
 ownerless with no delete: `setLock`, `setMinValidCycle` and any superseding write all route through
 `_requireWriter`, so nobody — including Fabrica — can ever lock, revoke or supersede them. They are
-not a pricing hazard, because `0xDD2dB187…` is in no aggregator's immutable `writers[]`. They are an
+not a pricing hazard, because `0xDD2dB187d3d4EBBedCBbbaa9e1F5BafF91FB8a79` is in no aggregator's
+immutable `writers[]`. They are an
 **indexing** hazard: a consumer that indexes `FactWritten` by store address without filtering on a
 trusted writer will surface twelve fabricated valuations permanently. Applying a trusted-writer
 filter is therefore a requirement on
@@ -134,8 +140,8 @@ space, so that is a statement about distance, not an impossibility.
 ## Verification: one real `writeFacts` transaction
 
 Both batches were written under the **disposable deployer's own writer row**
-(`writer == msg.sender == 0xDD2dB187…`), token ids 4203001–4203012, `kind = KIND_PRICE`. An
-isolated namespace, so no row any real source will use was touched.
+(`writer == msg.sender == 0xDD2dB187d3d4EBBedCBbbaa9e1F5BafF91FB8a79`), token ids 4203001–4203012,
+`kind = KIND_PRICE`. An isolated namespace, so no row any real source will use was touched.
 
 <!-- markdownlint-disable MD013 -->
 
@@ -253,7 +259,7 @@ Spot-checked one row per bucket (`4203100001`, `4203110001`, `4203120001`, `4203
 `4203140001`): each returns value 1,050,000, confidence 8,000, `cycle` 2, `live` true — the
 steady-state pass. The five buckets are disjoint, and none overlaps the 4203001–4203012
 demonstration rows. Cross-check that the two data sets did not mix: row 4203001 is live under the
-demonstration writer `0xDD2dB187…` and **not** live under the measurement writer, which is the
+demonstration writer `0xDD2dB187d3d4EBBedCBbbaa9e1F5BafF91FB8a79` and **not** live under the measurement writer, which is the
 per-writer row isolation the design intends.
 
 ### What the table supports
@@ -294,8 +300,11 @@ without that work would be a guess presented as a finding. This record neither c
 reproduced #52's bench nor claims it is wrong; it reports its own receipts and the size of the
 difference.
 
-What this transaction does establish, without qualification: `writeFacts` works on chain at a real
-batch size, all-or-nothing, one event per fact, with the history ring behaving as designed.
+What the on-chain transactions establish: `writeFacts` works on Sepolia at a real batch size, one
+`FactWritten` per fact, with the history ring retaining the superseded value. They do **not**
+establish all-or-nothing: every broadcast batch succeeded. All-or-nothing is the unit-test rollback
+property (`BandExceeded` inside a batch reverts the whole call); it was not observed on chain
+because no reverting batch was sent.
 
 ### Read-backs
 
@@ -319,7 +328,7 @@ FactWritten(address,uint256,bytes32,uint128,uint24,uint64,uint64,bytes32)
 topic0 0x3e2fc348577610decc713fae096858bfe5d83e8a18baf79e9011a07182c69d9c
 ```
 
-Measured both from this build's ABI and from a live log on `0xa81f30b0…`; byte-identical. The
+Measured both from this build's ABI and from a live log on `0xa81f30b0EC22DbE4b25239883850367EDB6f3Edd`; byte-identical. The
 subgraph ([ENG-4205](https://linear.app/fabrica/issue/ENG-4205)) therefore needs a new data source
 address, not new handler code.
 
@@ -498,13 +507,13 @@ the expected address — a mismatch there would have stranded the funding.
 | Step | Value |
 | -- | -- |
 | Disposable deployer | `0xDD2dB187d3d4EBBedCBbbaa9e1F5BafF91FB8a79` (balance 0, nonce 0, no code beforehand) |
-| Funding | 0.05 SepoliaETH from the shared pool `0x152e6102…`, tx [`0x0e0885af…dadd`](https://sepolia.etherscan.io/tx/0x0e0885af156a5864f1289cdb6e25dc410404b843383c6bfd47c15a520f35dadd), status 1, block 11,704,135 |
+| Funding | 0.05 SepoliaETH from the shared pool `0x152e6102AACf29694f75Efbf424f1f017FD3813F`, tx [`0x0e0885af…dadd`](https://sepolia.etherscan.io/tx/0x0e0885af156a5864f1289cdb6e25dc410404b843383c6bfd47c15a520f35dadd), status 1, block 11,704,135 |
 | Sweep back | 0.045703981948278724 ETH, tx [`0x4c752335…5ec8`](https://sepolia.etherscan.io/tx/0x4c75233526ab74d3fa27b3f135d4d2ff32818076f6ebb33332c57e98e6475ec8), status 1, block 11,704,157 |
 | Final nonce | 4 |
 
 <!-- markdownlint-enable MD013 -->
 
-**0.000056605416462 ETH is stranded** at `0xDD2dB187…` permanently; the key was destroyed after the
+**0.000056605416462 ETH is stranded** at `0xDD2dB187d3d4EBBedCBbbaa9e1F5BafF91FB8a79` permanently; the key was destroyed after the
 sweep. The sweep reserved three times the quoted gas price as headroom so it could not itself fail
 for under-pricing, and the unspent headroom is the stranding. That is **below** ENG-3926's
 0.0000815 ETH on the same path (5.66e-5 against 8.15e-5). Recorded rather than rounded away — it is
@@ -536,6 +545,8 @@ PR #52 did not touch it. Pointed at this new store it fails, measured before the
 Error: script failed: NonCanonicalFactStore(0x97fC2C3A…, 0xa81f30b0…)
 ```
 
+Full forms: `0x97fC2C3A41d4DB570363C5e3425C3676E4B81c5D`, `0xa81f30b0EC22DbE4b25239883850367EDB6f3Edd`.
+
 **The guard is correct and was preserved, not removed.** It exists because this store has now been
 redeployed twice and every superseded address still circulates in briefs. The aggregator's
 constructor cannot separate any two of these stores: `KIND_PRICE` is a compile-time constant, so it
@@ -546,18 +557,22 @@ rationale rewritten to cover both superseded stores.
 **The pin alone was not enough, and the board was right about that.** An address pin enforces a hex
 literal, which is only ever as good as the review that last read it; nothing in the repository could
 tell a correct pin from an incorrect one, and the binding it produces is an `immutable` — permanent
-and unfixable. The guard now also *proves the property the literal stands for*, with a `MAX_BATCH()`
-staticcall that must succeed. The two checks are complementary and neither subsumes the other: a pin
-cannot separate two round-3-shaped stores, and a property check cannot separate round 3 from a
-future round 4.
+and unfixable. The guard now also *proves the property the literal stands for*: `MAX_BATCH()` must
+return **exactly 256** (`FabricaFactStore.MAX_BATCH`), not merely a nonzero uint256. The two checks
+are complementary and neither subsumes the other: a pin cannot separate two round-3-shaped stores,
+and a property check cannot separate round 3 from a future round 4.
 
 The discriminator is verified by execution, not by scanning bytecode for a selector — a four-byte
 string in runtime code is a heuristic, not proof of dispatcher capability:
 
-| Probe (`eth_call`) | Round-3 `0x97fC2C3A…` | Round-2 `0xa81f30b0…` | Dead `0x89895c2f…` |
+<!-- markdownlint-disable MD013 -->
+
+| Probe (`eth_call`) | Round-3 `0x97fC2C3A41d4DB570363C5e3425C3676E4B81c5D` | Round-2 `0xa81f30b0EC22DbE4b25239883850367EDB6f3Edd` (codesize 6036) | Dead `0x89895c2fCC975c16AeAd2e213d2076dbF0aeb8b8` (codesize 6022) |
 | -- | -- | -- | -- |
 | `writeFacts(…, [])` | reverts `0xc2e5347d` = `EmptyBatch()` | reverts, no return data | reverts, no return data |
 | `MAX_BATCH()` | returns 256 | reverts, no return data | reverts, no return data |
+
+<!-- markdownlint-enable MD013 -->
 
 A custom-error selector coming back from the round-3 store is positive proof the function is
 reachable and ran its own guard; the empty-data reverts are consistent independent negatives.
@@ -571,8 +586,21 @@ CI step supplying `SEPOLIA_RPC_URL`; without that step a fork suite silently ski
 nothing.
 
 `test/Eng3925ImmutableAggregatorSepoliaFork.t.sol` was left entirely unchanged: its
-`SHIPPED_FACT_STORE` asserts about the shipped `0xbDD420cB…` aggregator, which genuinely does still
-read the round-2 store.
+`SHIPPED_FACT_STORE` asserts about the shipped `0xbDD420cB9b171e743EDb8Ad7584aF52347F6CA57`
+aggregator, which genuinely does still read the round-2 store.
+
+## Addendum: the script now refuses the round-2 store (prior records not rewritten)
+
+`DEPLOYMENT.md` forbids in-place edits of prior deployment records. The ENG-3925 and ENG-3926
+constructor Source cells therefore stay as they were at those deploys: the script **refuses** any
+fact store other than `0xa81f30b0EC22DbE4b25239883850367EDB6f3Edd` (`NonCanonicalFactStore`). That
+is still true of those live aggregators — their `factStore()` immutables still read that address,
+and the pools' `priceOracle()` values above are unchanged.
+
+What changed in this PR is only `script/FabricaImmutableAggregatorDeploy.s.sol` on this branch: a
+**new** run of that script refuses `0xa81f30b0EC22DbE4b25239883850367EDB6f3Edd` and requires
+`0x97fC2C3A41d4DB570363C5e3425C3676E4B81c5D` plus `MAX_BATCH() == 256`. That refused outcome belongs
+here, not in the round-2 records.
 
 ## Downstream
 

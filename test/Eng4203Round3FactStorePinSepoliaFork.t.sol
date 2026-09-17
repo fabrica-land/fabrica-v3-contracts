@@ -27,6 +27,10 @@ contract Eng4203Round3FactStorePinSepoliaForkTest is ForkTestBase {
 
     /// @notice Round-3 runtime size, as deployed and Etherscan-verified.
     uint256 internal constant ROUND3_RUNTIME_BYTES = 6393;
+    /// @notice Round-2 store runtime; it has no `MAX_BATCH` and predates `writeFacts`.
+    uint256 internal constant ROUND2_RUNTIME_BYTES = 6036;
+    /// @notice Dead first round-2 store runtime (zero-baseline band bug).
+    uint256 internal constant DEAD_ROUND2_RUNTIME_BYTES = 6022;
 
     /// @notice Superseded generations, retained so the discriminator is shown to discriminate.
     address internal constant ROUND2_FACT_STORE = 0xa81f30b0EC22DbE4b25239883850367EDB6f3Edd;
@@ -59,8 +63,8 @@ contract Eng4203Round3FactStorePinSepoliaForkTest is ForkTestBase {
     ///      candidate satisfies discriminates nothing. Both superseded stores are live on chain at
     ///      this block and neither answers the call.
     function test_fork_supersededStoresCannotAnswerMaxBatch() public view {
-        assertGt(ROUND2_FACT_STORE.code.length, 0, "round-2 store still deployed");
-        assertGt(DEAD_ROUND2_FACT_STORE.code.length, 0, "dead round-2 store still deployed");
+        assertEq(ROUND2_FACT_STORE.code.length, ROUND2_RUNTIME_BYTES, "round-2 store runtime size");
+        assertEq(DEAD_ROUND2_FACT_STORE.code.length, DEAD_ROUND2_RUNTIME_BYTES, "dead store runtime size");
         (bool roundTwoOk,) = ROUND2_FACT_STORE.staticcall(abi.encodeWithSignature("MAX_BATCH()"));
         assertFalse(roundTwoOk, "round-2 store must not answer MAX_BATCH");
         (bool deadOk,) = DEAD_ROUND2_FACT_STORE.staticcall(abi.encodeWithSignature("MAX_BATCH()"));
