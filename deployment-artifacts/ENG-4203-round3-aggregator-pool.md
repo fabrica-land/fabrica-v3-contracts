@@ -247,6 +247,24 @@ trusting a vendored copy is the check that a drifted constant cannot pass.
 No ownership-finalize step was run: `admin()` is the factory, exactly as on the ENG-3926 pool, and
 that record ran none either.
 
+**The pool's creation transaction is recorded here rather than in the repo that ran it.** Foundry
+wrote that broadcast record into `fabrica-land/metastreet-contracts-v2`, which this PR does not
+touch and where nothing would have committed it, so the only copy lived in a scratch clone. It is
+carried into this repository verbatim as
+[`ENG-4203-round3-pool-broadcast.json`](./ENG-4203-round3-pool-broadcast.json) — byte-identical to
+`broadcast/FabricaLendingPoolCreateWithAggregator.s.sol/11155111/run-1789773434028.json` as produced
+by `script/FabricaLendingPoolCreateWithAggregator.s.sol` in
+[`fabrica-land/metastreet-contracts-v2`](https://github.com/fabrica-land/metastreet-contracts-v2) at
+`cfc14eb6e7eefaf0cf130916e1a61076467fe046` (`main`), sha256
+`3aa1f1d240b93c84c322a6aae65be0a083fe9182f9b16524f8551015ffb8ff6d`. It holds the `createProxied`
+call, its receipt and logs, and the inner `CREATE` of the pool with its init code. It carries no key
+material: a case-insensitive grep over the file for
+`private|privatekey|secret|mnemonic|password|keystore|seed|passphrase` returns **0 matching
+lines**, and an enumeration of every JSON path in it finds only
+chain data — receipts, logs, and the transaction envelope (`from`, `to`, `nonce`, `gas`, `input`,
+`value`). There are no signature fields at all. That is the measurement, not the rule; Foundry's
+sensitive values live in the separate `cache/` file, which was shredded.
+
 ### `price()` — a real price on both tokens
 
 Chain time 1,789,773,468 (2026-09-18 23:17:48Z), `collateralToken` = FabricaToken,
