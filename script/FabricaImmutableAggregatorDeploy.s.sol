@@ -4,7 +4,9 @@ pragma solidity ^0.8.24;
 import {Script, console} from "forge-std/Script.sol";
 import {FabricaImmutableAggregator} from "../src/FabricaImmutableAggregator.sol";
 
-/// @notice ENG-3925 — deploy the round-2 immutable aggregator.
+/// @notice Deploy the immutable aggregator. Introduced by ENG-3925 for round 2; ENG-4203 re-points
+///         the fact-store pin to the round-3 store and adds a `MAX_BATCH` liveness check that
+///         requires the pinned store to answer `MAX_BATCH() == 256`.
 /// @dev There is no owner argument, no freeze step and no post-deploy call, which is the point of
 ///      the redeploy. The round-1 script (`FabricaOracleAggregatorDeployScript`) had to name a
 ///      transient owner, deploy, and then remember to call `renounceAggregator()` in the same
@@ -12,7 +14,7 @@ import {FabricaImmutableAggregator} from "../src/FabricaImmutableAggregator.sol"
 ///      holds nothing at any point, so there is no window to forget.
 ///
 ///      Sepolia only. Mainnet is refused outright rather than left to the operator's care: this
-///      contract is a testnet round-2 artifact and nothing about it has been through the mainnet
+///      contract is a testnet artifact and nothing about it has been through the mainnet
 ///      gate. The round-1 aggregator, the signed-quote pool and the ENG-3924 fact store are separate
 ///      deployments and are not touched, upgraded or superseded by this script.
 ///
@@ -22,13 +24,14 @@ import {FabricaImmutableAggregator} from "../src/FabricaImmutableAggregator.sol"
 ///
 ///      Then create the pool with metastreet-contracts-v2's existing
 ///      `script/FabricaLendingPoolCreateWithAggregator.s.sol`, passing this address as
-///      `FABRICA_LENDING_AGGREGATOR`. That script takes any `IPriceOracle`, so the round-2 launch
+///      `FABRICA_LENDING_AGGREGATOR`. That script takes any `IPriceOracle`, so the round-3 launch
 ///      needs no change in that repo.
 contract FabricaImmutableAggregatorDeployScript is Script {
     error MainnetIsNotInScope(uint256 chainId);
     error UnsupportedChain(uint256 chainId);
     error NonCanonicalUsdc(address configured, address expected);
     error NonCanonicalFactStore(address configured, address expected);
+    error FactStoreLacksBatchWrites(address factStore);
     error NoWritersConfigured();
     error EnvValueOutOfRange(string field, uint256 value, uint256 max);
     error IntendedVsDeployedMismatch(string field);
@@ -37,16 +40,23 @@ contract FabricaImmutableAggregatorDeployScript is Script {
     uint256 internal constant SEPOLIA_CHAIN_ID = 11155111;
     address internal constant SEPOLIA_USDC = 0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238;
 
-    /// @notice The live round-2 fact store (ENG-3924), pinned the way the currency is pinned.
-    /// @dev Not paranoia about a typo: this store has ALREADY been redeployed once. The first
-    ///      round-2 deployment at 0x89895c2fCC975c16AeAd2e213d2076dbF0aeb8b8 carried the
-    ///      zero-baseline band bug, is dead, and still circulates in briefs. The aggregator's own
-    ///      constructor cannot catch that mistake — it rejects a zero address, a codeless address
-    ///      and a store whose `KIND_PRICE` disagrees, and the dead store passes all three — and the
+    /// @notice The live round-3 fact store (ENG-4203), pinned the way the currency is pinned.
+    /// @dev Not paranoia about a typo: this store has now been redeployed TWICE, and each
+    ///      superseded address still circulates in briefs. The first round-2 deployment at
+    ///      0x89895c2fCC975c16AeAd2e213d2076dbF0aeb8b8 carried the zero-baseline band bug and is
+    ///      dead. The second, 0xa81f30b0EC22DbE4b25239883850367EDB6f3Edd (ENG-3924), is alive and
+    ///      correct but predates `writeFacts`, so an aggregator bound to it would feed a pool from
+    ///      a store the batched keeper no longer writes to. The aggregator's own constructor
+    ///      cannot catch either mistake — it rejects a zero address, a codeless address and a
+    ///      store whose `KIND_PRICE` disagrees, and BOTH superseded stores pass all three, the
+    ///      round-2 store because its `KIND_PRICE` is byte-identical to this one — and the
     ///      readback cannot either, because it compares the deployed value against the same
     ///      configured address. Binding a pool's price feed to the wrong store is permanent here,
     ///      so the script refuses rather than trusting the environment.
-    address internal constant SEPOLIA_FACT_STORE = 0xa81f30b0EC22DbE4b25239883850367EDB6f3Edd;
+    address internal constant SEPOLIA_FACT_STORE = 0x97fC2C3A41d4DB570363C5e3425C3676E4B81c5D;
+    /// @dev Must equal `FabricaFactStore.MAX_BATCH`. Named here because a type-level
+    ///      `FabricaFactStore.MAX_BATCH` lookup is not visible from this script under solc 0.8.35.
+    uint256 internal constant ROUND3_MAX_BATCH = 256;
 
     /* Tim's numbers, 2026-09-03 18:12Z, and the round-1 values ENG-3925 carries forward. These are
        DEFAULTS, not the only accepted values: each is overridable by env so a redeploy under a later
@@ -87,6 +97,16 @@ contract FabricaImmutableAggregatorDeployScript is Script {
     /// @dev Public so the intended half of the review gate can be produced without broadcasting.
     function config() external view returns (FabricaImmutableAggregator.Config memory) {
         return _config();
+    }
+
+    /// @notice The pinned canonical fact store, exposed for the Sepolia fork suite.
+    /// @dev Read-only accessor so `Eng4203Round3FactStorePinSepoliaForkTest` can assert the pin
+    ///      against the real chain without restating the literal and drifting from it. Deliberately
+    ///      NOT consumed by `_config()`: the unit fixtures must keep supplying the address
+    ///      independently, or every happy-path assertion becomes tautological with respect to the
+    ///      pin and a desynced literal would stop failing the suite.
+    function pinnedFactStore() external pure returns (address) {
+        return SEPOLIA_FACT_STORE;
     }
 
     /// @notice Tim's numbers, as this script will apply them when the environment does not override.
@@ -189,6 +209,24 @@ contract FabricaImmutableAggregatorDeployScript is Script {
         if (block.chainid != SEPOLIA_CHAIN_ID) revert UnsupportedChain(block.chainid);
         if (usdc != SEPOLIA_USDC) revert NonCanonicalUsdc(usdc, SEPOLIA_USDC);
         if (factStore != SEPOLIA_FACT_STORE) revert NonCanonicalFactStore(factStore, SEPOLIA_FACT_STORE);
+        _requireBatchCapableStore(factStore);
+    }
+
+    /// @notice Prove on chain that the pinned store is a round-3 generation, rather than trusting hex.
+    /// @dev The pin above enforces a LITERAL; this enforces the PROPERTY the literal stands for. Both
+    ///      are needed and neither subsumes the other: a pin cannot separate two round-3-shaped
+    ///      stores, and a property check cannot separate round 3 from a future round 4. `MAX_BATCH()`
+    ///      must return exactly `ROUND3_MAX_BATCH` (256, the round-3 `FabricaFactStore.MAX_BATCH`). A
+    ///      nonzero answer that is not 256 is not a round-3 store — the previous `!= 0` check
+    ///      accepted any nonzero uint256. Both superseded stores predate `writeFacts`, never
+    ///      declared the constant, and revert on the call (round-2 runtime 6,036 bytes; dead store
+    ///      6,022). Without this, the only thing standing between a pool and a permanently wrong
+    ///      immutable feed is a hex literal that is exactly as good as the review that last looked
+    ///      at it.
+    function _requireBatchCapableStore(address factStore) internal view {
+        (bool ok, bytes memory returned) = factStore.staticcall(abi.encodeWithSignature("MAX_BATCH()"));
+        if (!ok || returned.length != 32) revert FactStoreLacksBatchWrites(factStore);
+        if (abi.decode(returned, (uint256)) != ROUND3_MAX_BATCH) revert FactStoreLacksBatchWrites(factStore);
     }
 
     /// @dev Every override arrives as a `uint256` and is narrowed into an immutable. Narrowing a
@@ -202,9 +240,9 @@ contract FabricaImmutableAggregatorDeployScript is Script {
         return value;
     }
 
-    /// @notice The INTENDED half of the review gate ENG-3925 requires pasted into the PR.
+    /// @notice The INTENDED half of the review gate ENG-3925 established and ENG-4203 carries forward.
     function _logIntended(FabricaImmutableAggregator.Config memory params) internal pure {
-        console.log("=== ENG-3925 round-2 immutable aggregator: INTENDED parameters ===");
+        console.log("=== ENG-4203 round-3 immutable aggregator: INTENDED parameters ===");
         console.log("factStore          ", params.factStore);
         console.log("usdc               ", params.usdc);
         for (uint256 i; i < params.writers.length; ++i) {
@@ -222,7 +260,7 @@ contract FabricaImmutableAggregatorDeployScript is Script {
 
     /// @notice The DEPLOYED half, read back off the contract rather than echoed from the inputs.
     function _logDeployed(FabricaImmutableAggregator aggregator) internal view {
-        console.log("=== ENG-3925 round-2 immutable aggregator: DEPLOYED parameters ===");
+        console.log("=== ENG-4203 round-3 immutable aggregator: DEPLOYED parameters ===");
         console.log("address            ", address(aggregator));
         console.log("factStore          ", address(aggregator.factStore()));
         console.log("usdc               ", aggregator.usdc());

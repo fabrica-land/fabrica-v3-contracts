@@ -17,7 +17,7 @@ contract FabricaImmutableAggregatorDeployTest is Test {
     uint256 internal constant MAINNET_CHAIN_ID = 1;
     uint256 internal constant SEPOLIA_CHAIN_ID = 11155111;
     address internal constant SEPOLIA_USDC = 0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238;
-    address internal constant SEPOLIA_FACT_STORE = 0xa81f30b0EC22DbE4b25239883850367EDB6f3Edd;
+    address internal constant SEPOLIA_FACT_STORE = 0x97fC2C3A41d4DB570363C5e3425C3676E4B81c5D;
 
     FabricaImmutableAggregatorDeployScript internal script;
     FabricaFactStore internal store;
@@ -112,14 +112,104 @@ contract FabricaImmutableAggregatorDeployTest is Test {
         vm.etch(deadStore, address(new FabricaFactStore(48)).code);
         FabricaImmutableAggregator.Config memory config = _config();
         config.factStore = deadStore;
-        /* The aggregator itself would happily accept it — that is the point of the pin. */
-        assertEq(FabricaFactStore(deadStore).KIND_PRICE(), store.KIND_PRICE(), "the dead store looks identical");
+        /* The aggregator itself would happily accept it — that is the point of the pin. Asserted
+           against the literal hash, not against another etched copy of this same build: comparing
+           two fixtures etched from one runtime cannot fail and would prove nothing. */
+        assertEq(
+            FabricaFactStore(deadStore).KIND_PRICE(), keccak256("fabrica.fact.price"), "the dead store looks identical"
+        );
         vm.expectRevert(
             abi.encodeWithSelector(
                 FabricaImmutableAggregatorDeployScript.NonCanonicalFactStore.selector, deadStore, SEPOLIA_FACT_STORE
             )
         );
         script.runWithConfig(config);
+    }
+
+    /// @notice The round-2 store's ADDRESS is refused now that round 3 has superseded it.
+    /// @dev Distinct from `test_refusesTheSupersededRound2FactStore`, and the more dangerous case.
+    ///      `0xa81f30b0…` (ENG-3924) is not buggy and not dead — it is live and correct, and both
+    ///      round-2-backed aggregators still read it. On chain it is refusable on two independent
+    ///      grounds: its address is not the pin, and it predates `writeFacts` so it cannot answer
+    ///      `MAX_BATCH()`.
+    ///
+    ///      This test exercises the FIRST ground only, and says so rather than implying otherwise.
+    ///      The fixture etches round-3 runtime at the round-2 address, so the etched code DOES
+    ///      carry `writeFacts` and this test cannot and does not demonstrate the generation
+    ///      hazard. `test_refusesAStoreThatCannotAnswerMaxBatch` covers that ground with a fixture
+    ///      that genuinely lacks the entry point, and the fork test asserts the real chain state.
+    function test_refusesTheRound2FactStoreSupersededByRound3() public {
+        address roundTwoStore = 0xa81f30b0EC22DbE4b25239883850367EDB6f3Edd;
+        vm.etch(roundTwoStore, address(new FabricaFactStore(48)).code);
+        FabricaImmutableAggregator.Config memory config = _config();
+        config.factStore = roundTwoStore;
+        /* Byte-identical `KIND_PRICE` across every generation, because it is a compile-time
+           constant — so no constructor check can separate ANY two of these stores, not just these
+           two. Asserted against the literal hash rather than another etched copy of this build. */
+        assertEq(
+            FabricaFactStore(roundTwoStore).KIND_PRICE(),
+            keccak256("fabrica.fact.price"),
+            "the round-2 store looks identical"
+        );
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                FabricaImmutableAggregatorDeployScript.NonCanonicalFactStore.selector, roundTwoStore, SEPOLIA_FACT_STORE
+            )
+        );
+        script.runWithConfig(config);
+    }
+
+    /// @notice A store at the PINNED address that cannot answer `MAX_BATCH()` is still refused.
+    /// @dev This is the hazard `test_refusesTheRound2FactStoreSupersededByRound3` cannot model,
+    ///      because its fixture etches round-3 runtime. Here the pinned address carries code that
+    ///      is not a round-3 store, so the address check passes and only the property check stands
+    ///      between the operator and a permanent binding to a store the batched keeper cannot use.
+    function test_refusesAStoreThatCannotAnswerMaxBatch() public {
+        /* Code that reverts on every call: has a codehash, answers nothing. */
+        vm.etch(SEPOLIA_FACT_STORE, hex"60006000fd");
+        FabricaImmutableAggregator.Config memory config = _config();
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                FabricaImmutableAggregatorDeployScript.FactStoreLacksBatchWrites.selector, SEPOLIA_FACT_STORE
+            )
+        );
+        script.runWithConfig(config);
+    }
+
+    /// @notice `MAX_BATCH()` returning 0 is refused. The old `== 0` conjunct is now the `!= 256`
+    ///         check; this fixture keeps that branch red if the value comparison is dropped.
+    function test_refusesAStoreWhoseMaxBatchIsZero() public {
+        vm.etch(SEPOLIA_FACT_STORE, address(new AnswersMaxBatch(0)).code);
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                FabricaImmutableAggregatorDeployScript.FactStoreLacksBatchWrites.selector, SEPOLIA_FACT_STORE
+            )
+        );
+        script.runWithConfig(_config());
+    }
+
+    /// @notice `MAX_BATCH()` returning 1 is refused. A nonzero-only guard would accept this.
+    function test_refusesAStoreWhoseMaxBatchIsOne() public {
+        vm.etch(SEPOLIA_FACT_STORE, address(new AnswersMaxBatch(1)).code);
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                FabricaImmutableAggregatorDeployScript.FactStoreLacksBatchWrites.selector, SEPOLIA_FACT_STORE
+            )
+        );
+        script.runWithConfig(_config());
+    }
+
+    /// @notice A 64-byte `MAX_BATCH()` return is refused even when the first word is 256.
+    /// @dev The extra word is the point: `abi.decode` of the first 32 bytes would yield 256 and
+    ///      pass the value check, so only `returned.length != 32` rejects this fixture.
+    function test_refusesAStoreWhoseMaxBatchReturnIsNot32Bytes() public {
+        vm.etch(SEPOLIA_FACT_STORE, address(new AnswersMaxBatchWithExtraWord()).code);
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                FabricaImmutableAggregatorDeployScript.FactStoreLacksBatchWrites.selector, SEPOLIA_FACT_STORE
+            )
+        );
+        script.runWithConfig(_config());
     }
 
     function test_refusesANonCanonicalCurrency() public {
@@ -165,7 +255,7 @@ contract FabricaImmutableAggregatorDeployTest is Test {
 contract FabricaImmutableAggregatorDeployEnvTest is Test {
     uint256 internal constant SEPOLIA_CHAIN_ID = 11155111;
     address internal constant SEPOLIA_USDC = 0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238;
-    address internal constant SEPOLIA_FACT_STORE = 0xa81f30b0EC22DbE4b25239883850367EDB6f3Edd;
+    address internal constant SEPOLIA_FACT_STORE = 0x97fC2C3A41d4DB570363C5e3425C3676E4B81c5D;
 
     function test_environmentDrivesTheDeployWithTimsNumbersAsDefaults() public {
         FabricaImmutableAggregatorDeployScript script = new FabricaImmutableAggregatorDeployScript();
@@ -223,5 +313,31 @@ contract FabricaImmutableAggregatorDeployEnvTest is Test {
         /* And a value that fits is still accepted, so the bound is not simply refusing everything. */
         vm.setEnv("FABRICA_AGGREGATOR_MAX_JUMP_BPS", "6000");
         assertEq(script.run().maxJumpBps(), 6000, "an in-range override still applies");
+    }
+}
+
+/// @dev Etched at the pin so `_requireBatchCapableStore` is reached. Immutable `value` is baked
+///      into the runtime `vm.etch` copies.
+contract AnswersMaxBatch {
+    uint256 public immutable value;
+
+    constructor(uint256 value_) {
+        value = value_;
+    }
+
+    function MAX_BATCH() external view returns (uint256) {
+        return value;
+    }
+}
+
+/// @dev Returns 256 as the first word and a trailing zero word (64 bytes). Decode of the first
+///      32 bytes would pass `== 256`; only the length conjunct rejects it.
+contract AnswersMaxBatchWithExtraWord {
+    function MAX_BATCH() external pure {
+        assembly {
+            mstore(0, 256)
+            mstore(32, 0)
+            return(0, 64)
+        }
     }
 }

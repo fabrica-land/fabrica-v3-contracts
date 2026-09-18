@@ -4,13 +4,16 @@ pragma solidity ^0.8.24;
 import {Script, console} from "forge-std/Script.sol";
 import {FabricaFactStore} from "../src/FabricaFactStore.sol";
 
-/// @notice ENG-3924 — deploy the round-2 permissionless fact store.
+/// @notice Deploy the permissionless fact store. Introduced by ENG-3924 for round 2; used
+///         unchanged by ENG-4203 to deploy the round-3 batched store.
 /// @dev There is no owner argument and no knob argument, which is the point of the redeploy: the
 ///      round-1 deploy script (`FabricaAttributeOracleDeployScript`) had to take an owner, insist it
 ///      was a contract, and read back seven knobs. This one takes a history depth.
 ///
-///      Sepolia only. The round-1 store at 0xFfA7535eF090C9193f44399843a05b60808ffC0D is a separate
-///      deployment and is not touched, upgraded or superseded on chain by this script.
+///      Sepolia only. Earlier stores — the round-1 store at
+///      0xFfA7535eF090C9193f44399843a05b60808ffC0D and the round-2 store at
+///      0xa81f30b0EC22DbE4b25239883850367EDB6f3Edd — are separate deployments and are not touched,
+///      upgraded or superseded on chain by this script.
 ///
 ///      Usage:
 ///        forge script script/FabricaFactStoreDeploy.s.sol:FabricaFactStoreDeployScript \
