@@ -14,7 +14,7 @@ same shape as [ENG-3926](https://linear.app/fabrica/issue/ENG-3926), one generat
 
 `FabricaImmutableAggregator` holds its fact store in an `immutable` slot and the pool reads the
 aggregator, so adopting the round-3 store
-[`0x97fC2C3A41d4DB570363C5e3425C3676E4B81c5D`](https://sepolia.etherscan.io/address/0x97fc2c3a41d4db570363c5e3425c3676e4b81c5d)
+[`0x97fC2C3A41d4DB570363C5e3425C3676E4B81c5D`](https://sepolia.etherscan.io/address/0x97fC2C3A41d4DB570363C5e3425C3676E4B81c5D)
 means a new aggregator and a new pool. There is no setter and nothing to migrate; that is the
 round-2 design working as intended, and it is the same reason ENG-3926 was a redeploy.
 
@@ -101,9 +101,19 @@ then exported for both the confirming simulation and the broadcast, so every eff
 asserted rather than assumed. This is the discipline phase 1 established for
 `FACT_STORE_HISTORY_DEPTH`.
 
-Nine of the ten non-writer defaults happen to equal what was exported. The tenth,
-`DEFAULT_MAX_DISPERSION_BPS = 20_000`, does not and was overridden — which is exactly why the
-explicit-export rule matters here rather than being ceremony.
+**The eleven fields are not eleven defaults.** The script declares exactly **eight** `DEFAULT_*`
+constants (`FabricaImmutableAggregatorDeploy.s.sol:65-72`), and `defaults()` returns those eight.
+**Seven of them equal what was exported; the eighth, `DEFAULT_MAX_DISPERSION_BPS = 20_000`, does not
+and was overridden** — which is exactly why the explicit-export rule matters here rather than being
+ceremony.
+
+The other three fields have no default at all and could not have one. `factStore` and `usdc` are
+required `vm.envAddress` reads (lines 145-146) standing behind revert guards —
+`NonCanonicalFactStore`, `NonCanonicalUsdc`, and the `MAX_BATCH() == 256` staticcall — and `writers`
+is a required read guarded by `NoWritersConfigured`, deliberately left without a default because a
+guessed writer set would be immutable. **A required input behind a revert is a stronger guarantee
+than a default**, not a weaker one: a default silently supplies a value when the operator supplies
+none, whereas these three refuse to deploy.
 
 ### Why `maxDispersionBps` moved, with the number that moved it
 
@@ -354,10 +364,45 @@ assumed. The `BeaconProxy` constructor arguments were reconstructed from first p
 `Fail - Unable to verify.`
 
 The reason is structural: **the proxy's creation code is not compiled here at all.** It is embedded
-in the already-deployed `PoolFactory`'s runtime, from a compilation that predates this tree. The
-deployed pool runtime is **451 bytes**; the `BeaconProxy` this tree builds is **439 bytes**. They
-are different artifacts, so no build of this repository can verify that address, and no future
-attempt from here will succeed either.
+in already-deployed code, from a compilation that predates both of the trees involved. Precisely
+where: `PoolFactory` at `0x110bD404…` is itself an ERC-1967 proxy whose own runtime is only **89
+bytes** of forwarder; its implementation slot
+(`0x360894a1…382bbc`) holds `0x67Ec95b78404f1Fc5713adC809EE6e859884E581`, whose **5,894-byte**
+runtime is what actually carries the `BeaconProxy` creation code that `new BeaconProxy(...)` emits.
+Saying "embedded in the factory's runtime" would point a verifier at 89 bytes that contain no such
+thing.
+
+**No `BeaconProxy` either repository builds matches the deployed pool**, measured rather than
+assumed. All figures are the compiler's own `deployedBytecode.object` length, not `wc`, and each
+row's build settings are read from **that artifact's own `metadata`**, not from its repo's
+`foundry.toml` — in `metastreet-contracts-v2` those differ, because its `compilation_restrictions`
+pull `BeaconProxy` into the `runs = 1` unit with `PoolFactory` rather than leaving it at the
+profile's `runs = 800`:
+
+<!-- markdownlint-disable MD013 -->
+
+| Source | OpenZeppelin | Build settings | `BeaconProxy` runtime |
+| -- | -- | -- | -- |
+| Deployed pool `0x25dF3D8C…` | — | — | **451 bytes** |
+| This repository (`lib/openzeppelin-contracts`) | 5.3.0 | solc 0.8.35, optimizer on `runs = 1`, no via-IR, `evmVersion` osaka | **283 bytes** (creation code 1,396) |
+| `metastreet-contracts-v2`, which ran the create | 4.9.6 | solc 0.8.25, optimizer on `runs = 1`, via-IR, `evmVersion` cancun | **439 bytes** |
+
+<!-- markdownlint-enable MD013 -->
+
+The two builds differ from each other for a structural reason, not a settings one: OZ 5.3.0's
+`BeaconProxy` holds the beacon in an `immutable` (`address private immutable _beacon`, and the
+artifact declares one 32-byte `immutableReferences` span), while OZ 4.9.6's reads it from the
+ERC-1967 beacon slot on every call and declares no immutables. The deployed pool answers its beacon
+out of that storage slot — `cast storage` at `0xa3f0ad74…133d50` returns `0xe1B74Cbf…`, shown in the
+read-backs above — so it is the storage-slot generation, not this repository's.
+
+An earlier revision of this record said "the `BeaconProxy` this tree builds is 439 bytes". That
+number is real but belongs to `metastreet-contracts-v2`, not to "this tree" — a reader in this
+repository would have tried to reproduce 439 here and got 283. Both are now named with their repo,
+their OZ version and their settings.
+
+No build of either repository can verify that address, and no future attempt from either will
+succeed.
 
 What stands in its place is stronger than a name on an explorer page:
 
