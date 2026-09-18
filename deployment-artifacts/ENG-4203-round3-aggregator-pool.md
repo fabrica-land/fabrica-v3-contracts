@@ -71,8 +71,10 @@ rather than a top-level contract creation.
 
 ## Constructor parameters
 
-Ten of the eleven are the ENG-3926 aggregator's values, **read back from `0x1b17C9b2…` on chain
-before this deploy, never copied from that record**. Only `maxDispersionBps` differs.
+**Nine of the eleven** are the ENG-3926 aggregator's values, **read back from `0x1b17C9b2…` on
+chain before this deploy, never copied from that record**. **Two differ:** `factStore`, which is the
+whole point of the redeploy, and `maxDispersionBps`, which is Fede's amendment. Each has its own
+independent reason, and each on its own would have forced a new aggregator.
 
 <!-- markdownlint-disable MD013 -->
 
@@ -86,7 +88,7 @@ before this deploy, never copied from that record**. Only `maxDispersionBps` dif
 | `cycleCloseInterval` | 86,400 (1 day) | readback |
 | `seasoningWindow` | 86,400 (24 hours) | readback |
 | `maxJumpBps` | 5,000 (50%) | readback |
-| **`maxDispersionBps`** | **30,000 (3.0x)** | **Fede's ruling on [ENG-3927](https://linear.app/fabrica/issue/ENG-3927), 2026-09-18 21:32Z — the only value in this deploy that is NOT the ENG-3926 readback (20,000)** |
+| **`maxDispersionBps`** | **30,000 (3.0x)** | **Fede's ruling on [ENG-3927](https://linear.app/fabrica/issue/ENG-3927), 2026-09-18 21:32Z — the only THRESHOLD amended; `factStore` is the other of the two fields that differ from the ENG-3926 readback (which was 20,000)** |
 | `maxFirstPriceUsdc6` | 50,000,000 USDC (1e6) | readback |
 | `valueCeilingUsdc6` | 50,000,000 USDC (1e6) | readback |
 
@@ -226,7 +228,7 @@ collateralToken()         0xb52ED2Dc8EBD49877De57De3f454Fd71b75bc1fD
 admin()                   0x110bD40421Bf418A8B0d8AbA6568fB020c42Ee83
 IMPLEMENTATION_VERSION()  "2.15"
 ERC-1967 beacon slot      0x…e1b74cbf78a693e6289dc1c983d8bc2e5097139e
-runtime                   905 hex characters (451 bytes)
+runtime                   451 bytes = 902 hex digits (904 characters with the 0x prefix)
 ```
 
 **The launch tiers were taken from the live ENG-3926 pool, not from the harness constants.**
