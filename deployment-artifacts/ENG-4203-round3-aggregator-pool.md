@@ -355,74 +355,142 @@ deployment does not answer it and does not change it.
 `DEPLOYMENT.md`): `ContractName` `FabricaImmutableAggregator`, `CompilerVersion`
 `v0.8.35+commit.47b9dedd`, `OptimizationUsed` 1, `Runs` 1, source present.
 
-**Pool — not source-verified, and it cannot be from this repository.** This was attempted, not
-assumed. The `BeaconProxy` constructor arguments were reconstructed from first principles —
-`abi.encode(beacon, abi.encodeWithSignature("initialize(bytes)", params))`, with the reconstructed
-`params` measuring 800 bytes against the deploy script's own logged `Params len: 800` — and
-`forge verify-contract` was run against
+**Pool — not source-verified on Etherscan today, and not verifiable from THIS repository.** Read
+that scope literally: it is a statement about the explorer's current state and about this repo's
+build, and **not** a claim that the pool's bytecode is unidentified. It is identified — the runtime
+is byte-exact to `metastreet-contracts-v2`'s `BeaconProxy`, established below. The verification
+attempt was made, not assumed. The `BeaconProxy` constructor arguments were reconstructed from
+first principles — `abi.encode(beacon, abi.encodeWithSignature("initialize(bytes)", params))`, with
+the reconstructed `params` measuring 800 bytes against the deploy script's own logged `Params len:
+800` — and `forge verify-contract` was run against
 `lib/openzeppelin-contracts/contracts/proxy/beacon/BeaconProxy.sol:BeaconProxy`. Etherscan returned
 `Fail - Unable to verify.`
 
-The reason is structural: **the proxy's creation code is not compiled here at all.** It is embedded
-in already-deployed code, from a compilation that predates both of the trees involved. Precisely
-where: `PoolFactory` at `0x110bD404…` is itself an ERC-1967 proxy whose own runtime is only **89
-bytes** of forwarder; its implementation slot
-(`0x360894a1…382bbc`) holds `0x67Ec95b78404f1Fc5713adC809EE6e859884E581`, whose **5,894-byte**
-runtime is what actually carries the `BeaconProxy` creation code that `new BeaconProxy(...)` emits.
-Saying "embedded in the factory's runtime" would point a verifier at 89 bytes that contain no such
-thing.
+The reason that attempt failed is structural: **the proxy's creation code is not compiled in this
+repository at all.** It is embedded in already-deployed code. Precisely where: `PoolFactory` at
+`0x110bD404…` is itself an ERC-1967 proxy whose own runtime is only **89 bytes** of forwarder; its
+implementation slot (`0x360894a1…382bbc`) holds `0x67Ec95b78404f1Fc5713adC809EE6e859884E581`, whose
+**5,894-byte** runtime is what actually carries the `BeaconProxy` creation code that `new
+BeaconProxy(...)` emits. Saying "embedded in the factory's runtime" would point a verifier at 89
+bytes that contain no such thing.
 
-**No `BeaconProxy` either repository builds matches the deployed pool**, measured rather than
-assumed. All figures are the compiler's own `deployedBytecode.object` length, not `wc`, and each
-row's build settings are read from **that artifact's own `metadata`**, not from its repo's
-`foundry.toml` — in `metastreet-contracts-v2` those differ, because its `compilation_restrictions`
-pull `BeaconProxy` into the `runs = 1` unit with `PoolFactory` rather than leaving it at the
-profile's `runs = 800`:
+**The deployed pool's runtime IS `metastreet-contracts-v2`'s `BeaconProxy` from the cited tree.**
+That is a byte-level result, and it is the provenance claim this section should have made from the
+start. Measured against the clone at `cfc14eb6e7eefaf0cf130916e1a61076467fe046` built with that
+repo's own profile:
 
 <!-- markdownlint-disable MD013 -->
 
-| Source | OpenZeppelin | Build settings | `BeaconProxy` runtime |
-| -- | -- | -- | -- |
-| Deployed pool `0x25dF3D8C…` | — | — | **451 bytes** |
-| This repository (`lib/openzeppelin-contracts`) | 5.3.0 | solc 0.8.35, optimizer on `runs = 1`, no via-IR, `evmVersion` osaka | **283 bytes** (creation code 1,396) |
-| `metastreet-contracts-v2`, which ran the create | 4.9.6 | solc 0.8.25, optimizer on `runs = 1`, via-IR, `evmVersion` cancun | **439 bytes** |
+| Measure | Value |
+| -- | -- |
+| Deployed pool `0x25dF3D8C…` runtime | 451 bytes |
+| `metastreet-contracts-v2` `BeaconProxy` runtime | 439 bytes |
+| `deployed[0:439]` vs that build | **byte-for-byte identical — 0 differing offsets** |
+| The 12-byte remainder | `a164736f6c6343000819000a` |
 
 <!-- markdownlint-enable MD013 -->
+
+Those 12 bytes are the **CBOR metadata trailer**: `a1` is a one-pair map, `64 736f6c63` the key
+`"solc"`, and `43 000819` a three-byte value `00 08 19` = **0.8.25** — the compiler the metastreet
+row names — followed by the two-byte length suffix `000a` (10, the CBOR item's length). It is
+absent from the local build for a stated reason, not a mysterious one — `metastreet-contracts-v2`'s
+`foundry.toml` sets `bytecode_hash = "None"` and `cbor_metadata = false` (lines 15-16), so its
+builds **suppress** the trailer that the deployed bytecode carries. The deployed pool therefore
+differs from that repo's build in exactly the span its build configuration removes, and nowhere
+else.
+
+This repository's build is the one that does not match: OZ 5.3.0 produces 283 bytes, a different
+contract generation entirely.
+
+<!-- markdownlint-disable MD013 -->
+
+| Source | OpenZeppelin | Build settings | `BeaconProxy` runtime | Against the deployed 451 |
+| -- | -- | -- | -- | -- |
+| Deployed pool `0x25dF3D8C…` | — | — | **451 bytes** | — |
+| `metastreet-contracts-v2` @ `cfc14eb6`, which ran the create | 4.9.6 | solc 0.8.25, optimizer on `runs = 1`, via-IR, `evmVersion` cancun | **439 bytes** | **exact match on all 439**, + the suppressed 12-byte trailer |
+| This repository (`lib/openzeppelin-contracts`) | 5.3.0 | solc 0.8.35, optimizer on `runs = 1`, no via-IR, `evmVersion` osaka | **283 bytes** (creation code 1,396) | no match; different generation |
+
+<!-- markdownlint-enable MD013 -->
+
+All figures are the compiler's own `deployedBytecode.object` length, not `wc`, and each row's build
+settings are read from **that artifact's own `metadata`**, not from its repo's `foundry.toml` — in
+`metastreet-contracts-v2` those differ, because its `compilation_restrictions` pull `BeaconProxy`
+into the `runs = 1` unit with `PoolFactory` rather than leaving it at the profile's `runs = 800`.
 
 The two builds differ from each other for a structural reason, not a settings one: OZ 5.3.0's
 `BeaconProxy` holds the beacon in an `immutable` (`address private immutable _beacon`, and the
 artifact declares one 32-byte `immutableReferences` span), while OZ 4.9.6's reads it from the
 ERC-1967 beacon slot on every call and declares no immutables. The deployed pool answers its beacon
 out of that storage slot — `cast storage` at `0xa3f0ad74…133d50` returns `0xe1B74Cbf…`, shown in the
-read-backs above — so it is the storage-slot generation, not this repository's.
+read-backs above — so it is the storage-slot generation, which is what the runtime match says too.
 
 An earlier revision of this record said "the `BeaconProxy` this tree builds is 439 bytes". That
 number is real but belongs to `metastreet-contracts-v2`, not to "this tree" — a reader in this
 repository would have tried to reproduce 439 here and got 283. Both are now named with their repo,
 their OZ version and their settings.
 
-No build of either repository can verify that address, and no future attempt from either will
-succeed.
+### The creation code is a different question, and it is NOT reproduced
 
-What stands in its place is stronger than a name on an explorer page:
+Runtime provenance does not carry over to the creation code, and Etherscan verifies against the
+creation side. Measured:
 
 <!-- markdownlint-disable MD013 -->
 
-| Claim | Evidence |
+| Measure | Value |
 | -- | -- |
-| Same proxy code as the reference pool | Round-3 pool runtime is **byte-identical** to the ENG-3926 pool's — both 451 bytes, exact match |
+| `initCode` in the pool's broadcast record | 2,572 bytes |
+| …of which constructor arguments (`abi.encode(address,bytes)`) | 992 bytes |
+| …leaving deployed creation code | 1,580 bytes, carrying the same CBOR trailer at offset 1,568 |
+| `metastreet-contracts-v2` build's creation code | 1,536 bytes |
+| Differing offsets across the 1,536-byte common prefix | **664** |
+
+<!-- markdownlint-enable MD013 -->
+
+664 differing offsets is not a near-miss. The likely cause is the same whole-unit sensitivity that
+repo documents for itself: under via-IR a contract's output depends on which *other* contracts share
+its solc job, and the embedded proxy was emitted by whatever unit compiled `PoolFactory` at deploy
+time. Stated as the plausible cause it is, not as a finding — nothing here isolates it.
+
+### What this record does and does not claim about Etherscan
+
+**Claimed, because it was measured:** the pool's deployed runtime is byte-exact to
+`metastreet-contracts-v2`'s `BeaconProxy` at `cfc14eb6`, over all 439 bytes that repo's
+configuration emits, with the 12-byte metadata trailer as the only difference and a stated reason
+for it.
+
+**Not claimed:** that an Etherscan submission from that tree would succeed. **It was never
+attempted.** The one attempt made was from *this* repository and returned
+`Fail - Unable to verify.`, which is unsurprising given the 283-vs-451 mismatch and says nothing
+about the metastreet tree. The creation-code divergence above is a reason to expect difficulty, not
+a demonstration of failure. An earlier revision of this record asserted that "no build of either
+repository can verify that address, and no future attempt from either will succeed" — **that was an
+over-reach contradicted by the bytes above, and it is withdrawn.** Whether a metastreet-side
+submission verifies is an open, testable question, tracked in
+[ENG-4333](https://linear.app/fabrica/issue/ENG-4333) along with the beacon implementation, and
+deliberately not attempted inside a deploy ticket.
+
+### Corroborating reads
+
+The runtime match above is the provenance. These are consistency checks around it, not the claim:
+
+<!-- markdownlint-disable MD013 -->
+
+| Check | Result |
+| -- | -- |
+| Same proxy code as the reference pool | Round-3 pool runtime is byte-identical to the ENG-3926 pool's — both 451 bytes |
 | Same beacon | ERC-1967 beacon slot holds `0xe1B74Cbf…`, the shared `UpgradeableBeacon` |
 | Same logic | `IMPLEMENTATION_VERSION()` `"2.15"`; beacon `implementation()` `0x78F794373E7B4b2fCF86987C70abdA0e12fE9BB5` |
 | Correctly wired | `priceOracle()`, `currencyToken()`, `collateralToken()`, `admin()`, `durations()`, `rates()` all read back as intended |
 
 <!-- markdownlint-enable MD013 -->
 
-**This is a pre-existing condition of the whole Sepolia lending stack, not something this deploy
-introduced.** The ENG-3926 pool is in the identical Etherscan state (`Proxy: 1`, implementation
-resolved, `SourceCode` absent), and so is the beacon implementation itself — the shared
-`WeightedRateERC1155CollectionPool` behind `0x78F79437…` is also unverified on Sepolia. Round 3 is
-at exact parity with the pool this record reproduces. Explorer verification of the beacon
-implementation and the factory's embedded proxy code is filed separately so it is not re-attempted
+**The explorer state is a pre-existing condition of the whole Sepolia lending stack, not something
+this deploy introduced.** The ENG-3926 pool is in the identical Etherscan state (`Proxy: 1`,
+implementation resolved, `SourceCode` absent), and so is the beacon implementation itself — the
+shared `WeightedRateERC1155CollectionPool` behind `0x78F79437…` is also unverified on Sepolia.
+Round 3 is at exact parity with the pool this record reproduces. Explorer verification of the beacon
+implementation and the factory's embedded proxy code is
+[ENG-4333](https://linear.app/fabrica/issue/ENG-4333), filed separately so it is not re-attempted
 inside a deploy ticket.
 
 ## Bytecode provenance (aggregator)
