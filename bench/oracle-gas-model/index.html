@@ -2916,10 +2916,10 @@ const DATA = {
   }
  ],
  "meta": {
-  "commit": "698e5eddca752487b316f2c31a43c6ed3fd5d2c6",
-  "commitShort": "698e5ed",
+  "commit": "c54dd5256788ebebe49a771837844f3d7a06a054",
+  "commitShort": "c54dd52",
   "historyDepth": 48,
-  "inputDigest": "1228c4146645b3a0",
+  "inputDigest": "2edd4c997bef1e12",
   "reportHeader": "# ENG-3913 \u2014 per-scenario gas bench, literal output\n#\n# repo:    fabrica-v3-contracts\n# base:    origin/main @ 4b9201d17d78c7296545a6bd5ef6ac8da1d5a86e\n# branch:  tozzetto/eng-3913-oracle-gas-model\n# command: forge test --match-path test/Eng3913OracleGasBench.t.sol -vv\n# forge:   forge Version: 1.7.1 (Commit SHA: 4072e48705af9d93e3c0f6e29e93b5e9a40caed8)\n# profile: optimizer=true, optimizer_runs=1, via_ir=false (foundry.toml [profile.default])\n# knobs:   FabricaAttributeOracle.defaultKnobs() \u2014 the config\n#          script/FabricaAttributeOracleDeploy.s.sol deploys with.\n#\n# \u26a0 RUN THIS WITHOUT --gas-report.\n#   Foundry's gas-report instrumentation inflates the gasleft() deltas these benches\n#   read, and the codeless-control subtraction absorbs most but not all of it. The CSV\n#   rows here are valid ONLY from a plain -vv run. Under --gas-report the steady-state\n#   writePrice row reads 72,268 instead of 73,812."
  },
  "read": {
@@ -4643,6 +4643,11 @@ const READ = DATA.read;
    round-3 fact store, read from the chain by collect-shipped-writes.py, not a Foundry row. It is
    the only arm on this page that has shipped — see SHIPPED.easWritePath. */
 const SHIPPED = DATA.shipped;
+// Whether ANY repeat write was observed is a property of the collected window, not of the dial.
+// Module scope deliberately: every render path that states something about repeats must key on
+// this one flag, and a const local to renderScale() left sync()'s dial hint asserting zero
+// beside a non-zero count (eng-4342-review round 4, check #12).
+const NO_REPEATS = SHIPPED.rewrite.observed === 0;
 /* Which EAS arm the running-cost headline is quoted for. Of the two arms the write model
    covers, arm 2 is the mainnet-viable one: arm 1 resolves through EAS's `Indexer`, which is not
    deployed on Ethereum mainnet, which is why the adoption survey's Option A carries an ownerless
@@ -5207,10 +5212,7 @@ function renderScale() {
   const rate = S.rewriteRate / 100;
   const usdAt = (baseFeeGwei, gas) => gas * (baseFeeGwei + S.tip) * 1e-9 * S.eth;
   const measured = S.rewriteRate === 0;
-  // The dial sitting at 0% is a UI state; whether any repeat write was actually observed is a
-  // property of the collected window. Every "not a single repeat" claim keys on this, so a later
-  // --to-block window that records a repeat cannot print a non-zero count beside a denial of it.
-  const noRepeats = RW.observed === 0;
+  // NO_REPEATS is module scope so sync() and any later render path share it; see its definition.
 
   document.getElementById("scale-intro").innerHTML = `
     <p class="small">What the fact layer costs at ${tokens.map(t => fmt(t)).join(" / ")} tokens, at
@@ -5265,7 +5267,7 @@ function renderScale() {
     `                        + tokens x ${sources} x ${MONTH_DAYS} x REWRITE RATE x gas-per-fact\n` +
     `USD                   = gas x (base fee + ${S.tip.toPrecision(4)} gwei tip) x 1e-9 x ${usd(S.eth)}\n` +
     `rewrite rate          = ${S.rewriteRate}%` +
-      (measured && noRepeats ? "   (measured: no repeat write in " + RW.cyclesObserved + " observed cycles)"
+      (measured && NO_REPEATS ? "   (measured: no repeat write in " + RW.cyclesObserved + " observed cycles)"
                 : S.rewriteRate === 100 ? "   (upper bound, not a forecast)" : "   (your assumption)") + `\n` +
     `bespoke, shipped      = ${fmt(SHIPPED_CMP.measuredFloor)} gas/fact, ` +
       `${fmt(SHIPPED.closes.firstGas)} first close, ${fmt(SHIPPED.closes.repeatGas)} repeat close\n` +
@@ -5285,7 +5287,7 @@ function renderScale() {
     caveat below on what ${fmt(RW.cyclesObserved)} cycles can and cannot establish.</p></div>` : ""}
     <div class="note warn"><p><strong>What the measured rewrite rate does and does not say.</strong>
     Across cycles ${SHIPPED.closes.cycles[0]}–${SHIPPED.closes.cycles[SHIPPED.closes.cycles.length - 1]}
-    the keeper wrote <strong>${fmt(RW.priceFacts)} price facts${noRepeats
+    the keeper wrote <strong>${fmt(RW.priceFacts)} price facts${NO_REPEATS
       ? ", every one of them a first write, and not a single repeat"
       : `, ${fmt(RW.observed)} of them repeat writes`}</strong> — ${fmt(RW.observed)} rewrites across
     ${fmt(RW.opportunities)} row-cycle opportunities. (The numerator and the denominator are the
@@ -5295,7 +5297,7 @@ function renderScale() {
     reason this card no longer charges a write per token per cycle. It is <em>not</em> a measured
     rate of zero: ${fmt(RW.cyclesObserved)} cycles is too little time to distinguish a book that
     genuinely does not move from one whose rows simply have not moved ${RW.thresholdBps} bps
-    <em>yet</em>. The honest reading is ${noRepeats
+    <em>yet</em>. The honest reading is ${NO_REPEATS
       ? "“no repeat write has been observed”"
       : `“${fmt(RW.observed)} repeat writes have been observed in ${fmt(RW.opportunities)} opportunities”`},
     and the 100% position is the other end of the range.</p>
@@ -5344,7 +5346,7 @@ function renderScale() {
         ${fmt(SHIPPED.closes.groups.find(g => g.gasUsed === SHIPPED.closes.repeatGas).count)}
         repeats. First fill is charged the first, steady state the repeat.</td></tr>
       <tr><td>Rewrite rate</td><td class="n">${S.rewriteRate}%</td>
-        <td class="small">THE DIAL. Measured position: <strong>${noRepeats
+        <td class="small">THE DIAL. Measured position: <strong>${NO_REPEATS
           ? "no repeat write"
           : `${fmt(RW.observed)} repeat writes`} in
         ${fmt(RW.cyclesObserved)} observed cycles</strong> (${fmt(RW.observed)} of
@@ -6832,12 +6834,13 @@ function sync() {
     `The keeper writes a price fact on a FIRST write, or when the value moves at least
      <strong>${RW.thresholdBps} bps (${(RW.thresholdBps / 100).toFixed(0)}%)</strong> against the
      value read back from the store — otherwise it skips
-     (<code>significance.ts</code>, ENG-3926). <strong>Measured so far: no repeat write in
+     (<code>significance.ts</code>, ENG-3926). <strong>Measured so far: ${NO_REPEATS
+     ? "no repeat write" : `${fmt(RW.observed)} repeat writes`} in
      ${fmt(RW.cyclesObserved)} observed cycles</strong> — ${fmt(RW.observed)} rewrites across
-     ${fmt(RW.opportunities)} row-cycle opportunities. That is <em>not</em> a measured rate of
+     ${fmt(RW.opportunities)} row-cycle opportunities.${NO_REPEATS ? ` That is <em>not</em> a measured rate of
      zero: ${fmt(RW.cyclesObserved)} cycles is too little time to tell a genuinely static book
      from one whose rows
-     simply have not moved ${RW.thresholdBps} bps yet. A bps threshold does not imply a rate
+     simply have not moved ${RW.thresholdBps} bps yet.` : ""} A bps threshold does not imply a rate
      either — that depends on how often valuations move past it, a property of the feed the
      keeper does not expose — so 100% is offered as an upper bound, not a forecast, and anything
      between is your own assumption.`;
