@@ -984,8 +984,8 @@ function renderScale() {
   document.getElementById("scale-eq").textContent =
     `FIRST FILL, once      = tokens x ${sources} writers x gas-per-fact\n` +
     `                        + ${sources} x first-cycle-close gas\n` +
-    `STEADY STATE, monthly = ${sources} x ${MONTH_DAYS} cycles x repeat-close gas\n` +
-    `                        + tokens x ${sources} x ${MONTH_DAYS} x REWRITE RATE x gas-per-fact\n` +
+    `STEADY STATE, monthly = ${sources} x ${cyclesPerMonth} cycles x repeat-close gas\n` +
+    `                        + tokens x ${sources} x ${cyclesPerMonth} x REWRITE RATE x gas-per-fact\n` +
     `USD                   = gas x (base fee + ${S.tip.toPrecision(4)} gwei tip) x 1e-9 x ${usd(S.eth)}\n` +
     `rewrite rate          = ${S.rewriteRate}%` +
       (measured && NO_REPEATS ? "   (measured: no repeat write in " + RW.cyclesObserved + " observed cycles)"
@@ -998,7 +998,7 @@ function renderScale() {
   document.getElementById("scale-notes").innerHTML = `
     ${measured && NO_REPEATS ? `<div class="note ok"><p><strong>At the measured rewrite rate the steady-state
     cost does not depend on the size of the book at all.</strong> With no row moving past the
-    threshold, the only writes are the cycle closes: ${sources} writers × ${MONTH_DAYS} cycles ×
+    threshold, the only writes are the cycle closes: ${sources} writers × ${cyclesPerMonth} cycles ×
     ${fmt(SHIPPED.closes.repeatGas)} gas = <span class="num">${fmt(shippedSteady(tokens[0]).gas, 0)}</span>
     gas a month, <strong>${usd(usdAt(anchors[0].baseFeeGwei, shippedSteady(tokens[0]).gas))}</strong>
     at the <em>${anchors[0].label}</em> anchor, whether the book is ${fmt(tokens[0])} tokens or
@@ -1094,7 +1094,7 @@ function renderScale() {
         ${SHIPPED_CMP.silentPriceSigners.join(", ") || "none"} closed cycles without writing any.
         A book covered by ${fmt(SHIPPED_CMP.pricingSigners.length)} sources instead of ${sources}
         costs ${(SHIPPED_CMP.pricingSigners.length / sources).toFixed(2)}× the price term.</td></tr>
-      <tr><td>Cycles per month</td><td class="n">${MONTH_DAYS}</td>
+      <tr><td>Cycles per month</td><td class="n">${cyclesPerMonth}</td>
         <td class="small">CHAIN READ. One cycle per day: cycles ${SHIPPED.closes.cycles.join(", ")}
         closed on ${SHIPPED.closes.days.join(", ")} — ${SHIPPED.closes.cycles.length} consecutive
         cycles across ${SHIPPED.closes.days.length} consecutive days. × the mean Gregorian
