@@ -1679,7 +1679,7 @@ function render() {
   cards.push(["USD per month", cardVal(usd(m.toUsd(m.totalGas))),
               withAlt(`ETH at ${usd(S.eth)}`, x => usd(x.toUsd(x.totalGas)))]);
   cards.push(["USD per day", cardVal(usd(m.toUsd(m.totalGas) / MONTH_DAYS)),
-              withAlt("month ÷ 30.44", x => usd(x.toUsd(x.totalGas) / MONTH_DAYS))]);
+              withAlt(`month ÷ ${MONTH_DAYS}`, x => usd(x.toUsd(x.totalGas) / MONTH_DAYS))]);
   cards.push(["USD per token per month", cardVal(usd(m.toUsd(perTokenMonth))),
               withAlt(`${fmt(S.tokens)} tokens`, x => usd(x.toUsd(x.totalGas / S.tokens)))]);
   cards.push(["USD per token per year", cardVal(usd(m.toUsd(m.yearGas) / S.tokens)),
