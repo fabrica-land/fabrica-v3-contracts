@@ -760,6 +760,14 @@ def parse_shipped(path):
     keeper_writes = [t for t in writes if t["keeperSigner"]]
     if not keeper_writes:
         sys.exit("%s: no keeper writes in the window; there is nothing shipped to show" % path)
+    # keeperPass is all() over a time-grouped pass, so a keeper transaction landing within
+    # PASS_GAP_SECONDS of a non-keeper one makes its whole group a non-keeper pass. Keeper
+    # WRITES existing therefore does not imply any keeper PASS exists, and the page quotes
+    # keeperPasses[0] unguarded -- an empty list took the whole shipped panel down with a
+    # TypeError rather than failing here with a message.
+    if not any(p["keeperPass"] for p in data["passes"]):
+        sys.exit("%s: no pass in this window is entirely keeper traffic; the shipped panel "
+                 "quotes the first keeper pass and would have nothing to quote" % path)
 
     # The price kind is whatever the keeper's price batches actually carry. A token-wide batch
     # (score, attributes) writes a different number of words per fact and must not be fitted

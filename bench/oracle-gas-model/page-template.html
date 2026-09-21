@@ -996,7 +996,7 @@ function renderScale() {
       `${fmt(arms[1].closeFirst)} first close, ${fmt(arms[1].closeRepeat)} repeat close`;
 
   document.getElementById("scale-notes").innerHTML = `
-    ${measured ? `<div class="note ok"><p><strong>At the measured rewrite rate the steady-state
+    ${measured && NO_REPEATS ? `<div class="note ok"><p><strong>At the measured rewrite rate the steady-state
     cost does not depend on the size of the book at all.</strong> With no row moving past the
     threshold, the only writes are the cycle closes: ${sources} writers × ${MONTH_DAYS} cycles ×
     ${fmt(SHIPPED.closes.repeatGas)} gas = <span class="num">${fmt(shippedSteady(tokens[0]).gas, 0)}</span>

@@ -2916,10 +2916,10 @@ const DATA = {
   }
  ],
  "meta": {
-  "commit": "c54dd5256788ebebe49a771837844f3d7a06a054",
-  "commitShort": "c54dd52",
+  "commit": "05e6bf0f39eadb8d7b28aaf8ae2dae9b7b310ee5",
+  "commitShort": "05e6bf0",
   "historyDepth": 48,
-  "inputDigest": "2edd4c997bef1e12",
+  "inputDigest": "a818f1c508843068",
   "reportHeader": "# ENG-3913 \u2014 per-scenario gas bench, literal output\n#\n# repo:    fabrica-v3-contracts\n# base:    origin/main @ 4b9201d17d78c7296545a6bd5ef6ac8da1d5a86e\n# branch:  tozzetto/eng-3913-oracle-gas-model\n# command: forge test --match-path test/Eng3913OracleGasBench.t.sol -vv\n# forge:   forge Version: 1.7.1 (Commit SHA: 4072e48705af9d93e3c0f6e29e93b5e9a40caed8)\n# profile: optimizer=true, optimizer_runs=1, via_ir=false (foundry.toml [profile.default])\n# knobs:   FabricaAttributeOracle.defaultKnobs() \u2014 the config\n#          script/FabricaAttributeOracleDeploy.s.sol deploys with.\n#\n# \u26a0 RUN THIS WITHOUT --gas-report.\n#   Foundry's gas-report instrumentation inflates the gasleft() deltas these benches\n#   read, and the codeless-control subtraction absorbs most but not all of it. The CSV\n#   rows here are valid ONLY from a plain -vv run. Under --gas-report the steady-state\n#   writePrice row reads 72,268 instead of 73,812."
  },
  "read": {
@@ -5275,7 +5275,7 @@ function renderScale() {
       `${fmt(arms[1].closeFirst)} first close, ${fmt(arms[1].closeRepeat)} repeat close`;
 
   document.getElementById("scale-notes").innerHTML = `
-    ${measured ? `<div class="note ok"><p><strong>At the measured rewrite rate the steady-state
+    ${measured && NO_REPEATS ? `<div class="note ok"><p><strong>At the measured rewrite rate the steady-state
     cost does not depend on the size of the book at all.</strong> With no row moving past the
     threshold, the only writes are the cycle closes: ${sources} writers × ${MONTH_DAYS} cycles ×
     ${fmt(SHIPPED.closes.repeatGas)} gas = <span class="num">${fmt(shippedSteady(tokens[0]).gas, 0)}</span>
