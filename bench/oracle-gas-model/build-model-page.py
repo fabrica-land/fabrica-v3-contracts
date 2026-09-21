@@ -122,6 +122,12 @@ INPUTS = [
     # builder, so editing a comment here -- including this one -- does not move the digest.
     "reports/eng3922-baseline.txt",
     "reports/eng3922-sepolia-evidence.md",
+    # ENG-4342: the SHIPPED rows. Unlike every other input this one is not a Foundry measurement
+    # but a set of real Sepolia transactions of the round-3 fact store, read from the chain by
+    # collect-shipped-writes.py over a window pinned to a final block. In INPUTS so the digest
+    # tracks a re-collection, and because the summary card at the top of the page is quoted
+    # entirely from it.
+    "shipped-writes.json",
 ]
 
 # ENG-3938: the batch-size dial drives the write-side per-item cost at these sizes. writePriceBatch
@@ -615,6 +621,278 @@ def parse_sepolia_probes(path, fork):
     return {"probes": out, "priceReturned": distinct[0]}
 
 
+# ENG-4342: the projection the shipped batch is reconciled against.
+#
+# These are NOT chain reads and NOT Foundry rows. They are the batch-size model
+# fabrica-v3-api#1903 published on ENG-4204 *before* the first scheduled pass ran, carried here
+# as pre-registered inputs — the same treatment the read side's pass marks get — so the page can
+# compare a prediction with a measurement rather than a measurement with itself. The model is
+# `gas(n) = fixedGas + marginalGas * n`, where `marginalGas` was derived from the writer's own
+# two-fact transaction on 2026-09-18 and `fixedGas` was an assumed intrinsic. Both the derivation
+# and the quoted figures are re-checked against the chain in `parse_shipped`, so a typo here
+# fails the build rather than misstating what was predicted.
+SHIPPED_PROJECTION = {
+    "fixedGas": 24_700,
+    "quotedN": 25,
+    "quotedTotal": 1_887_175,
+    "quotedPerFact": 75_487,
+    "source": "ENG-4204 / fabrica-v3-api#1903, batch-size table, posted 2026-09-18",
+    # prycd's first broadcast, the two-fact transaction the marginal rate was derived from.
+    "baselineTx": "0xf42aac9d84a5e93f0e533d95ad2a03eff5e9bd818e563436a0d789300d40a674",
+    # The 24-fact batch of the first scheduled pass: the largest batch the keeper has sent, and
+    # the row the summary card and the reconciliation are both quoted from.
+    "headlineTx": "0xfe757d9c6ba9f7d8fa4a638a181983ecbd739b6d9ef3b8535e6d291fdec79a66",
+}
+# The book sizes the summary card prices, from ENG-3913's original brief ("a quote at those three
+# scales"), and the two shipped inputs the card holds fixed. Both are asserted against the chain.
+SHIPPED_SCALE_TOKENS = [100, 1_000, 100_000]
+SHIPPED_PRICE_SOURCES = 3
+SHIPPED_CYCLES_PER_DAY = 1
+# The price fact kind, `keccak256("price")`, taken from the kinds actually observed rather than
+# hard-coded: the reconciliation compares price batches with price batches, and a token-wide
+# score or attribute batch writes a different number of storage words per fact.
+SHIPPED_PRICE_KIND_SOURCE = "the kind written by every keeper price batch in the window"
+
+
+def _shipped_fit(rows, path, what):
+    """Solve `exec(n) = fixed + marginal * n` on `rows` and refuse anything but an exact fit.
+
+    The whole reconciliation rests on the claim that a batched write is linear in the fact count
+    with a per-transaction fixed term, so the claim is solved from the two extreme batch sizes and
+    then CHECKED against every row, including the ones it was solved from. A residual of even one
+    gas means the page's decomposition is wrong, and a wrong decomposition presented as an exact
+    one is worse than no decomposition: the build stops.
+    """
+    if len(rows) < 2:
+        sys.exit("%s: %s has %d batch size(s); a fixed-plus-marginal fit needs at least two"
+                 % (path, what, len(rows)))
+    rows = sorted(rows, key=lambda r: r["facts"])
+    lo, hi = rows[0], rows[-1]
+    if lo["facts"] == hi["facts"]:
+        sys.exit("%s: %s has only one distinct batch size (%d)" % (path, what, lo["facts"]))
+    span = hi["execGas"] - lo["execGas"]
+    steps = hi["facts"] - lo["facts"]
+    if span % steps:
+        sys.exit("%s: %s is not linear in the fact count: %d gas over %d facts is not a whole "
+                 "number per fact" % (path, what, span, steps))
+    marginal = span // steps
+    fixed = hi["execGas"] - marginal * hi["facts"]
+    checked = []
+    for row in rows:
+        fitted = fixed + marginal * row["facts"]
+        if fitted != row["execGas"]:
+            sys.exit("%s: %s does not fit exec(n) = %d + %d*n: %s at n=%d measured %d, fitted %d"
+                     % (path, what, fixed, marginal, row["hash"], row["facts"], row["execGas"],
+                        fitted))
+        checked.append({"hash": row["hash"], "facts": row["facts"], "execGas": row["execGas"],
+                        "fittedGas": fitted})
+    return {"fixedExecGas": fixed, "marginalExecGas": marginal, "rows": checked}
+
+
+def parse_shipped(path):
+    """ENG-4342: the SHIPPED rows, from `shipped-writes.json` (see collect-shipped-writes.py).
+
+    This is the only input on the page that is a real transaction on a real chain rather than a
+    Foundry measurement, so it is also the only one where "did it revert?" and "was that really
+    the whole transaction set?" are live questions. Both are answered in the file and asserted
+    here; a collection that cannot answer them does not reach the page.
+    """
+    data = json.loads(path.read_text())
+    if data["chain"]["chainId"] != 11155111:
+        sys.exit("%s: chainId %s is not Sepolia" % (path, data["chain"]["chainId"]))
+    cross = data["etherscanCrossCheck"]
+    if not (cross.get("ran") and cross.get("ok") and cross.get("matchesLogDerivedSet")):
+        sys.exit("%s: the Etherscan cross-check did not run or did not agree with the log-derived "
+                 "transaction set; the page cannot claim the set is complete. Re-collect with "
+                 "--etherscan-cross-check." % path)
+    if cross["failed"]:
+        sys.exit("%s: %d transaction(s) in the window reverted (%s). The page's shipped rows read "
+                 "as successful writes; a reverted batch needs its own row before this builds."
+                 % (path, len(cross["failed"]), ", ".join(cross["failed"])))
+
+    # Every derived field in the collection is RECOMPUTED here from the fields it derives from,
+    # rather than trusted. The collection is a committed JSON file: it can be hand-edited, merged
+    # badly, or truncated, and until this check existed a one-gas edit to `gasUsed` passed the
+    # build cleanly because the fit reads the stored `execGas` and never looked. A page whose
+    # arithmetic is its whole claim cannot take its own inputs on trust.
+    const = data["gasConstants"]
+    for t in data["transactions"]:
+        fee = int(t["feeWei"])
+        if fee != t["gasUsed"] * int(t["effectiveGasPriceWei"]):
+            sys.exit("%s: %s feeWei %d != gasUsed %d x effectiveGasPrice %s"
+                     % (path, t["hash"], fee, t["gasUsed"], t["effectiveGasPriceWei"]))
+        if t["op"] not in ("writeFacts", "writeFact"):
+            continue
+        exec_gas = t["gasUsed"] - const["txBase"] - t["calldata"]["gas"]
+        if exec_gas != t["execGas"]:
+            sys.exit("%s: %s execGas %d but gasUsed − %d intrinsic − %d calldata = %d"
+                     % (path, t["hash"], t["execGas"], const["txBase"], t["calldata"]["gas"],
+                        exec_gas))
+        if t["gasUsed"] // t["facts"] != t["gasPerFact"]:
+            sys.exit("%s: %s gasPerFact %d but %d // %d = %d"
+                     % (path, t["hash"], t["gasPerFact"], t["gasUsed"], t["facts"],
+                        t["gasUsed"] // t["facts"]))
+        if t["firstWrites"] + t["repeatWrites"] != t["facts"]:
+            sys.exit("%s: %s has %d first + %d repeat writes, which is not its %d facts"
+                     % (path, t["hash"], t["firstWrites"], t["repeatWrites"], t["facts"]))
+        cd = t["calldata"]
+        if cd["headGas"] + cd["bodyGas"] != cd["gas"] or cd["headBytes"] + cd["bodyBytes"] != cd["bytes"]:
+            sys.exit("%s: %s calldata head + body does not sum to the whole" % (path, t["hash"]))
+
+    txns = data["transactions"]
+    writes = [t for t in txns if t["op"] in ("writeFacts", "writeFact")]
+    keeper_writes = [t for t in writes if t["keeperSigner"]]
+    if not keeper_writes:
+        sys.exit("%s: no keeper writes in the window; there is nothing shipped to show" % path)
+
+    # The price kind is whatever the keeper's price batches actually carry. A token-wide batch
+    # (score, attributes) writes a different number of words per fact and must not be fitted
+    # together with price batches, so the split is by measured kind, not by assumption.
+    kind_counts = {}
+    for t in keeper_writes:
+        for kind in t["kinds"]:
+            kind_counts[kind] = kind_counts.get(kind, 0) + t["facts"]
+    price_kind = max(kind_counts, key=kind_counts.get)
+
+    def single_kind(t, kind):
+        return t["kinds"] == [kind]
+
+    # `writeFacts` only. The single-fact `writeFact` entry point decodes a struct rather than an
+    # array, so it pays a different per-transaction head cost (413 gas less, measured) and does
+    # not share the batch entry point's fixed term. Mixing the two would break the fit for the
+    # right reason and hide it behind a wrong one.
+    price_first = [t for t in keeper_writes if t["op"] == "writeFacts"
+                   and single_kind(t, price_kind) and t["repeatWrites"] == 0]
+    fit = _shipped_fit(price_first, path, "the keeper's first-write price batches")
+    # The ENG-4203 deployment verification wrote the same entry point with a different fact shape
+    # and a different sender. Its fixed term must come out identical — that is what makes the
+    # fixed term a property of the transaction rather than of this keeper's data.
+    other_first = [t for t in writes if t["op"] == "writeFacts"
+                   and not t["keeperSigner"] and t["repeatWrites"] == 0 and len(t["kinds"]) == 1]
+    independent = _shipped_fit(other_first, path, "the ENG-4203 verification batches")
+    if independent["fixedExecGas"] != fit["fixedExecGas"]:
+        sys.exit("%s: the fixed execution term is %d on the keeper's batches but %d on the "
+                 "ENG-4203 verification batches; the page presents it as a property of the "
+                 "transaction and that is no longer true"
+                 % (path, fit["fixedExecGas"], independent["fixedExecGas"]))
+
+    by_hash = {t["hash"]: t for t in txns}
+    baseline = by_hash.get(SHIPPED_PROJECTION["baselineTx"])
+    headline = by_hash.get(SHIPPED_PROJECTION["headlineTx"])
+    for label, row in (("baselineTx", baseline), ("headlineTx", headline)):
+        if row is None:
+            sys.exit("%s: the %s named in SHIPPED_PROJECTION is not in the collected window"
+                     % (path, label))
+        if row["op"] != "writeFacts":
+            sys.exit("%s: the %s is a %s, not a writeFacts batch" % (path, label, row["op"]))
+    if headline["facts"] != max(t["facts"] for t in keeper_writes):
+        sys.exit("%s: the headline transaction carries %d facts but the largest keeper batch in "
+                 "the window carries %d; the summary card must quote the largest shipped batch"
+                 % (path, headline["facts"], max(t["facts"] for t in keeper_writes)))
+
+    # Re-derive the projection from the baseline transaction exactly as ENG-4204 derived it, and
+    # refuse to carry a quoted figure this repo cannot reproduce.
+    proj = dict(SHIPPED_PROJECTION)
+    residual = baseline["gasUsed"] - proj["fixedGas"]
+    if residual % baseline["facts"]:
+        sys.exit("%s: the projection's marginal rate is not a whole number: (%d - %d) / %d"
+                 % (path, baseline["gasUsed"], proj["fixedGas"], baseline["facts"]))
+    proj["marginalGas"] = residual // baseline["facts"]
+    proj["baselineFacts"] = baseline["facts"]
+    proj["baselineGas"] = baseline["gasUsed"]
+    total = proj["fixedGas"] + proj["marginalGas"] * proj["quotedN"]
+    if total != proj["quotedTotal"]:
+        sys.exit("%s: the projection does not reproduce: %d + %d*%d = %d, quoted %d"
+                 % (path, proj["fixedGas"], proj["marginalGas"], proj["quotedN"], total,
+                    proj["quotedTotal"]))
+    if total // proj["quotedN"] != proj["quotedPerFact"]:
+        sys.exit("%s: the projection's per-fact figure does not reproduce: %d // %d = %d, "
+                 "quoted %d" % (path, total, proj["quotedN"], total // proj["quotedN"],
+                                proj["quotedPerFact"]))
+
+    # Cycle closes: two regimes, and the page names them. The first close a writer makes on a
+    # store bootstraps cold words; every later one does not. If the window ever shows more than
+    # two distinct close costs the page's two-regime sentence is wrong.
+    closes = [t for t in txns if t["op"] == "closeCycle" and t["keeperSigner"]]
+    close_gas = sorted({t["gasUsed"] for t in closes})
+    if len(close_gas) != 2:
+        sys.exit("%s: cycle closes show %d distinct gas figures (%s); the page states two regimes"
+                 % (path, len(close_gas), ", ".join(str(g) for g in close_gas)))
+    close_repeat, close_first = close_gas[0], close_gas[1]
+    first_time = max(t["timestamp"] for t in closes if t["gasUsed"] == close_first)
+    repeat_time = min(t["timestamp"] for t in closes if t["gasUsed"] == close_repeat)
+    if first_time > repeat_time:
+        sys.exit("%s: a dearer cycle close came after a cheaper one; 'first close, then repeats' "
+                 "is not what happened" % path)
+
+    # Cadence: the cycle number the closes carry, and how many days they span. The summary card
+    # multiplies by cycles per month, so the claim that a cycle is a day is checked, not assumed.
+    cycles = sorted({t["cycle"] for t in closes})
+    if cycles != list(range(cycles[0], cycles[-1] + 1)):
+        sys.exit("%s: the closed cycles %s are not consecutive; the page's one-cycle-per-day "
+                 "reading does not hold" % (path, cycles))
+    days = {t["timeUtc"][:10] for t in closes}
+    if len(days) != len(cycles):
+        sys.exit("%s: %d closed cycles across %d calendar days; a cycle is not a day in this "
+                 "window" % (path, len(cycles), len(days)))
+
+    # The trusted price set. The summary card multiplies its per-fact figure by this count, so the
+    # count and the labels are both checked against the signers the collection actually resolved.
+    price_writers = data["keeperConfig"]["priceWriters"]
+    if len(price_writers) != SHIPPED_PRICE_SOURCES:
+        sys.exit("%s: keeperConfig names %d price writers (%s) but the summary card is built for "
+                 "%d sources" % (path, len(price_writers), ", ".join(price_writers),
+                                 SHIPPED_PRICE_SOURCES))
+    labels = set(data["signers"].values())
+    unknown = [w for w in price_writers if w not in labels]
+    if unknown:
+        sys.exit("%s: price writer(s) %s never appear as a sender in this window; the card would "
+                 "charge for a writer the chain does not show"
+                 % (path, ", ".join(unknown)))
+
+    # Locks, grouped. Sixty near-identical rows do not belong on a page; their gas distribution
+    # does, with one example hash each so any of them can be re-read from the chain.
+    def group(rows):
+        out = {}
+        for row in rows:
+            slot = out.setdefault(row["gasUsed"], {"gasUsed": row["gasUsed"], "count": 0,
+                                                   "exampleHash": row["hash"]})
+            slot["count"] += 1
+        return sorted(out.values(), key=lambda g: -g["count"])
+
+    locks = [t for t in txns if t["op"] == "setLock" and t["keeperSigner"]]
+    return {
+        "store": data["store"],
+        "storeSource": data["storeSource"],
+        "gasConstants": data["gasConstants"],
+        "chain": data["chain"],
+        "window": data["window"],
+        "collection": data["collection"],
+        "passGrouping": data["passGrouping"],
+        "signers": data["signers"],
+        "signerSource": data["signerSource"],
+        "keeperConfig": data["keeperConfig"],
+        "easWritePath": data["easWritePath"],
+        "etherscanCrossCheck": cross,
+        "passes": data["passes"],
+        # Every batched write in the window, keeper and verification alike, in full. These are the
+        # rows a reviewer re-derives from the chain, so none of them is summarised away.
+        "writes": writes,
+        "priceKind": price_kind,
+        "priceKindSource": SHIPPED_PRICE_KIND_SOURCE,
+        "fit": fit,
+        "independentFit": independent,
+        "projection": proj,
+        "baselineTx": baseline["hash"],
+        "headlineTx": headline["hash"],
+        "closes": {"repeatGas": close_repeat, "firstGas": close_first,
+                   "groups": group(closes), "cycles": cycles, "days": sorted(days)},
+        "locks": {"groups": group(locks), "count": len(locks)},
+        "scale": {"tokens": SHIPPED_SCALE_TOKENS, "priceSources": SHIPPED_PRICE_SOURCES,
+                  "cyclesPerDay": SHIPPED_CYCLES_PER_DAY},
+    }
+
+
 def git(*args):
     return subprocess.check_output(["git", "-C", str(REPO), *args], text=True).strip()
 
@@ -765,6 +1043,20 @@ def main():
         "source": source,
     }
 
+    # ENG-4342: the shipped rows. Parsed after the modelled arms so that a broken collection
+    # cannot be mistaken for a broken report, and so the build fails on the shipped input with
+    # its own message.
+    shipped = parse_shipped(HERE / "shipped-writes.json")
+    # The summary card says "three pinned gas scenarios" and renders one column per anchor that is
+    # pinned to a named historical block. `now` is re-read on every chain-data refresh and is
+    # deliberately not one of them. If the anchor set ever changes, the card's own sentence goes
+    # stale, so the count is asserted rather than trusted to stay at three.
+    pinned = [a for a in chain["gasAnchors"] if a["label"] != "now"]
+    if len(pinned) != 3:
+        sys.exit("chain-data.json has %d pinned gas anchors (%s), not 3; the summary card's "
+                 "'three pinned gas scenarios' no longer describes the page"
+                 % (len(pinned), ", ".join(a["label"] for a in pinned)))
+
     meta = {
         "commit": git("rev-parse", "HEAD"),
         "commitShort": git("rev-parse", "--short", "HEAD"),
@@ -776,7 +1068,7 @@ def main():
 
     payload = json.dumps(
         {"rows": rows, "compare": compare, "chain": chain, "meta": meta, "batch": batch,
-         "read": read},
+         "read": read, "shipped": shipped},
         indent=1, sort_keys=True)
     # The payload is embedded inside a <script> block, so two sequences must not survive
     # verbatim: `</script` would end the block early, and a bare `&` is ambiguous to an HTML

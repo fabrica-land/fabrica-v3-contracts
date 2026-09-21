@@ -232,6 +232,31 @@ footer{border-top:1px solid var(--line);padding:18px 20px 40px;color:var(--muted
   <div id="eas-banner"></div>
 
   <div class="panel">
+    <h2>Cost at scale — the shipped batching, per month</h2>
+    <div id="scale-intro"></div>
+    <div class="scroll"><table id="scale-table"></table></div>
+    <div class="eq" id="scale-eq"></div>
+    <div id="scale-inputs"></div>
+    <div id="scale-notes"></div>
+  </div>
+
+  <div class="panel">
+    <h2>Shipped — the batched writes that actually happened</h2>
+    <div id="shipped-intro"></div>
+    <h3>Passes</h3>
+    <div class="scroll"><table id="shipped-passes"></table></div>
+    <div id="shipped-passes-notes"></div>
+    <h3>Every batched write in the window</h3>
+    <div class="scroll"><table id="shipped-writes"></table></div>
+    <div id="shipped-writes-notes"></div>
+    <h3>Reconciliation — measured against the projection</h3>
+    <div id="shipped-recon"></div>
+    <h3>Cycle closes and locks</h3>
+    <div class="scroll"><table id="shipped-other"></table></div>
+    <div id="shipped-provenance"></div>
+  </div>
+
+  <div class="panel">
     <h2>Read side — gas inside <code>price()</code></h2>
     <p class="small">What it costs a pool to <em>read</em> a fact, on each candidate fact layer.
       Per the adoption survey this — not write gas — is the binding constraint on the fact-layer
@@ -322,6 +347,10 @@ footer{border-top:1px solid var(--line);padding:18px 20px 40px;color:var(--muted
 const DATA = /*__DATA__*/null;
 const R = DATA.rows, CHAIN = DATA.chain, META = DATA.meta, BATCH = DATA.batch;
 const READ = DATA.read;
+/* ENG-4342: the SHIPPED rows. Everything under `shipped` is a real Sepolia transaction of the
+   round-3 fact store, read from the chain by collect-shipped-writes.py, not a Foundry row. It is
+   the only arm on this page that has shipped — see SHIPPED.easWritePath. */
+const SHIPPED = DATA.shipped;
 /* Which EAS arm the running-cost headline is quoted for. Of the two arms the write model
    covers, arm 2 is the mainnet-viable one: arm 1 resolves through EAS's `Indexer`, which is not
    deployed on Ethereum mainnet, which is why the adoption survey's Option A carries an ownerless
@@ -341,6 +370,20 @@ const usd = n => !isFinite(n) ? "—"
   : n >= 0.01 ? "$" + n.toFixed(4) : "$" + n.toPrecision(2);
 const eth = n => !isFinite(n) ? "—" : n >= 1 ? fmt(n, 4) : n.toPrecision(3);
 const gwei = n => n >= 100 ? fmt(n, 0) : n >= 1 ? fmt(n, 2) : n.toPrecision(3);
+
+/* ---------- wei (ENG-4342) ----------
+   Wei figures arrive from the chain as decimal STRINGS and are converted with BigInt, never
+   through a JS number. A single transaction fee here is already ~4.6e15 wei and a pass total
+   ~3.1e16; Number() would round them silently, and the repo's rule is that a value serialised
+   as a string is never coerced to a double. These two produce an EXACT decimal string. */
+function weiToUnits(wei, decimals) {
+  const n = BigInt(wei), unit = 10n ** BigInt(decimals);
+  const whole = (n / unit).toString();
+  const frac = (n % unit).toString().padStart(decimals, "0").replace(/0+$/, "");
+  return frac ? whole + "." + frac : whole;
+}
+const weiToEth = wei => weiToUnits(wei, 18);
+const weiToGwei = wei => weiToUnits(wei, 9);
 
 /* ---------- state ---------- */
 const DEFAULTS = {
@@ -698,6 +741,485 @@ const READ_CMP = (() => {
   };
 })();
 
+/* ---------- shipped (ENG-4342) ----------
+   Derived ONCE from the raw chain integers, by the method each figure names. Nothing in here
+   depends on a dial: the dials price gas, they do not change what the chain recorded. Only the
+   USD cells of the summary card are dial-driven, and those are computed at render time.
+
+   The reconciliation is an IDENTITY, not a fit after the fact. Whole-transaction gas for a
+   batched write decomposes exactly as
+
+     gas(n) = txBase + headCalldata + bodyCalldata(n) + fixedExec + marginalExec * n
+
+   where `fixedExec` and `marginalExec` are solved from the measured batches and asserted by the
+   build to reproduce every one of them to the gas. Divide by n and subtract the projection, and
+   the difference falls into exactly three terms. The page prints the sum and the difference side
+   by side so the identity is visible rather than claimed. */
+const SEPOLIA_TX = "https://sepolia.etherscan.io/tx/";
+const SEPOLIA_ADDRESS = "https://sepolia.etherscan.io/address/";
+const txLink = h => `<a href="${SEPOLIA_TX}${h}"><code>${h.slice(0, 10)}…</code></a>`;
+const SHIPPED_CMP = (() => {
+  const byHash = Object.fromEntries(SHIPPED.writes.map(w => [w.hash, w]));
+  const headline = byHash[SHIPPED.headlineTx];
+  const baseline = byHash[SHIPPED.baselineTx];
+  const P = SHIPPED.projection, F = SHIPPED.fit, K = SHIPPED.gasConstants;
+  // The measured per-fact cost, both ways it is legitimately quoted: the exact ratio, and the
+  // floor the keeper's own `oracle.write.batch` log reports. They differ by a third of a gas,
+  // and the page says which is which rather than picking one and hoping nobody divides.
+  const measuredExact = headline.gasUsed / headline.facts;
+  const measuredFloor = Math.floor(measuredExact);
+  const projTotal = n => P.fixedGas + P.marginalGas * n;
+  const quotedExact = projTotal(P.quotedN) / P.quotedN;
+  const atShippedExact = projTotal(headline.facts) / headline.facts;
+  // The transaction's TRUE fixed and marginal terms, from the decomposition above.
+  const trueFixed = K.txBase + headline.calldata.headGas + F.fixedExecGas;
+  const trueMarginal = F.marginalExecGas + headline.calldata.bodyGas / headline.facts;
+  const baselineMarginal = F.marginalExecGas + baseline.calldata.bodyGas / baseline.facts;
+  const terms = [
+    {key: "batch",
+     label: `Batch size: the projection was quoted at n=${P.quotedN}, the batch that shipped was
+             n=${headline.facts}`,
+     detail: `the projection's fixed term amortised over ${headline.facts} facts instead of
+              ${P.quotedN}: ${fmt(P.fixedGas)}/${headline.facts} − ${fmt(P.fixedGas)}/${P.quotedN}`,
+     gasPerFact: P.fixedGas / headline.facts - P.fixedGas / P.quotedN},
+    {key: "fixed",
+     label: "Fixed term: measured against assumed",
+     detail: `the transaction's real fixed cost is ${fmt(K.txBase)} intrinsic +
+              ${fmt(headline.calldata.headGas)} head calldata + ${fmt(F.fixedExecGas)} fixed
+              execution = ${fmt(trueFixed)}; the projection assumed ${fmt(P.fixedGas)}.
+              (${fmt(trueFixed)} − ${fmt(P.fixedGas)}) / ${headline.facts}`,
+     gasPerFact: (trueFixed - P.fixedGas) / headline.facts},
+    {key: "marginal",
+     label: "Marginal rate: measured against assumed",
+     detail: `this batch's real marginal is ${fmt(F.marginalExecGas)} execution +
+              ${fmt(headline.calldata.bodyGas / headline.facts, 0)} body calldata per fact =
+              ${fmt(trueMarginal, 0)}; the projection used ${fmt(P.marginalGas)}, derived from the
+              ${baseline.facts}-fact transaction with the assumed fixed term above`,
+     gasPerFact: trueMarginal - P.marginalGas},
+  ];
+  const termSum = terms.reduce((a, t) => a + t.gasPerFact, 0);
+  const difference = measuredExact - quotedExact;
+  // The per-fact EXECUTION cost is identical across every measured batch — that is what the fit
+  // asserts — so the residual after the three terms is calldata and allocation, with nothing
+  // left over. `unexplained` is printed either way; the page must be able to say it is not zero.
+  const unexplained = difference - termSum;
+  const keeperPasses = SHIPPED.passes.filter(p => p.keeperPass);
+  const otherPasses = SHIPPED.passes.filter(p => !p.keeperPass);
+  const ceiling = SHIPPED.keeperConfig.maxTransactionsPerCycle;
+  const atCeiling = keeperPasses.filter(p => p.transactions === ceiling);
+  const keeperWrites = SHIPPED.writes.filter(w => w.keeperSigner);
+  // Which of the configured price writers actually wrote price facts in this window, in the
+  // order they first did. The summary card charges all three; saying which ones the chain shows
+  // is the difference between a named assumption and a quiet one.
+  const pricingSigners = [];
+  for (const w of keeperWrites) {
+    if (w.kinds.length === 1 && w.kinds[0] === SHIPPED.priceKind
+        && !pricingSigners.includes(w.signer)) pricingSigners.push(w.signer);
+  }
+  const silentPriceSigners = SHIPPED.keeperConfig.priceWriters.filter(
+    p => !pricingSigners.includes(p));
+  return {
+    pricingSigners, silentPriceSigners,
+    headline, baseline, P, F, K, measuredExact, measuredFloor, quotedExact, atShippedExact,
+    trueFixed, trueMarginal, baselineMarginal, terms, termSum, difference, unexplained,
+    keeperPasses, otherPasses, keeperWrites, ceiling, atCeiling,
+    totalFactsShipped: keeperWrites.reduce((a, w) => a + w.facts, 0),
+    // Every anchor that is pinned to a named historical block. `now` is re-read on every
+    // chain-data refresh, so it is not one of them, and the summary card says so rather than
+    // quietly including a figure that moves.
+    pinnedAnchors: CHAIN.gasAnchors.filter(a => a.label !== "now"),
+    nowAnchor: CHAIN.gasAnchors.find(a => a.label === "now"),
+  };
+})();
+
+/* The summary card's two arms, and the arithmetic that takes a book size to a month of gas.
+   Everything here is composed from measured rows by the formula the card prints. */
+const SCALE_ARMS = (() => {
+  const SC = SHIPPED.scale;
+  const cyclesPerMonth = MONTH_DAYS * SC.cyclesPerDay;
+  const easArm = BATCH.eas.arms.find(a => a.key === EAS_HEADLINE_ARM);
+  // EAS is priced at the LARGEST batch size this page has a measured row for. It is not the
+  // shipped size, because no EAS batch has ever shipped; quoting it at 24 would require a row
+  // nobody has measured. Past 100 the measured per-item attest cost RISES, so 100 is if anything
+  // the kindest size to EAS available.
+  const easBatch = BATCH.sizes[BATCH.sizes.length - 1];
+  const easPerFact = Math.floor(
+    (BATCH.ops[easArm.addends[0]][String(easBatch)].total
+     + BATCH.ops[easArm.addends[1]][String(easBatch)].total) / easBatch);
+  const easClose = BATCH.eas.close.attestSecond + BATCH.eas.close.pointRepeat;
+  const arms = [
+    {key: "shipped", kind: "shipped", label: "Bespoke fact store — SHIPPED",
+     perFact: SHIPPED_CMP.measuredFloor, closeGas: SHIPPED.closes.repeatGas,
+     batch: SHIPPED_CMP.headline.facts, txPerBatch: 1, closeTxns: 1,
+     basis: `measured on chain: ${SHIPPED_CMP.headline.facts} facts in one
+             <code>writeFacts</code> transaction`},
+    {key: "eas", kind: "modelled", label: `EAS — ${easArm.label} — MODELLED, never shipped`,
+     perFact: easPerFact, closeGas: easClose,
+     batch: easBatch, txPerBatch: easArm.addends.length, closeTxns: BATCH.eas.arms.length > 0 ? 2 : 1,
+     basis: `Foundry rows at batch ${fmt(easBatch)}:
+             <code>${BATCH.opLabels[easArm.addends[0]]}</code> +
+             <code>${BATCH.opLabels[easArm.addends[1]]}</code>`},
+  ];
+  const project = (arm, tokens) => {
+    const facts = tokens * SC.priceSources * cyclesPerMonth;
+    const priceGas = facts * arm.perFact;
+    const closes = SC.priceSources * cyclesPerMonth;
+    const closeGas = closes * arm.closeGas;
+    return {
+      facts, priceGas, closes, closeGas, totalGas: priceGas + closeGas,
+      // A batch is per writer per cycle, so the transaction count follows the book each writer
+      // covers in a cycle, not the month's fact total.
+      txns: SC.priceSources * cyclesPerMonth * Math.ceil(tokens / arm.batch) * arm.txPerBatch
+            + closes * arm.closeTxns,
+    };
+  };
+  return {arms, easArm, easBatch, cyclesPerMonth, sources: SC.priceSources, tokens: SC.tokens,
+          project};
+})();
+
+function renderScale() {
+  const {arms, easArm, cyclesPerMonth, sources, tokens} = SCALE_ARMS;
+  const anchors = SHIPPED_CMP.pinnedAnchors;
+  const H = SHIPPED_CMP.headline;
+  const usdAt = (baseFeeGwei, gas) => gas * (baseFeeGwei + S.tip) * 1e-9 * S.eth;
+  document.getElementById("scale-intro").innerHTML = `
+    <p class="small">What a month of the fact layer costs at
+    ${tokens.map(t => fmt(t)).join(" / ")} tokens, at the cadence and batch size the keeper is
+    <strong>actually running</strong> on Sepolia, priced at mainnet gas. The bespoke row's gas per
+    fact is a chain read; the EAS row beside it is a Foundry measurement of a path that has never
+    been broadcast by anything. This card is pinned to the shipped configuration — only the
+    <em>ETH price</em> and <em>priority fee</em> dials move it.</p>
+    <div class="note bad"><p><strong>Gas is the same on either chain; the price is not.</strong>
+    The per-fact figure is measured on Sepolia, where ETH has no market value, so the ETH actually
+    spent there is not a cost. What transfers is the <em>gas</em>: the same bytecode charges the
+    same gas on mainnet. Every USD figure below is that measured gas priced at a mainnet base-fee
+    anchor, the priority-fee dial and the ETH-price dial — never at a Sepolia gas price.</p></div>`;
+
+  const head = `<thead><tr><th>Book</th><th>Arm</th><th class="n">Facts / month</th>
+    <th class="n">Transactions / month</th><th class="n">Gas / month</th>
+    ${anchors.map(a => `<th class="n">${a.label}<div class="src">${gwei(a.baseFeeGwei)} gwei</div></th>`).join("")}
+    </tr></thead>`;
+  const body = tokens.map(t => arms.map((arm, i) => {
+    const p = SCALE_ARMS.project(arm, t);
+    const shipped = arm.kind === "shipped";
+    return `<tr${shipped ? ' style="background:var(--accent-soft)"' : ""}>
+      ${i === 0 ? `<td rowspan="${arms.length}"><strong>${fmt(t)}</strong> tokens</td>` : ""}
+      <td>${shipped ? "<strong>Bespoke — shipped</strong>" : `${easArm.label} — <em>modelled</em>`}
+        <div class="src">${fmt(arm.perFact)} gas/fact at batch ${fmt(arm.batch)}</div></td>
+      <td class="n">${fmt(p.facts, 0)}</td><td class="n">${fmt(p.txns, 0)}</td>
+      <td class="n">${fmt(p.totalGas, 0)}</td>
+      ${anchors.map(a => `<td class="n">${usd(usdAt(a.baseFeeGwei, p.totalGas))}</td>`).join("")}
+    </tr>`;
+  }).join("")).join("");
+  document.getElementById("scale-table").innerHTML = head + `<tbody>${body}</tbody>`;
+
+  const ratio = SCALE_ARMS.arms[1].perFact / SCALE_ARMS.arms[0].perFact;
+  document.getElementById("scale-eq").textContent =
+    `facts per month   = tokens x ${sources} price sources x ${MONTH_DAYS} cycles\n` +
+    `gas per month     = facts x gas-per-fact  +  ${sources} x ${MONTH_DAYS} x cycle-close gas\n` +
+    `USD per month     = gas x (base fee + ${S.tip.toPrecision(4)} gwei tip) x 1e-9 x ${usd(S.eth)}\n` +
+    `bespoke, shipped  = ${fmt(SHIPPED_CMP.measuredFloor)} gas/fact, ` +
+      `${fmt(SHIPPED.closes.repeatGas)} gas/close\n` +
+    `EAS, modelled     = ${fmt(SCALE_ARMS.arms[1].perFact)} gas/fact, ` +
+      `${fmt(SCALE_ARMS.arms[1].closeGas)} gas/close   (${ratio.toFixed(2)}x the shipped figure)`;
+
+  document.getElementById("scale-inputs").innerHTML = `
+    <div class="scroll"><table>
+      <thead><tr><th>Input</th><th class="n">Value</th><th>Where it comes from</th></tr></thead>
+      <tbody>
+      <tr><td>Gas per fact, bespoke</td><td class="n">${fmt(SHIPPED_CMP.measuredFloor)}</td>
+        <td class="small">CHAIN READ. ${txLink(H.hash)}, block ${fmt(H.block)}, ${H.timeUtc}:
+        ${fmt(H.facts)} facts, ${fmt(H.gasUsed)} gas,
+        <code>floor(${fmt(H.gasUsed)} ÷ ${H.facts})</code>. The largest batch the keeper has
+        sent.</td></tr>
+      <tr><td>Gas per cycle close, bespoke</td><td class="n">${fmt(SHIPPED.closes.repeatGas)}</td>
+        <td class="small">CHAIN READ. The repeat-close regime, identical on
+        ${fmt(SHIPPED.closes.groups.find(g => g.gasUsed === SHIPPED.closes.repeatGas).count)}
+        transactions; example ${txLink(SHIPPED.closes.groups.find(g => g.gasUsed === SHIPPED.closes.repeatGas).exampleHash)}.
+        A writer's FIRST close on a store costs ${fmt(SHIPPED.closes.firstGas)} and is paid
+        once.</td></tr>
+      <tr><td>Gas per fact, ${easArm.label}</td><td class="n">${fmt(SCALE_ARMS.arms[1].perFact)}</td>
+        <td class="small">MODELLED. ${SCALE_ARMS.arms[1].basis}, from
+        <code>${BATCH.source.file}</code> @ <code>${srcCommitShort()}</code>. No EAS write has
+        ever been broadcast — see the note below.</td></tr>
+      <tr><td>Gas per cycle close, EAS</td><td class="n">${fmt(SCALE_ARMS.arms[1].closeGas)}</td>
+        <td class="small">MODELLED. <code>attest</code> ${fmt(BATCH.eas.close.attestSecond)} +
+        pointer write ${fmt(BATCH.eas.close.pointRepeat)}, both measured
+        (<a href="https://linear.app/fabrica/issue/ENG-3964">ENG-3964</a>).</td></tr>
+      <tr><td>Oracle price sources</td><td class="n">${sources}</td>
+        <td class="small">NAMED ASSUMPTION. The aggregator's trusted set holds three price
+        writers and the card charges all three. In this window only
+        ${fmt(SHIPPED_CMP.pricingSigners.length)} of them —
+        ${SHIPPED_CMP.pricingSigners.join(", ")} — actually wrote price facts;
+        ${SHIPPED_CMP.silentPriceSigners.join(", ") || "none"} closed
+        ${SHIPPED_CMP.silentPriceSigners.length === 1 ? "its cycle" : "their cycles"} without
+        writing any. A book covered by ${fmt(SHIPPED_CMP.pricingSigners.length)} sources instead
+        of ${sources} costs ${(SHIPPED_CMP.pricingSigners.length / sources).toFixed(2)}× these
+        figures on the price term. <code>fabrica</code> writes token-wide facts and is
+        deliberately not in the trusted price set at all.</td></tr>
+      <tr><td>Cycles per month</td><td class="n">${MONTH_DAYS}</td>
+        <td class="small">CHAIN READ. One cycle per day: cycles
+        ${SHIPPED.closes.cycles.join(", ")} were closed on
+        ${SHIPPED.closes.days.join(", ")} — ${SHIPPED.closes.cycles.length} consecutive cycles
+        across ${SHIPPED.closes.days.length} consecutive days. × the mean Gregorian month.</td></tr>
+      <tr><td>Rows written per cycle</td><td class="n">100%</td>
+        <td class="small">Every row written every cycle. The keeper's skip-unchanged policy writes
+        FEWER than this, so the price term is an upper bound at a given book size. This card has
+        no movers dial of its own; the <em>Movers</em> dial drives the Foundry-based running-cost
+        panel below, not these rows.</td></tr>
+      <tr><td>Batch size, bespoke</td><td class="n">${fmt(H.facts)}</td>
+        <td class="small">CHAIN READ, the shipped batch. Configured
+        <code>writeBatchSize</code> ${SHIPPED.keeperConfig.writeBatchSize} and
+        <code>maxTokensPerCycle</code> ${SHIPPED.keeperConfig.maxTokensPerCycle}
+        (${SHIPPED.keeperConfig.source}); the largest batch actually sent is
+        ${H.facts}, and the card quotes what shipped, not what is configured.</td></tr>
+      <tr><td>Priority fee</td><td class="n">${S.tip.toPrecision(4)} gwei</td>
+        <td class="small">The priority-fee dial. Default: median actually paid over
+        ${CHAIN.priorityFee.blocksSampled} mainnet blocks to
+        ${fmt(CHAIN.priorityFee.toBlock)}.</td></tr>
+      <tr><td>ETH price</td><td class="n">${usd(S.eth)}</td>
+        <td class="small">The ETH-price dial. Default: Chainlink ETH/USD on mainnet,
+        ${CHAIN.ethUsd.updatedAtUtc}.</td></tr>
+      <tr><td>Base fee</td><td class="n">3 pinned anchors</td>
+        <td class="small">${anchors.map(a => `<strong>${a.label}</strong> ${gwei(a.baseFeeGwei)} gwei
+        (block ${fmt(a.block)}, ${a.timeUtc})`).join("; ")}. Each is pinned to a named historical
+        mainnet block and cannot move.</td></tr>
+      </tbody></table></div>`;
+
+  document.getElementById("scale-notes").innerHTML = `
+    <div class="note warn"><p><strong>${SHIPPED.easWritePath.headline}</strong>
+    ${SHIPPED.easWritePath.surface} The EAS row above, and every EAS figure anywhere on this
+    page, is modelled from Foundry measurements — it is what EAS <em>would</em> cost, not what it
+    <em>has</em> cost. Checked, not assumed: ${SHIPPED.easWritePath.checkedAt}. So “both bespoke
+    and EAS” on this page means <strong>one shipped arm and one modelled arm</strong>, and the two
+    columns are not the same kind of evidence.</p></div>
+    <div class="note"><p><strong>The three columns are the page's pinned anchors, and all three
+    are expensive days.</strong> The fourth anchor, <code>now</code>, is deliberately not a column:
+    it is re-read from the chain on every refresh of <code>chain-data.json</code> and so is not
+    pinned to anything. Its last reading was
+    <span class="num">${gwei(SHIPPED_CMP.nowAnchor.baseFeeGwei)}</span> gwei at
+    ${SHIPPED_CMP.nowAnchor.timeUtc}, which prices the
+    ${fmt(tokens[1])}-token shipped row at
+    <strong>${usd(usdAt(SHIPPED_CMP.nowAnchor.baseFeeGwei,
+                        SCALE_ARMS.project(arms[0], tokens[1]).totalGas))}</strong> a month. The
+    <em>Gas per month</em> column is scenario-independent, so any base fee can be applied to it
+    directly; the <em>Congestion</em> panel below renders all four anchors.</p></div>
+    <div class="note"><p><strong>What this card is not.</strong> The keeper has never priced a
+    book of ${fmt(tokens[2])} tokens. <code>maxTokensPerCycle</code> is
+    ${SHIPPED.keeperConfig.maxTokensPerCycle}, and the most tokens it has written price facts for
+    in one transaction is ${SHIPPED_CMP.headline.facts}. These rows are the measured per-fact cost multiplied out, by the formula above; the
+    per-fact figure holds at any book size because the batch size does not change, but the
+    <em>transaction ceiling</em> does bind: at ${fmt(tokens[2])} tokens a cycle needs
+    ${fmt(Math.ceil(tokens[2] / arms[0].batch) * sources, 0)} batch transactions against a
+    configured ceiling of ${SHIPPED_CMP.ceiling} per pass, so the cadence assumed here is not
+    reachable on today's configuration. That is a scheduling limit, not a gas one, and it is the
+    finding this card exists to surface.</p></div>`;
+}
+
+function renderShipped() {
+  const C = SHIPPED_CMP, K = SHIPPED.gasConstants;
+  const win = SHIPPED.window, cross = SHIPPED.etherscanCrossCheck;
+  document.getElementById("shipped-intro").innerHTML = `
+    <p class="small">The round-3 fact store
+    <a href="${SEPOLIA_ADDRESS}${SHIPPED.store}"><code>${SHIPPED.store}</code></a> on Sepolia has
+    been taking <code>writeFacts</code> batches from the oracle keeper since
+    ${C.keeperPasses[0].startTimeUtc}. Every row below is read from the chain — no figure here is
+    copied from a keeper log line or a ticket comment. Window: blocks
+    <span class="num">${fmt(win.fromBlock)}</span>–<span class="num">${fmt(win.toBlock)}</span>
+    (${win.fromTimeUtc} → ${win.toTimeUtc}) — the store's whole history from its deployment to
+    the pinned block this collection ends at.</p>
+    <div class="note ok"><p><strong>The transaction set is complete and nothing reverted.</strong>
+    ${fmt(SHIPPED.passes.reduce((a, p) => a + p.transactions, 0))} transactions were found by
+    replaying the store's logs, and cross-checked against Etherscan's account list, which
+    includes failures that emit no log and so cannot appear in a log replay:
+    ${fmt(cross.transactions)} there, <strong>${cross.failed.length} failed</strong>.
+    ${cross.explanation}</p></div>`;
+
+  const ceiling = C.ceiling;
+  document.getElementById("shipped-passes").innerHTML = `
+    <thead><tr><th>Pass (UTC)</th><th class="n">Cycle</th><th class="n">Txs</th>
+      <th class="n">Ceiling</th><th class="n">Batches</th><th class="n">Facts</th>
+      <th class="n">Largest batch</th><th class="n">Locks</th><th class="n">Closes</th>
+      <th class="n">Gas</th><th class="n">Sepolia ETH</th></tr></thead>
+    <tbody>${C.keeperPasses.map(p => `<tr${p.transactions === ceiling
+        ? ' style="background:var(--accent-soft)"' : ""}>
+      <td>${p.startTimeUtc.replace("T", " ").replace("Z", "")}
+        <div class="src">blocks ${fmt(p.fromBlock)}–${fmt(p.toBlock)}</div></td>
+      <td class="n">${p.cycles.length ? p.cycles.join(", ") : "—"}</td>
+      <td class="n"><strong>${p.transactions}</strong></td><td class="n">${ceiling}</td>
+      <td class="n">${p.writeTransactions}</td><td class="n">${p.facts}</td>
+      <td class="n">${p.largestBatch || "—"}</td>
+      <td class="n">${p.lockTransactions}</td><td class="n">${p.closeTransactions}</td>
+      <td class="n">${fmt(p.gasUsed)}</td><td class="n">${weiToEth(p.feeWei)}</td></tr>`).join("")}
+    </tbody>`;
+  document.getElementById("shipped-passes-notes").innerHTML = `
+    <div class="note"><p><strong>The ceiling held exactly, three times.</strong>
+    ${fmt(C.atCeiling.length)} of the ${fmt(C.keeperPasses.length)} keeper passes spent
+    <strong>exactly ${ceiling}</strong> transactions and stopped — the configured
+    <code>maxTransactionsPerCycle</code>. A pass is a group of transactions separated from its
+    neighbours by more than ${fmt(SHIPPED.passGrouping.gapSeconds)} s of block time; inside a pass
+    the widest gap observed is ${fmt(SHIPPED.passGrouping.widestGapInsideAPass)} s and between
+    passes the narrowest is ${fmt(SHIPPED.passGrouping.narrowestGapBetweenPasses)} s, so the
+    grouping is not sensitive to the threshold.</p>
+    <p class="small">The ETH column is <strong>Sepolia</strong> ETH, which has no market value.
+    It is the real fee the transaction paid at its own effective gas price, shown because it is
+    what the keeper's funding actually consumes — not because it is money. Mainnet costs are in
+    the summary card at the top, which prices the measured GAS instead.</p>
+    ${C.otherPasses.length ? `<p class="small"><strong>Excluded from the keeper rows:</strong>
+    ${fmt(C.otherPasses.length)} earlier group(s) on ${C.otherPasses.map(p => p.startTimeUtc.slice(0, 10))
+      .filter((v, i, a) => a.indexOf(v) === i).join(", ")} were the
+    <a href="https://linear.app/fabrica/issue/ENG-4203">ENG-4203</a> deployment verification,
+    written by a disposable writer in its own namespace rather than by a configured oracle signer.
+    They are not keeper traffic and are never counted as shipped passes — but they ARE in the
+    table below, because they independently pin the fixed term of the reconciliation.</p>` : ""}</div>`;
+
+  document.getElementById("shipped-writes").innerHTML = `
+    <thead><tr><th>Transaction</th><th>Writer</th><th class="n">Block</th><th class="n">Facts</th>
+      <th class="n">Gas used</th><th class="n">Gas / fact</th><th class="n">Calldata gas</th>
+      <th class="n">Exec gas</th><th class="n">Gas price, gwei</th><th class="n">Sepolia ETH</th>
+      <th>Rows</th></tr></thead>
+    <tbody>${[
+      {title: `Keeper — SHIPPED (${fmt(SHIPPED_CMP.keeperWrites.length)} transactions, ` +
+              `${fmt(SHIPPED_CMP.totalFactsShipped)} facts)`,
+       rows: SHIPPED_CMP.keeperWrites},
+      {title: "ENG-4203 deployment verification — a disposable writer, not keeper traffic",
+       rows: SHIPPED.writes.filter(w => !w.keeperSigner)},
+    ].map(group => `<tr><td colspan="11" style="background:var(--bg);font-weight:600">
+      ${group.title}</td></tr>` + group.rows.map(w => `<tr${w.hash === SHIPPED.headlineTx
+        ? ' style="background:var(--accent-soft)"' : ""}>
+      <td>${txLink(w.hash)}<div class="src">${w.timeUtc.replace("T", " ").replace("Z", "")} ·
+        <code>${w.op}</code></div></td>
+      <td>${w.signer ? `<strong>${w.signer}</strong>`
+        : `<span class="src">ENG-4203 verification</span>`}</td>
+      <td class="n">${fmt(w.block)}</td><td class="n"><strong>${w.facts}</strong></td>
+      <td class="n">${fmt(w.gasUsed)}</td><td class="n">${fmt(w.gasPerFact)}</td>
+      <td class="n">${fmt(w.calldata.gas)}</td><td class="n">${fmt(w.execGas)}</td>
+      <td class="n">${weiToGwei(w.effectiveGasPriceWei)}</td>
+      <td class="n">${weiToEth(w.feeWei)}</td>
+      <td class="src">${w.firstWrites === w.facts ? "all first writes"
+        : w.repeatWrites === w.facts ? "all repeat writes"
+        : `${w.firstWrites} first, ${w.repeatWrites} repeat`}</td></tr>`).join("")).join("")}
+    </tbody>`;
+  document.getElementById("shipped-writes-notes").innerHTML = `
+    <div class="note"><p><strong>Whole-transaction gas, decomposed exactly.</strong> Calldata gas
+    is computed from each transaction's own bytes under EIP-2028 (${K.calldataZeroByte} per zero
+    byte, ${K.calldataNonZeroByte} per non-zero); execution gas is
+    <code>gasUsed − ${fmt(K.txBase)} − calldata</code>. Across every first-write
+    <code>writeFacts</code> batch the keeper has sent, execution is
+    <strong>exactly <code>${fmt(C.F.fixedExecGas)} + ${fmt(C.F.marginalExecGas)} × n</code></strong>:</p>
+    <div class="scroll"><table>
+      <thead><tr><th>Transaction</th><th class="n">Facts</th><th class="n">Execution gas</th>
+        <th class="n">${fmt(C.F.fixedExecGas)} + ${fmt(C.F.marginalExecGas)} × n</th>
+        <th class="n">Residual</th></tr></thead>
+      <tbody>${C.F.rows.map(r => `<tr><td>${txLink(r.hash)}</td><td class="n">${r.facts}</td>
+        <td class="n">${fmt(r.execGas)}</td><td class="n">${fmt(r.fittedGas)}</td>
+        <td class="n">${fmt(r.execGas - r.fittedGas)}</td></tr>`).join("")}</tbody></table></div>
+    <p class="small">Solved from the smallest and largest batch and then checked against every
+    row; the build refuses to produce this page if any residual is non-zero. The
+    <a href="https://linear.app/fabrica/issue/ENG-4203">ENG-4203</a> verification batches, a
+    different writer with a different fact shape at n =
+    ${SHIPPED.independentFit.rows.map(r => r.facts).join(", ")},
+    fit <code>${fmt(SHIPPED.independentFit.fixedExecGas)} +
+    ${fmt(SHIPPED.independentFit.marginalExecGas)} × n</code> — <strong>the same fixed term</strong>,
+    which is what makes it a property of the transaction rather than of this keeper's data. Their
+    marginal is ${fmt(C.F.marginalExecGas - SHIPPED.independentFit.marginalExecGas)} gas lower per
+    fact. 20,000 of that is one storage word: those facts carry a zero <code>data</code> value, and
+    storing zero over zero costs nothing where a real provenance hash allocates a fresh word. The
+    remaining ${fmt(C.F.marginalExecGas - SHIPPED.independentFit.marginalExecGas - 20000)} gas is
+    opcode-path difference and is not separately measured here.</p></div>`;
+
+  const T = C.terms;
+  document.getElementById("shipped-recon").innerHTML = `
+    <p class="small">Before the first scheduled pass ran,
+    <a href="https://github.com/fabrica-land/fabrica-v3-api/pull/1903">fabrica-v3-api#1903</a>
+    projected <span class="num">${fmt(C.P.quotedPerFact)}</span> gas per fact at batch
+    ${C.P.quotedN} (${SHIPPED.projection.source}). The pass wrote
+    ${C.headline.facts} facts at <span class="num">${fmt(C.measuredFloor)}</span>. Here is the
+    whole of that difference, by term.</p>
+    <div class="scroll"><table>
+      <thead><tr><th>Term</th><th class="n">Gas / fact</th></tr></thead>
+      <tbody>
+        <tr><td><strong>Projection, as quoted</strong> — <code>${fmt(C.P.fixedGas)} +
+          ${fmt(C.P.marginalGas)} × ${C.P.quotedN}</code> = ${fmt(C.P.quotedTotal)} gas,
+          ÷ ${C.P.quotedN}</td>
+          <td class="n">${fmt(C.quotedExact, 2)}</td></tr>
+        ${T.map(t => `<tr><td>${t.label}<div class="src">${t.detail}</div></td>
+          <td class="n">${t.gasPerFact >= 0 ? "+" : "−"}${fmt(Math.abs(t.gasPerFact), 2)}</td></tr>`).join("")}
+        <tr><td><strong>Measured</strong> — ${txLink(C.headline.hash)}, ${fmt(C.headline.gasUsed)}
+          gas ÷ ${C.headline.facts} facts</td>
+          <td class="n"><strong>${fmt(C.measuredExact, 2)}</strong></td></tr>
+        <tr><td>Unexplained residual</td>
+          <td class="n" style="color:${Math.abs(C.unexplained) < 1e-6 ? "var(--ok)" : "var(--bad)"}">
+          ${fmt(Math.abs(C.unexplained) < 1e-9 ? 0 : C.unexplained, 6)}</td></tr>
+      </tbody></table></div>
+    <div class="note ${Math.abs(C.unexplained) < 1e-6 ? "ok" : "bad"}">
+    <p><strong>${Math.abs(C.unexplained) < 1e-6
+      ? "Nothing is unexplained." : "The terms do not close the gap."}</strong>
+    The three terms sum to ${fmt(C.termSum, 2)} gas per fact and the measured figure is
+    ${fmt(C.difference, 2)} above the quoted projection${Math.abs(C.unexplained) < 1e-6
+      ? " — the same number" : ""}. Every term is either calldata or the allocation of a fixed
+    cost between the two: <strong>execution per fact is identical</strong> at
+    ${fmt(C.F.marginalExecGas)} gas in the ${C.baseline.facts}-fact transaction the projection was
+    derived from and in the ${C.headline.facts}-fact batch that shipped, so <em>no warm/cold
+    storage term appears at all</em> — the entire warm/cold effect of batching is the constant
+    ${fmt(C.F.fixedExecGas)} gas per transaction, which the fit isolates. The lock writes in the
+    same pass are separate transactions and contribute nothing to this figure.</p>
+    <p class="small">The largest term is the marginal rate. The projection's
+    ${fmt(C.P.marginalGas)} is the ${C.baseline.facts}-fact transaction's true marginal
+    (${fmt(C.baselineMarginal, 0)}) less
+    ${fmt((C.P.fixedGas - C.trueFixed) / C.baseline.facts, 0)} gas per fact, which is the
+    ${fmt(C.P.fixedGas - C.trueFixed)} gas the assumed fixed term carried that the transaction
+    does not. The shipped batch's own marginal is ${fmt(C.trueMarginal, 0)}: the same
+    ${fmt(C.F.marginalExecGas)} of execution plus
+    ${fmt(C.headline.calldata.bodyGas / C.headline.facts, 0)} of calldata per fact, against
+    ${fmt(C.baseline.calldata.bodyGas / C.baseline.facts, 0)} in the baseline — the ${C.headline.facts}
+    facts simply carry more zero bytes.</p>
+    <p class="small">As a prediction the projection was right to
+    ${(100 * Math.abs(C.difference) / C.quotedExact).toFixed(2)}%. Quoted like for like — the
+    projection evaluated at the batch size that actually shipped,
+    <code>${fmt(C.P.fixedGas)} + ${fmt(C.P.marginalGas)} × ${C.headline.facts}</code> ÷
+    ${C.headline.facts} = ${fmt(C.atShippedExact, 2)} — it was right to
+    ${(100 * Math.abs(C.measuredExact - C.atShippedExact) / C.atShippedExact).toFixed(2)}%.</p>
+    <p class="small">EIP-7623 does not bind on any of these transactions: the floor for the
+    shipped batch is ${fmt(C.headline.calldata.eip7623FloorGas)} gas against
+    ${fmt(C.headline.gasUsed)} actually used.</p></div>`;
+
+  const closeRows = SHIPPED.closes.groups.map(g => ({
+    what: g.gasUsed === SHIPPED.closes.firstGas
+      ? "<code>closeCycle</code> — a writer's first close on this store"
+      : "<code>closeCycle</code> — every later close", ...g}));
+  const lockRows = SHIPPED.locks.groups.map(g => ({what: "<code>setLock</code> — urgent class", ...g}));
+  document.getElementById("shipped-other").innerHTML = `
+    <thead><tr><th>Call</th><th class="n">Gas used</th><th class="n">Transactions</th>
+      <th>Example</th></tr></thead>
+    <tbody>${[...closeRows, ...lockRows].map(r => `<tr><td>${r.what}</td>
+      <td class="n">${fmt(r.gasUsed)}</td><td class="n">${fmt(r.count)}</td>
+      <td>${txLink(r.exampleHash)}</td></tr>`).join("")}</tbody>`;
+
+  document.getElementById("shipped-provenance").innerHTML = `
+    <div class="note"><p class="small">Two <code>setLock</code> figures
+    ${fmt(SHIPPED.locks.groups[0].gasUsed - SHIPPED.locks.groups[1].gasUsed)} gas apart is
+    calldata and nothing else: ${K.calldataNonZeroByte} − ${K.calldataZeroByte} =
+    ${K.calldataNonZeroByte - K.calldataZeroByte} gas is exactly one byte of the
+    <code>tokenId</code> word that happens to be zero. Cycle closes have two regimes because a
+    writer's first close on a store allocates cold words and every later one overwrites
+    them.</p></div>
+    <div class="note"><p><strong>How to re-read any of this.</strong> Every row above comes from
+    <code>shipped-writes.json</code>, produced by</p>
+    <div class="eq">${SHIPPED.collection.command}</div>
+    <p class="small">${SHIPPED.collection.method}. It reproduces because
+    ${SHIPPED.collection.reproducibility}. Selectors and event topics: ${SHIPPED.collection.selectorsVerifiedBy}. Writer labels:
+    ${SHIPPED.signerSource}. Store: <code>${SHIPPED.storeSource}</code>.</p>
+    <p class="small"><strong>Not chain reads:</strong> the keeper's configured
+    <code>maxTransactionsPerCycle</code> ${SHIPPED.keeperConfig.maxTransactionsPerCycle},
+    <code>writeBatchSize</code> ${SHIPPED.keeperConfig.writeBatchSize},
+    <code>maxTokensPerCycle</code> ${SHIPPED.keeperConfig.maxTokensPerCycle} and cron
+    <code>${SHIPPED.keeperConfig.cronSchedule}</code> are configuration, recorded on
+    ${SHIPPED.keeperConfig.source}, and the trusted price set
+    (${SHIPPED.keeperConfig.priceWriters.join(", ")}) with them. Only the transaction ceiling is
+    corroborated by the chain, by the passes that stop on it exactly.</p></div>`;
+}
+
 function renderReadSide() {
   const isEas = S.layer === "eas";
   const arms = READ.arms;
@@ -960,6 +1482,9 @@ function render() {
     <a href="https://linear.app/fabrica/issue/ENG-3964">ENG-3964</a>: a writer's first cycle close
     (the attestation and its lookup write, both regimes), arm 2's cycle-close pointer write,
     attribute writes on both arms, and the batch dial at 1,000.</p>`}
+    <p><strong>But none of it has shipped.</strong> ${SHIPPED.easWritePath.headline}
+    ${SHIPPED.easWritePath.surface} Measured is not shipped: everything on this dial is what EAS <em>would</em> cost. The bespoke arm's
+    batched writes are real transactions — see <em>Shipped</em> at the top of the page.</p>
     <p class="small">Deliberate, and unchanged: nothing on this page is estimated. A term with a
     measured row is charged; a term without one is named and left out.</p></div>`;
 
@@ -1023,6 +1548,12 @@ function render() {
                             : `months ${S.month}–${S.month + 11}, each in its own regime`,
                       x => usd(x.toUsd(x.yearGas) / S.tokens))]);
   renderReadSide();
+  /* ENG-4342. The shipped panel is dial-independent — it renders what the chain recorded — but it
+     is drawn here rather than once at load so that the two panels stay in one render pass and a
+     future dial that does touch them cannot go stale. The summary card reads the ETH-price and
+     priority-fee dials and must re-render. */
+  renderScale();
+  renderShipped();
   document.getElementById("headline").innerHTML = cards.map(([k, v, s]) =>
     `<div class="card"><div class="k">${k}</div><div class="v">${v}</div><div class="s">${s}</div></div>`).join("");
 
@@ -1322,7 +1853,34 @@ total                                                    = ${noTotal ? "— not 
       <code>${srcCommit}</code> (PR #${BATCH.source.pr})${provTag}`;
   }
   document.getElementById("batch-write").innerHTML = writeHtml;
+  /* ENG-4342. The batch rows above are Foundry measurements on BOTH arms, but only one of the two
+     arms has ever run. Saying so next to the EAS rows is the whole point: without it a reader
+     compares two tables that look alike and concludes they are the same kind of evidence. */
   document.getElementById("batch-write-notes").innerHTML = `
+    ${arm === "eas" ? `<div class="note bad"><p><strong>These EAS rows are modelled.
+    ${SHIPPED.easWritePath.headline}</strong> ${SHIPPED.easWritePath.surface} Nothing has ever
+    broadcast a <code>multiAttest</code> for this system, on any chain — the rows above are what
+    it would cost if something did. Checked, not assumed:
+    ${SHIPPED.easWritePath.checkedAt}.</p>
+    <p class="small">The bespoke arm is the opposite: its batched writes are in
+    <em>Shipped</em> above, as real Sepolia transactions of
+    <a href="${SEPOLIA_ADDRESS}${SHIPPED.store}"><code>${SHIPPED.store.slice(0, 10)}…</code></a>.
+    The shipped batch costs <span class="num">${fmt(SHIPPED_CMP.measuredFloor)}</span> gas per
+    fact at n=${SHIPPED_CMP.headline.facts}; this arm's modelled figure at the nearest measured
+    size (${fmt(SCALE_ARMS.easBatch)}) is
+    <span class="num">${fmt(SCALE_ARMS.arms[1].perFact)}</span>, which is
+    ${(SCALE_ARMS.arms[1].perFact / SHIPPED_CMP.measuredFloor).toFixed(2)}× it. Comparing them is
+    comparing a measurement with a projection, and the page says so every time it does.</p></div>`
+    : `<div class="note ok"><p><strong>This arm has shipped.</strong> The Foundry rows above are
+    corroborated by real transactions: see <em>Shipped</em> above, where
+    ${fmt(SHIPPED_CMP.keeperWrites.length)} batched <code>writeFacts</code> transactions of
+    <a href="${SEPOLIA_ADDRESS}${SHIPPED.store}"><code>${SHIPPED.store.slice(0, 10)}…</code></a>
+    carry ${fmt(SHIPPED_CMP.totalFactsShipped)} facts, the largest
+    ${SHIPPED_CMP.headline.facts} in one transaction at
+    <span class="num">${fmt(SHIPPED_CMP.measuredFloor)}</span> gas per fact. The shipped entry
+    point is <code>writeFacts</code> on the round-3 store, not the <code>writePriceBatch</code>
+    prototype these rows measure, so the two figures are close relatives rather than the same
+    call.</p></div>`}
     <div class="note ${arm === "eas" ? "warn" : "ok"}"><p><strong>Is a batched write worth building
     on ${arm === "eas" ? "EAS" : "the custom store"}?</strong> ${worth}</p>
     ${relatedHtml}
@@ -1431,6 +1989,15 @@ total                                                    = ${noTotal ? "— not 
     </tbody>`;
 
   document.getElementById("eas-section").innerHTML = `
+    <div class="note bad"><p><strong>Measured is not shipped.
+    ${SHIPPED.easWritePath.headline}</strong> ${SHIPPED.easWritePath.surface} Every EAS figure
+    on this page — read side,
+    write side, batch rows, summary card — is a Foundry measurement of a path that has never been
+    broadcast, and it is labelled that way wherever it appears. Checked, not assumed:
+    ${SHIPPED.easWritePath.checkedAt}.</p>
+    <p class="small">The bespoke arm has shipped, which is the asymmetry to hold on to when
+    reading “both bespoke and EAS”: one arm's numbers are transactions
+    (<em>Shipped</em>, above) and the other arm's are a forecast.</p></div>
     <div class="note warn"><p><strong>The EAS arm is measured on both sides, and both are on this
     page.</strong> The write side is in the <em>Batching</em> panel above (ENG-3922) — including
     <code>indexAttestations</code>, folded into arm 1's per-item write because a record the
@@ -1674,10 +2241,18 @@ forge test --match-path test/Eng3913DeployedVsMainGas.t.sol -vv     # deployed v
 
 # 3. the mainnet readings (needs an RPC; re-running moves "now" and the ETH price,
 #    the historical anchors are immutable)
-MAINNET_RPC_URL=... python3 bench/oracle-gas-model/collect-chain-data.py &gt; bench/oracle-gas-model/chain-data.json</div>
-    <p class="small">The forge runs need no RPC and no keys. Only the mainnet readings do, and
-    re-running those moves the “now” figures and the ETH price; the historical anchors are
-    immutable. If your gas numbers differ, check the foundry version and
+MAINNET_RPC_URL=... python3 bench/oracle-gas-model/collect-chain-data.py &gt; bench/oracle-gas-model/chain-data.json
+
+# 4. the SHIPPED rows, read off Sepolia (needs an RPC and an Etherscan key). The window is
+#    pinned to a final block and there is no generated-at stamp, so THIS one reproduces
+#    byte for byte -- a differing shipped-writes.json means a differing chain, not a re-run.
+${SHIPPED.collection.command}</div>
+    <p class="small">The forge runs need no RPC and no keys. Only the chain readings do. Re-running
+    the mainnet collection moves the “now” figures and the ETH price; the historical anchors are
+    immutable, and the Sepolia collection at the same <code>--to-block</code> does not move at all.
+    To re-derive one shipped row without any of this, open its transaction on Etherscan and divide
+    gas used by the number of <code>FactWritten</code> logs. If your gas numbers differ, check the
+    foundry version and
     <code>optimizer_runs = 1</code> first — both are in the report headers.</p>`;
 
   /* self-check: the model's own cost function, evaluated over exactly one write in each
