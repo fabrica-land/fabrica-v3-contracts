@@ -861,6 +861,16 @@ def parse_shipped(path):
         return sorted(out.values(), key=lambda g: -g["count"])
 
     locks = [t for t in txns if t["op"] == "setLock" and t["keeperSigner"]]
+    # Grouped once and reused below, rather than regrouped inside the payload literal.
+    #
+    # The cardinality is deliberately NOT asserted. Two distinct setLock gas figures is an
+    # accident of the data -- 12 gas is one byte of a tokenId that happens to be zero -- so a
+    # window whose locked tokens all have the same byte pattern would legitimately show one
+    # group, and a more varied window three. That is unlike the cycle close, where two regimes
+    # are a property of the CONTRACT (a writer's first close allocates cold words) and so are
+    # asserted above. The page derives its sentence from this list's length instead; what
+    # would be a defect is an unguarded index, not an unexpected count.
+    lock_groups = group(locks)
     return {
         "store": data["store"],
         "storeSource": data["storeSource"],
@@ -887,7 +897,7 @@ def parse_shipped(path):
         "headlineTx": headline["hash"],
         "closes": {"repeatGas": close_repeat, "firstGas": close_first,
                    "groups": group(closes), "cycles": cycles, "days": sorted(days)},
-        "locks": {"groups": group(locks), "count": len(locks)},
+        "locks": {"groups": lock_groups, "count": len(locks)},
         "scale": {"tokens": SHIPPED_SCALE_TOKENS, "priceSources": SHIPPED_PRICE_SOURCES,
                   "cyclesPerDay": SHIPPED_CYCLES_PER_DAY},
     }

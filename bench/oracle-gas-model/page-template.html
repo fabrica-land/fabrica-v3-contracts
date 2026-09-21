@@ -808,6 +808,11 @@ const SHIPPED_CMP = (() => {
   const ceiling = SHIPPED.keeperConfig.maxTransactionsPerCycle;
   const atCeiling = keeperPasses.filter(p => p.transactions === ceiling);
   const keeperWrites = SHIPPED.writes.filter(w => w.keeperSigner);
+  // How many DISTINCT senders the independent fit spans. It is two, not one, and that matters:
+  // the same fixed term falling out of two unrelated senders with a different fact shape is a
+  // stronger claim than one, and the page should make the claim its data actually supports.
+  const independentSenders =
+    new Set(SHIPPED.writes.filter(w => !w.keeperSigner).map(w => w.from)).size;
   // Which of the configured price writers actually wrote price facts in this window, in the
   // order they first did. The summary card charges all three; saying which ones the chain shows
   // is the difference between a named assumption and a quiet one.
@@ -819,7 +824,7 @@ const SHIPPED_CMP = (() => {
   const silentPriceSigners = SHIPPED.keeperConfig.priceWriters.filter(
     p => !pricingSigners.includes(p));
   return {
-    pricingSigners, silentPriceSigners,
+    pricingSigners, silentPriceSigners, independentSenders,
     headline, baseline, P, F, K, measuredExact, measuredFloor, quotedExact, atShippedExact,
     trueFixed, trueMarginal, baselineMarginal, terms, termSum, difference, unexplained,
     keeperPasses, otherPasses, keeperWrites, ceiling, atCeiling,
@@ -1053,7 +1058,8 @@ function renderShipped() {
       <td class="n">${fmt(p.gasUsed)}</td><td class="n">${weiToEth(p.feeWei)}</td></tr>`).join("")}
     </tbody>`;
   document.getElementById("shipped-passes-notes").innerHTML = `
-    <div class="note"><p><strong>The ceiling held exactly, three times.</strong>
+    <div class="note"><p><strong>The ceiling held exactly, ${fmt(C.atCeiling.length)}
+    time${C.atCeiling.length === 1 ? "" : "s"}.</strong>
     ${fmt(C.atCeiling.length)} of the ${fmt(C.keeperPasses.length)} keeper passes spent
     <strong>exactly ${ceiling}</strong> transactions and stopped — the configured
     <code>maxTransactionsPerCycle</code>. A pass is a group of transactions separated from its
@@ -1069,7 +1075,9 @@ function renderShipped() {
     ${fmt(C.otherPasses.length)} earlier group(s) on ${C.otherPasses.map(p => p.startTimeUtc.slice(0, 10))
       .filter((v, i, a) => a.indexOf(v) === i).join(", ")} were the
     <a href="https://linear.app/fabrica/issue/ENG-4203">ENG-4203</a> deployment verification,
-    written by a disposable writer in its own namespace rather than by a configured oracle signer.
+    written by ${fmt(C.independentSenders)} disposable
+    writer${C.independentSenders === 1 ? "" : "s"} in their own namespace rather than by a
+    configured oracle signer.
     They are not keeper traffic and are never counted as shipped passes — but they ARE in the
     table below, because they independently pin the fixed term of the reconciliation.</p>` : ""}</div>`;
 
@@ -1082,7 +1090,9 @@ function renderShipped() {
       {title: `Keeper — SHIPPED (${fmt(SHIPPED_CMP.keeperWrites.length)} transactions, ` +
               `${fmt(SHIPPED_CMP.totalFactsShipped)} facts)`,
        rows: SHIPPED_CMP.keeperWrites},
-      {title: "ENG-4203 deployment verification — a disposable writer, not keeper traffic",
+      {title: `ENG-4203 deployment verification — ${fmt(SHIPPED_CMP.independentSenders)} `
+              + `disposable writer${SHIPPED_CMP.independentSenders === 1 ? "" : "s"}, `
+              + "not keeper traffic",
        rows: SHIPPED.writes.filter(w => !w.keeperSigner)},
     ].map(group => `<tr><td colspan="11" style="background:var(--bg);font-weight:600">
       ${group.title}</td></tr>` + group.rows.map(w => `<tr${w.hash === SHIPPED.headlineTx
@@ -1116,9 +1126,9 @@ function renderShipped() {
         <td class="n">${fmt(r.execGas - r.fittedGas)}</td></tr>`).join("")}</tbody></table></div>
     <p class="small">Solved from the smallest and largest batch and then checked against every
     row; the build refuses to produce this page if any residual is non-zero. The
-    <a href="https://linear.app/fabrica/issue/ENG-4203">ENG-4203</a> verification batches, a
-    different writer with a different fact shape at n =
-    ${SHIPPED.independentFit.rows.map(r => r.facts).join(", ")},
+    <a href="https://linear.app/fabrica/issue/ENG-4203">ENG-4203</a> verification batches —
+    ${fmt(C.independentSenders)} other sender${C.independentSenders === 1 ? "" : "s"} with a
+    different fact shape, at n = ${SHIPPED.independentFit.rows.map(r => r.facts).join(", ")} —
     fit <code>${fmt(SHIPPED.independentFit.fixedExecGas)} +
     ${fmt(SHIPPED.independentFit.marginalExecGas)} × n</code> — <strong>the same fixed term</strong>,
     which is what makes it a property of the transaction rather than of this keeper's data. Their
@@ -1197,13 +1207,19 @@ function renderShipped() {
       <td>${txLink(r.exampleHash)}</td></tr>`).join("")}</tbody>`;
 
   document.getElementById("shipped-provenance").innerHTML = `
-    <div class="note"><p class="small">Two <code>setLock</code> figures
-    ${fmt(SHIPPED.locks.groups[0].gasUsed - SHIPPED.locks.groups[1].gasUsed)} gas apart is
-    calldata and nothing else: ${K.calldataNonZeroByte} − ${K.calldataZeroByte} =
-    ${K.calldataNonZeroByte - K.calldataZeroByte} gas is exactly one byte of the
-    <code>tokenId</code> word that happens to be zero. Cycle closes have two regimes because a
-    writer's first close on a store allocates cold words and every later one overwrites
-    them.</p></div>
+    <div class="note"><p class="small">${(() => {
+      const g = SHIPPED.locks.groups;
+      if (!g.length) return "No keeper <code>setLock</code> transactions in this window.";
+      if (g.length === 1) return `Every keeper <code>setLock</code> in this window cost the same
+        ${fmt(g[0].gasUsed)} gas — the call writes one word and its calldata is a fixed shape.`;
+      const spread = g[0].gasUsed - g[g.length - 1].gasUsed;
+      return `${fmt(g.length)} distinct <code>setLock</code> figures, spanning ${fmt(Math.abs(spread))}
+        gas, is calldata and nothing else: ${K.calldataNonZeroByte} − ${K.calldataZeroByte} =
+        ${K.calldataNonZeroByte - K.calldataZeroByte} gas is exactly one byte of the
+        <code>tokenId</code> word that happens to be zero, so the spread counts zero bytes and
+        nothing about the call.`;
+    })()} Cycle closes have two regimes because a writer's first close on a store allocates cold
+    words and every later one overwrites them.</p></div>
     <div class="note"><p><strong>How to re-read any of this.</strong> Every row above comes from
     <code>shipped-writes.json</code>, produced by</p>
     <div class="eq">${SHIPPED.collection.command}</div>

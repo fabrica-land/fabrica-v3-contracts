@@ -115,6 +115,12 @@ KEEPER_SIGNER_PREFIXES = {
 # grouping, and the script asserts that it does by reporting the two figures.
 PASS_GAP_SECONDS = 900
 
+# Blocks per `eth_getLogs` request, before adaptive backoff. Chosen to sit under every common
+# provider span cap (dRPC 1,000 is the tightest in normal use; Alchemy's free tier at 10 blocks
+# is handled by the halving in fetch_logs rather than by this number). The store emits a handful
+# of logs per pass, so the result-count caps are never in play here -- only the span caps are.
+LOG_RANGE_BLOCKS = 2_000
+
 # EIP-2028 calldata pricing, and the EIP-7623 floor that Prague added. The floor is computed
 # and reported so the page can state that it does not bind on any of these transactions
 # rather than ignore it: `max(21000 + calldata + execution, 21000 + 10 * tokens)`.
@@ -147,6 +153,45 @@ def rpc(url, method, params):
             if attempt == 4:
                 raise
             time.sleep(1.5 * (attempt + 1))
+
+
+def fetch_logs(url, from_block, to_block):
+    """Every log the store emitted in [from_block, to_block], collected in adaptive chunks.
+
+    Asking for the whole window in one `eth_getLogs` is what a node with no limits would want,
+    and it is exactly what a hosted one refuses. Providers cap the request in two independent
+    ways -- a block SPAN (Alchemy's free tier at 10 blocks, dRPC at 1,000, Infura and most
+    others at 10,000) and a RESULT count (Infura at 10,000 logs), and some simply time out --
+    so a single full-window request is portable only to the provider it was written against.
+    This file's whole claim is that a reviewer can re-run the command against *any* Sepolia
+    node and get the same bytes, and a request the reviewer's node rejects makes that claim
+    false for precisely the person it is addressed to.
+
+    So: start well under the common caps, halve the span whenever a request is refused, and
+    grow back after a success. A refusal at a single block is re-raised rather than swallowed,
+    because at that point the filter itself is the problem and silently returning short would
+    put a hole in the page.
+
+    This does NOT affect the output. Ordering is imposed downstream by sorting on
+    (blockNumber, transactionIndex), not by the order logs arrive, so the chunk boundaries
+    cannot reach the file. The byte-for-byte reproducibility check in the README is what
+    verifies that, and it is the test that matters for this function.
+    """
+    logs = []
+    start, span = from_block, LOG_RANGE_BLOCKS
+    while start <= to_block:
+        end = min(start + span - 1, to_block)
+        try:
+            logs.extend(rpc(url, "eth_getLogs", [{"address": STORE, "fromBlock": hex(start),
+                                                  "toBlock": hex(end)}]))
+        except Exception:
+            if span == 1:
+                raise
+            span = max(1, span // 2)
+            continue
+        start = end + 1
+        span = min(LOG_RANGE_BLOCKS, span * 2)
+    return logs
 
 
 def iso(ts):
@@ -281,8 +326,7 @@ def main():
         sys.exit("--to-block %d is before the store's deployment block %d"
                  % (args.to_block, DEPLOYMENT_BLOCK))
 
-    logs = rpc(url, "eth_getLogs", [{"address": STORE, "fromBlock": hex(DEPLOYMENT_BLOCK),
-                                     "toBlock": hex(args.to_block)}])
+    logs = fetch_logs(url, DEPLOYMENT_BLOCK, args.to_block)
     # Order of first appearance is (block, transaction index): the chain's own order, not the
     # order the node happened to return.
     position = {}
