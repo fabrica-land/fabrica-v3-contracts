@@ -42,7 +42,7 @@ def parse_bench_rows(path):
     then surface as `undefined` somewhere in the page rather than as a build failure.
     """
     out = {}
-    for lineno, line in enumerate(path.read_text().splitlines(), 1):
+    for lineno, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
         line = line.strip()
         if "ENG3913ROW," not in line:
             continue
@@ -74,7 +74,7 @@ def parse_compare(path):
     slot cold)" losing nothing visible, but truncated the wrapped-ring names mid-phrase.
     """
     out = []
-    for lineno, line in enumerate(path.read_text().splitlines(), 1):
+    for lineno, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
         line = line.strip()
         if "ENG3913CMP," not in line:
             continue
@@ -144,7 +144,7 @@ def count_measured_rows(path):
     light while still claiming to describe the committed file. Counting it here, and refusing when
     the sidecar disagrees, is the same treatment every other derived figure in this directory gets.
     """
-    return sum(1 for line in path.read_text().splitlines()
+    return sum(1 for line in path.read_text(encoding="utf-8").splitlines()
                if re.match(r"\s{2}.+?: \d+$", line.rstrip()))
 
 
@@ -178,7 +178,7 @@ def parse_source(path):
     it is still provisional.
     """
     meta = {}
-    for line in path.read_text().splitlines():
+    for line in path.read_text(encoding="utf-8").splitlines():
         line = line.strip()
         if not line or line.startswith("#"):
             continue
@@ -215,7 +215,7 @@ def parse_arms_batch(path):
     line it is asserted equal to that floor -- so a report reformat cannot silently feed the page a
     number that no longer matches its own total. A missing row is a hard error: the dial needs it.
     """
-    text = path.read_text()
+    text = path.read_text(encoding="utf-8")
     ops = {
         "ownerless writePriceBatch": "writePriceBatch",
         "EAS multiAttest": "multiAttest",
@@ -315,7 +315,7 @@ def parse_arms_read(path):
 
     A missing depth is a hard error. A read-side table with a hole in it is worse than none.
     """
-    text = path.read_text()
+    text = path.read_text(encoding="utf-8")
     out = {}
     for arm in READ_ARMS:
         depths = {}
@@ -338,7 +338,7 @@ def parse_arms_read(path):
 
 def parse_growth(path):
     """Arm 1's two append-only Indexer growth curves, both measured in the arms report."""
-    text = path.read_text()
+    text = path.read_text(encoding="utf-8")
     if PROBED_CLOSE_ROW_DEPTH not in CLOSE_ROW_DEPTHS:
         sys.exit("build-model-page.py: the probed cycle-close depth %d is not among the measured "
                  "depths %s, so the page's like-for-like comparison has nothing to read"
@@ -358,7 +358,7 @@ def parse_heartbeat_variants(path):
     attestation's own publication time rather than from a separate clock a write has to touch.
     Both are quoted verbatim; neither is the arm's headline read, which is measured separately.
     """
-    text = path.read_text()
+    text = path.read_text(encoding="utf-8")
     return {
         "withHeartbeat": _read_int(
             text, r"arm2 price\(\) WITH rebuilt per-writer heartbeat: (\d+)", path,
@@ -399,7 +399,7 @@ def parse_eas_close_write(path):
     storage. Every row is cooled on EVERY address its call touches -- EAS, the SchemaRegistry it
     reads the schema from, and the Indexer or pointer being written -- in both halves of each pair.
     """
-    text = path.read_text()
+    text = path.read_text(encoding="utf-8")
     return {
         # `attestOnly` and `arm1Indexed` were parsed here until ENG-3964 measured both arms' closes
         # properly. Nothing reads them now, so nothing ships them: a payload field no template
@@ -434,7 +434,7 @@ def assert_dial_1000_decomposition(path):
     that can explain what actually went wrong -- never runs. The build refused either way; it just
     refused with the wrong reason, which sends the next person looking in the wrong place.
     """
-    text = path.read_text()
+    text = path.read_text(encoding="utf-8")
     attest = {}
     for n in BOUNDARY_SIZES:
         match = re.search(r"EAS multiAttest n=%d -- WHOLE TRANSACTION: (\d+)" % n, text)
@@ -460,7 +460,7 @@ def parse_attribute_writes(path):
     both regimes are measured at the 100 batch so the model can charge them apart, exactly as it
     does on the bespoke layer.
     """
-    text = path.read_text()
+    text = path.read_text(encoding="utf-8")
 
     def batch(label, sizes, suffix=""):
         return {str(n): _read_int(
@@ -502,7 +502,7 @@ def parse_batch_boundary(path, chain_gas_limit):
         sys.exit("build-model-page.py: the bench measured against a %s gas block limit but "
                  "chain-data.json reads %s from chain; the boundary would be wrong"
                  % (f"{BLOCK_GAS_LIMIT:,}", f"{chain_gas_limit:,}"))
-    text = path.read_text()
+    text = path.read_text(encoding="utf-8")
     attest = {n: _read_int(text, r"EAS multiAttest n=%d -- WHOLE TRANSACTION: (\d+)" % n, path,
                            "multiAttest n=%d" % n) for n in BOUNDARY_SIZES}
     fits = sorted(n for n, g in attest.items() if g <= BLOCK_GAS_LIMIT)
@@ -549,7 +549,7 @@ def parse_baseline_read(path):
     on Sepolia today -- and it is deliberately NOT the denominator of pass mark A. A also has to
     hold everything but the fact layer constant, which only the calibration arm does.
     """
-    text = path.read_text()
+    text = path.read_text(encoding="utf-8")
     # The source count is READ out of each row rather than pinned in the pattern, because every
     # per-hop figure on the page divides by READ_SOURCES: a baseline regenerated at a different
     # count would otherwise produce quietly wrong hop costs with no other symptom. Matching it
@@ -586,7 +586,7 @@ def parse_sepolia_probes(path, fork):
     revision of the report ever has the arms returning different prices they are no longer
     measuring the same read, and the comparison on this page is void.
     """
-    text = path.read_text()
+    text = path.read_text(encoding="utf-8")
     out, prices = {}, {}
     for arm in READ_ARMS:
         if not arm["probe"]:
@@ -713,7 +713,7 @@ def parse_shipped(path):
     the whole transaction set?" are live questions. Both are answered in the file and asserted
     here; a collection that cannot answer them does not reach the page.
     """
-    data = json.loads(path.read_text())
+    data = json.loads(path.read_text(encoding="utf-8"))
     if data["chain"]["chainId"] != 11155111:
         sys.exit("%s: chainId %s is not Sepolia" % (path, data["chain"]["chainId"]))
     cross = data["etherscanCrossCheck"]
@@ -1033,7 +1033,7 @@ def main():
     check_only = "--check" in sys.argv[1:]
     rows = parse_bench_rows(HERE / "reports" / "bench-rows.txt")
     compare = parse_compare(HERE / "reports" / "deployed-vs-main.txt")
-    chain = json.loads((HERE / "chain-data.json").read_text())
+    chain = json.loads((HERE / "chain-data.json").read_text(encoding="utf-8"))
     required = [
         "register:first under validator", "register:subsequent",
         "registerBatch:1", "registerBatch:10", "registerBatch:100", "registerBatch:1000",
@@ -1174,6 +1174,11 @@ def main():
                  % (len(SHIPPED_SCALE_TOKENS),
                     ", ".join(str(t) for t in SHIPPED_SCALE_TOKENS)))
     assert_ascending("SHIPPED_SCALE_TOKENS", SHIPPED_SCALE_TOKENS)
+    # Read the template before validating: the assertions below derive what they check --
+    # the gas-anchor labels and the EAS arm key the page looks up by name -- from its text,
+    # so that no list here has to be kept in agreement with a list there.
+    template = (HERE / "page-template.html").read_text(encoding="utf-8")
+
     # The summary card says "three pinned gas scenarios" and renders one column per anchor that is
     # pinned to a named historical block. `now` is re-read on every chain-data refresh and is
     # deliberately not one of them. If the anchor set ever changes, the card's own sentence goes
@@ -1183,12 +1188,47 @@ def main():
         sys.exit("chain-data.json has %d pinned gas anchors (%s), not 3; the summary card's "
                  "'three pinned gas scenarios' no longer describes the page"
                  % (len(pinned), ", ".join(a["label"] for a in pinned)))
+    # The count above says how many pinned anchors there are; it cannot say anything about the
+    # anchors the page looks up BY NAME and then dereferences -- `now`, `extremely high` and
+    # `historical peak` are all found with .find(a => a.label === "...") and immediately read.
+    # A chain-data.json refresh that drops or renames any of them would build clean and throw
+    # at init, blanking the whole page: the keeperPasses[0] shape again.
+    #
+    # Rather than restate those names here -- a second list that must agree with the first, the
+    # defect this page keeps producing -- read them out of the template itself and require each
+    # to resolve exactly once. Any future lookup added to the template is covered automatically.
+    wanted = sorted(set(re.findall(
+        r'gasAnchors\.find\(\s*\w+\s*=>\s*\w+\.label === "([^"]+)"\)', template)))
+    if not wanted:
+        sys.exit("page-template.html no longer looks up any gas anchor by name; this assertion "
+                 "was reading that list out of the template and now has nothing to check")
+    have = [a["label"] for a in chain["gasAnchors"]]
+    for label in wanted:
+        if have.count(label) != 1:
+            sys.exit("page-template.html dereferences the gas anchor labelled %r, which appears "
+                     "%d times in chain-data.json (labels: %s)"
+                     % (label, have.count(label), ", ".join(have)))
+
+    # Same shape on the EAS write arms: the template picks its headline arm by key and, when the
+    # EAS layer is selected, also requires a second arm for the "other arm" figure. The key is a
+    # template literal; read it back rather than duplicating it.
+    headline = re.search(r'const EAS_HEADLINE_ARM = "([^"]+)";', template)
+    if not headline:
+        sys.exit("page-template.html no longer declares EAS_HEADLINE_ARM; the builder reads that "
+                 "literal to check the arm it names is present in the emitted data")
+    arm_keys = [a["key"] for a in batch["eas"]["arms"]]
+    if arm_keys.count(headline.group(1)) != 1:
+        sys.exit("page-template.html reads EAS arm %r by key and dereferences it, but the emitted "
+                 "arms are %s" % (headline.group(1), ", ".join(arm_keys)))
+    if len(set(arm_keys)) < 2:
+        sys.exit("the EAS layer quotes a second arm alongside the headline; emitted arm keys are "
+                 "%s, which cannot supply one" % ", ".join(arm_keys))
 
     meta = {
         "commit": git("rev-parse", "HEAD"),
         "commitShort": git("rev-parse", "--short", "HEAD"),
         "historyDepth": 48,
-        "reportHeader": (HERE / "reports" / "bench-rows.txt").read_text().split("\n\n")[0],
+        "reportHeader": (HERE / "reports" / "bench-rows.txt").read_text(encoding="utf-8").split("\n\n")[0],
     }
 
     meta["inputDigest"] = input_digest()
@@ -1208,7 +1248,6 @@ def main():
                       .replace("\u2028", "\\u2028")
                       .replace("\u2029", "\\u2029"))
 
-    template = (HERE / "page-template.html").read_text()
     if PLACEHOLDER not in template:
         sys.exit("page-template.html no longer contains the %r placeholder; refusing to write a "
                  "page with no data in it" % PLACEHOLDER)
@@ -1225,7 +1264,7 @@ def main():
     if check_only:
         if not target.exists():
             sys.exit("--check: index.html does not exist")
-        current = target.read_text()
+        current = target.read_text(encoding="utf-8")
         # The git-meta fields record the commit the page was BUILT from, which is necessarily
         # the parent of the commit that carries the page -- committing the page changes HEAD.
         # So they differ on every head after the one that built it, and comparing them would
@@ -1251,7 +1290,7 @@ def main():
         sys.exit("--check FAILED: index.html does not match its inputs (%d diff lines)\n%s"
                  % (len(diff), "\n".join(diff[:40])))
 
-    target.write_text(html)
+    target.write_text(html, encoding="utf-8")
     print("wrote", target, f"({html_bytes:,} bytes, {len(rows)} measured scenarios)")
 
 
