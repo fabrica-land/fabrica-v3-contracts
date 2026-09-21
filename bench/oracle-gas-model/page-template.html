@@ -1212,8 +1212,14 @@ function renderShipped() {
       if (!g.length) return "No keeper <code>setLock</code> transactions in this window.";
       if (g.length === 1) return `Every keeper <code>setLock</code> in this window cost the same
         ${fmt(g[0].gasUsed)} gas — the call writes one word and its calldata is a fixed shape.`;
-      const spread = g[0].gasUsed - g[g.length - 1].gasUsed;
-      return `${fmt(g.length)} distinct <code>setLock</code> figures, spanning ${fmt(Math.abs(spread))}
+      // From the EXTREMA, not from the ends of the list: `group()` orders by transaction count,
+      // not by gas, so the first and last entries are the most and least frequent figures and
+      // need not be the dearest and cheapest. With the two groups this window happens to have
+      // the two readings coincide, which is exactly why it needed stating rather than testing
+      // against tidy data. (CodeRabbit, PR #55.)
+      const gases = g.map(x => x.gasUsed);
+      const spread = Math.max(...gases) - Math.min(...gases);
+      return `${fmt(g.length)} distinct <code>setLock</code> figures, spanning ${fmt(spread)}
         gas, is calldata and nothing else: ${K.calldataNonZeroByte} − ${K.calldataZeroByte} =
         ${K.calldataNonZeroByte - K.calldataZeroByte} gas is exactly one byte of the
         <code>tokenId</code> word that happens to be zero, so the spread counts zero bytes and
