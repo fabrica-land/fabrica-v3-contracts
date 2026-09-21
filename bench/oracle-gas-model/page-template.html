@@ -999,12 +999,15 @@ function renderScale() {
     ${fmt(tokens[2])}. The cost of scale sits almost entirely in the one-time first fill, and after
     that in however often valuations actually move.</p>
     <p class="small">Read that as a property of the <em>design</em>, not as a forecast: see the
-    caveat below on what four cycles can and cannot establish.</p></div>` : ""}
+    caveat below on what ${fmt(RW.cyclesObserved)} cycles can and cannot establish.</p></div>` : ""}
     <div class="note warn"><p><strong>What the measured rewrite rate does and does not say.</strong>
     Across cycles ${SHIPPED.closes.cycles[0]}–${SHIPPED.closes.cycles[SHIPPED.closes.cycles.length - 1]}
-    the keeper wrote <strong>${fmt(SHIPPED_CMP.totalFactsShipped)} facts, every one of them a first
-    write, and not a single repeat</strong> — ${fmt(RW.observed)} rewrites across
-    ${fmt(RW.opportunities)} row-cycle opportunities. That is a real measurement and it is the
+    the keeper wrote <strong>${fmt(RW.priceFacts)} price facts, every one of them a first write,
+    and not a single repeat</strong> — ${fmt(RW.observed)} rewrites across
+    ${fmt(RW.opportunities)} row-cycle opportunities. (The numerator and the denominator are the
+    same set: price rows only. The ${fmt(SHIPPED_CMP.totalFactsShipped - RW.priceFacts)}
+    token-wide score and attribute facts of the same window are excluded from both, because they
+    have their own write semantics and do not belong in a price-rewrite rate.) That is a real measurement and it is the
     reason this card no longer charges a write per token per cycle. It is <em>not</em> a measured
     rate of zero: ${fmt(RW.cyclesObserved)} cycles is too little time to distinguish a book that
     genuinely does not move from one whose rows simply have not moved ${RW.thresholdBps} bps
@@ -1022,8 +1025,10 @@ function renderScale() {
     ${fmt(SCALE_ARMS.firstFill(arms[0], tokens[2]).txns, 0)} transactions against a configured
     ceiling of ${SHIPPED_CMP.ceiling} per pass — ${fmt(Math.ceil(
       SCALE_ARMS.firstFill(arms[0], tokens[2]).txns / SHIPPED_CMP.ceiling), 0)} passes, or
-    ${fmt(Math.ceil(SCALE_ARMS.firstFill(arms[0], tokens[2]).txns / SHIPPED_CMP.ceiling) / 4, 0)}
-    days at the ${SHIPPED.keeperConfig.cronSchedule} cadence. That is a scheduling limit on
+    ${fmt(Math.ceil(Math.ceil(SCALE_ARMS.firstFill(arms[0], tokens[2]).txns / SHIPPED_CMP.ceiling)
+          / SHIPPED.keeperConfig.passesPerDay), 0)}
+    days at the ${SHIPPED.keeperConfig.cronSchedule} cadence
+    (${SHIPPED.keeperConfig.passesPerDay} passes a day, derived from that schedule). That is a scheduling limit on
     onboarding, not a gas one, and it is the finding this card exists to surface.</p></div>
     <div class="note"><p><strong>The three columns are the page's pinned anchors, and all three are
     expensive days.</strong> The fourth anchor, <code>now</code>, is re-read on every refresh of
@@ -2542,7 +2547,8 @@ function sync() {
      (<code>significance.ts</code>, ENG-3926). <strong>Measured so far: no repeat write in
      ${fmt(RW.cyclesObserved)} observed cycles</strong> — ${fmt(RW.observed)} rewrites across
      ${fmt(RW.opportunities)} row-cycle opportunities. That is <em>not</em> a measured rate of
-     zero: four cycles is too little time to tell a genuinely static book from one whose rows
+     zero: ${fmt(RW.cyclesObserved)} cycles is too little time to tell a genuinely static book
+     from one whose rows
      simply have not moved ${RW.thresholdBps} bps yet. A bps threshold does not imply a rate
      either — that depends on how often valuations move past it, a property of the feed the
      keeper does not expose — so 100% is offered as an upper bound, not a forecast, and anything

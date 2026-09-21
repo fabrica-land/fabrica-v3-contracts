@@ -894,6 +894,11 @@ def parse_shipped(path):
         # in N observed cycles" rather than "a 0% rate": four cycles cannot tell a static book
         # from one whose rows have not yet moved past the threshold, and the difference matters.
         "cyclesObserved": len(cycles),
+        # The fact count that shares this denominator. The rewrite rows are PRICE rows only --
+        # the token-wide score/attribute batch has different write semantics and is rightly
+        # excluded -- so a sentence quoting this denominator must quote this numerator with it,
+        # not the all-kinds total. (Reviewer N3: the two halves were coming from different sets.)
+        "priceFacts": sum(r["facts"] for r in rewrite_rows),
         "rows": rewrite_rows,
         "thresholdBps": 100,
         "thresholdSource": "fabrica-v3-api onchainOracleKeeper.materialChangeBps, default 100 "
@@ -1135,6 +1140,15 @@ def main():
     assert_ascending("READ_DEPTHS", READ_DEPTHS)
     assert_ascending("INDEXER_ROW_DEPTHS", INDEXER_ROW_DEPTHS)
     assert_ascending("CLOSE_ROW_DEPTHS", CLOSE_ROW_DEPTHS)
+    # The cost-at-scale card reads tokens[1] and tokens[2] by POSITION, so the length of this
+    # list is load-bearing in the same way the depth lists' order is. A shorter list would not
+    # fail: it would render the missing values as em dashes and silently drop a scale row.
+    if len(SHIPPED_SCALE_TOKENS) != 3:
+        sys.exit("SHIPPED_SCALE_TOKENS has %d entries (%s), not 3; the cost-at-scale card reads "
+                 "its second and third entries by position"
+                 % (len(SHIPPED_SCALE_TOKENS),
+                    ", ".join(str(t) for t in SHIPPED_SCALE_TOKENS)))
+    assert_ascending("SHIPPED_SCALE_TOKENS", SHIPPED_SCALE_TOKENS)
     # The summary card says "three pinned gas scenarios" and renders one column per anchor that is
     # pinned to a named historical block. `now` is re-read on every chain-data refresh and is
     # deliberately not one of them. If the anchor set ever changes, the card's own sentence goes

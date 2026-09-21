@@ -42,6 +42,7 @@
   "writeBatchSize": 25,
   "maxTokensPerCycle": 25,
   "cronSchedule": "0 */6 * * *",
+  "passesPerDay": 4,
   "priceWriters": [
    "prycd",
    "regrid",

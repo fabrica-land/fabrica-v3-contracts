@@ -115,6 +115,10 @@ KEEPER_SIGNER_PREFIXES = {
 # grouping, and the script asserts that it does by reporting the two figures.
 PASS_GAP_SECONDS = 900
 
+# The keeper's cron schedule, from ENG-4204 / fabrica-v3-api#1903. Passes per day is DERIVED
+# from it (see passes_per_day) rather than stated alongside it.
+CRON_SCHEDULE = "0 */6 * * *"
+
 # Blocks per `eth_getLogs` request, before adaptive backoff. Chosen to sit under every common
 # provider span cap (dRPC 1,000 is the tightest in normal use; Alchemy's free tier at 10 blocks
 # is handled by the halving in fetch_logs rather than by this number). The store emits a handful
@@ -153,6 +157,42 @@ def rpc(url, method, params):
             if attempt == 4:
                 raise
             time.sleep(1.5 * (attempt + 1))
+
+
+def passes_per_day(cron):
+    """How many keeper passes a day the cron schedule fires, derived from the schedule itself.
+
+    The page states an onboarding duration in DAYS from a transaction count and a per-pass
+    ceiling, so it needs passes-per-day. Writing that as a literal 4 beside a rendered
+    `0 */6 * * *` is the same defect as every other hard-coded assumption in this directory: the
+    two can drift and the prose then contradicts the value printed next to it. Derived here, and
+    a schedule this cannot read is a hard error rather than a silent default -- an onboarding
+    estimate off by a factor is worse than no estimate.
+
+    Handles the two forms the keeper's schedule has ever taken: `0 H * * *` (once a day at hour
+    H) and `0 */N * * *` (every N hours).
+    """
+    fields = cron.split()
+    if len(fields) != 5:
+        sys.exit("cronSchedule %r does not have five fields; cannot derive passes per day" % cron)
+    minute, hour = fields[0], fields[1]
+    if minute == "*" or "/" in minute or "," in minute or "-" in minute:
+        sys.exit("cronSchedule %r fires more than once an hour; the page's day count assumes a "
+                 "whole number of passes per day" % cron)
+    if hour == "*":
+        return 24
+    if hour.startswith("*/"):
+        step = int(hour[2:])
+        if step <= 0 or 24 % step:
+            sys.exit("cronSchedule %r steps hours by %d, which does not divide 24 evenly; the "
+                     "page's day count would be wrong" % (cron, step))
+        return 24 // step
+    if hour.isdigit():
+        return 1
+    if "," in hour and all(h.isdigit() for h in hour.split(",")):
+        return len(hour.split(","))
+    sys.exit("cronSchedule %r has an hour field this cannot read (%r); refusing to guess a "
+             "passes-per-day figure" % (cron, hour))
 
 
 def fetch_logs(url, from_block, to_block):
@@ -568,7 +608,11 @@ def main():
             "maxTransactionsPerCycle": 20,
             "writeBatchSize": 25,
             "maxTokensPerCycle": 25,
-            "cronSchedule": "0 */6 * * *",
+            "cronSchedule": CRON_SCHEDULE,
+            # Derived from the schedule above rather than written beside it, so the two cannot
+            # drift apart. The page turns a transaction count and the per-pass ceiling into a
+            # number of DAYS with it.
+            "passesPerDay": passes_per_day(CRON_SCHEDULE),
             # The aggregator's trusted price set. `fabrica` is deliberately NOT in it: it stamps
             # token-wide score and attribute facts, not source prices (ENG-4204, NOTE 2 closure).
             "priceWriters": ["prycd", "regrid", "openAvm"],
