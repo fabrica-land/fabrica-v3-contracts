@@ -25,6 +25,8 @@ committed at all.
 | `build-model-page.py` | regenerates `index.html` from the reports and `chain-data.json` |
 | `collect-chain-data.py` | reads the mainnet figures from the chain |
 | `chain-data.json` | those figures, each with the block and timestamp it came from |
+| `collect-shipped-writes.py` | reads the SHIPPED batched writes off Sepolia (ENG-4342) |
+| `shipped-writes.json` | those transactions, pinned to a final block so a re-run reproduces it |
 | `reports/bench-rows.txt` | literal `forge test -vv` output: per-scenario gas |
 | `reports/gas-report.txt` | literal `forge test --gas-report` output |
 | `reports/deployed-vs-main.txt` | literal output of the deployed-versus-`main` comparison |
@@ -37,7 +39,84 @@ committed at all.
 | `reports/eng3922-source.txt` | the provenance sidecar: pins ENG-3922's origin commit `55058ab0`, records which two reports are byte-identical to it, and records the arms report's regeneration (rows before, after, and moved, with the reason) |
 
 The measurements come from `test/Eng3913OracleGasBench.t.sol` and
-`test/Eng3913DeployedVsMainGas.t.sol` in this repo.
+`test/Eng3913DeployedVsMainGas.t.sol` in this repo — except the shipped rows, which come from the
+chain.
+
+## Shipped is not modelled, and the page never lets the two blur
+
+Added by [ENG-4342](https://linear.app/fabrica/issue/ENG-4342) after Tim asked for the batched
+numbers and "a new version up with the numbers … we need to understand the costs at scale".
+
+Since 2026-09-18 the **bespoke arm has shipped**: the round-3 fact store
+[`0x97fC2C3A41d4DB570363C5e3425C3676E4B81c5D`](https://sepolia.etherscan.io/address/0x97fc2c3a41d4db570363c5e3425c3676e4b81c5d)
+on Sepolia takes `writeFacts` batches from the oracle keeper
+([ENG-4203](https://linear.app/fabrica/issue/ENG-4203),
+[ENG-4204](https://linear.app/fabrica/issue/ENG-4204)). The **EAS arm has not, and no EAS write
+path exists in the keeper at all** — its entire on-chain write surface is `writeFact`,
+`writeFacts`, `closeCycle`, `setLock` and `setMinValidCycle` on `FabricaFactStore`. So "both
+bespoke and EAS" on this page means *one shipped arm and one modelled arm*, and the page says so
+next to every EAS figure rather than once in a footnote. That claim is re-checked, not assumed:
+`collect-shipped-writes.py` records where it was checked and `build-model-page.py` carries the
+record onto the page.
+
+Two things follow, and both are deliberate:
+
+- **The ETH column on the shipped rows is Sepolia ETH, which is not money.** It is shown because
+  it is what the keeper's funding actually consumes. The cost-at-scale card at the top of the page
+  does *not* use it: it prices the measured **gas** at the page's pinned mainnet base-fee anchors,
+  the priority-fee dial and the ETH-price dial. Gas is the same on either chain; the price is not.
+- **The card is pinned to the shipped configuration.** Cadence, batch size and source count are
+  what the keeper is actually running, so the token-count and cadence dials do not move it; only
+  the ETH-price and priority-fee dials do. Every input is named in the card's own table with
+  whether it is a chain read, a Foundry measurement, a configuration value or a named assumption.
+
+## Re-reading the shipped rows from the chain
+
+```sh
+SEPOLIA_RPC_URL=... ETHERSCAN_API_KEY=... \
+  python3 bench/oracle-gas-model/collect-shipped-writes.py \
+    --to-block 11748000 --etherscan-cross-check \
+    > bench/oracle-gas-model/shipped-writes.json
+python3 bench/oracle-gas-model/build-model-page.py     # then --check
+```
+
+`--to-block` is required and is the point: the window is pinned to a block that is already final,
+there is no generated-at stamp in the output, and re-running the same command against any Sepolia
+node reproduces the file **byte for byte**. A later refresh picks a later `--to-block`
+deliberately. `--etherscan-cross-check` is what lets the page state that nothing reverted: a
+reverted transaction emits no log and so cannot appear in a log replay, and only Etherscan's
+account list carries it.
+
+`build-model-page.py` refuses to build if the collection cannot answer for itself — no Etherscan
+cross-check, a cross-check that disagrees with the log-derived set, or any reverted transaction in
+the window is a hard failure, not a footnote. It also refuses if the measured batches stop being
+exactly linear in the fact count (see below), if the projection it reconciles against cannot be
+reproduced from the baseline transaction, if a cycle close shows more than the two regimes the page
+names, or if `chain-data.json` stops carrying exactly three pinned gas anchors.
+
+## The reconciliation, and why it closes exactly
+
+Whole-transaction gas for a batched write decomposes as
+
+```text
+gas(n) = 21,000 intrinsic + head calldata + body calldata(n) + fixed exec + marginal exec x n
+```
+
+and on the keeper's first-write price batches the last two terms are **2,800 + 72,677 x n**, exact
+to the gas at n = 2, 2, 21 and 24 across two writers. The same fixed term, 2,800, falls out of the
+ENG-4203 deployment-verification batches at n = 1, 10, 12, 50 and 100 with two other writers and a
+different fact shape — which is what makes it a property of the transaction rather than of this
+keeper's data. The build solves it from the extreme batch sizes and then checks every row; a
+residual of one gas fails the build.
+
+`fabrica-v3-api#1903` projected 75,487 gas per fact at batch 25 before the first scheduled pass
+ran; the pass wrote 24 facts at 75,597. The page decomposes that 110 gas per fact into three terms
+— the batch size the projection was quoted at, the fixed term it assumed against the one the
+transaction pays, and the marginal rate — which sum to the difference with **nothing left over**.
+Notably there is no warm/cold storage term: execution per fact is identical at 72,677 in the
+2-fact transaction the projection was derived from and in the 24-fact batch that shipped, so the
+whole warm/cold effect of batching is the constant 2,800 per transaction. The lock writes of the
+same pass are separate transactions and contribute nothing.
 
 ## Regenerating everything
 
@@ -61,12 +140,17 @@ forge test --match-path test/Eng3913DeployedVsMainGas.t.sol -vv \
   > bench/oracle-gas-model/reports/deployed-vs-main.txt
 MAINNET_RPC_URL=... python3 bench/oracle-gas-model/collect-chain-data.py \
   > bench/oracle-gas-model/chain-data.json
+SEPOLIA_RPC_URL=... ETHERSCAN_API_KEY=... \
+  python3 bench/oracle-gas-model/collect-shipped-writes.py \
+    --to-block <a final block> --etherscan-cross-check \
+    > bench/oracle-gas-model/shipped-writes.json
 python3 bench/oracle-gas-model/build-model-page.py
 ```
 
 The `forge` runs need no RPC and no keys, so a reviewer can reproduce the gas numbers from a
-clean clone. Only the mainnet readings need an RPC URL, and re-running those moves the "now"
-base fee and the ETH price — the historical anchors are immutable.
+clean clone. Only the chain readings need an RPC URL. Re-running the mainnet collection moves the
+"now" base fee and the ETH price — the historical anchors are immutable; re-running the Sepolia
+collection at the same `--to-block` changes nothing at all.
 
 The `reports/eng3922-*` files split two ways, and refreshing them the wrong way loses rows.
 
@@ -144,6 +228,10 @@ which is why the pair is measured rather than divided.
 100 — it *reverses*. Per-item attest cost rises from 259,692 at n=100 to 260,439 at n=231, so
 larger batches cost slightly more per fact, not less. The effect is measured; its cause is not
 claimed.
+
+**The shipped rows are round 3.** The `writeFacts` batches on this page are the round-3 store
+([ENG-4203](https://linear.app/fabrica/issue/ENG-4203)), not the `writePriceBatch` prototype the
+Foundry batch rows measure. They are close relatives, not the same call, and the page says so.
 
 **Round 2 is a third codebase.** These are round-1 numbers.
 [ENG-3924](https://linear.app/fabrica/issue/ENG-3924) deletes the owner, the writer allowlist and

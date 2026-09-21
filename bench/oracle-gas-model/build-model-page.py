@@ -42,7 +42,7 @@ def parse_bench_rows(path):
     then surface as `undefined` somewhere in the page rather than as a build failure.
     """
     out = {}
-    for lineno, line in enumerate(path.read_text().splitlines(), 1):
+    for lineno, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
         line = line.strip()
         if "ENG3913ROW," not in line:
             continue
@@ -74,7 +74,7 @@ def parse_compare(path):
     slot cold)" losing nothing visible, but truncated the wrapped-ring names mid-phrase.
     """
     out = []
-    for lineno, line in enumerate(path.read_text().splitlines(), 1):
+    for lineno, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
         line = line.strip()
         if "ENG3913CMP," not in line:
             continue
@@ -122,6 +122,12 @@ INPUTS = [
     # builder, so editing a comment here -- including this one -- does not move the digest.
     "reports/eng3922-baseline.txt",
     "reports/eng3922-sepolia-evidence.md",
+    # ENG-4342: the SHIPPED rows. Unlike every other input this one is not a Foundry measurement
+    # but a set of real Sepolia transactions of the round-3 fact store, read from the chain by
+    # collect-shipped-writes.py over a window pinned to a final block. In INPUTS so the digest
+    # tracks a re-collection, and because the summary card at the top of the page is quoted
+    # entirely from it.
+    "shipped-writes.json",
 ]
 
 # ENG-3938: the batch-size dial drives the write-side per-item cost at these sizes. writePriceBatch
@@ -138,7 +144,7 @@ def count_measured_rows(path):
     light while still claiming to describe the committed file. Counting it here, and refusing when
     the sidecar disagrees, is the same treatment every other derived figure in this directory gets.
     """
-    return sum(1 for line in path.read_text().splitlines()
+    return sum(1 for line in path.read_text(encoding="utf-8").splitlines()
                if re.match(r"\s{2}.+?: \d+$", line.rstrip()))
 
 
@@ -172,7 +178,7 @@ def parse_source(path):
     it is still provisional.
     """
     meta = {}
-    for line in path.read_text().splitlines():
+    for line in path.read_text(encoding="utf-8").splitlines():
         line = line.strip()
         if not line or line.startswith("#"):
             continue
@@ -209,7 +215,7 @@ def parse_arms_batch(path):
     line it is asserted equal to that floor -- so a report reformat cannot silently feed the page a
     number that no longer matches its own total. A missing row is a hard error: the dial needs it.
     """
-    text = path.read_text()
+    text = path.read_text(encoding="utf-8")
     ops = {
         "ownerless writePriceBatch": "writePriceBatch",
         "EAS multiAttest": "multiAttest",
@@ -309,7 +315,7 @@ def parse_arms_read(path):
 
     A missing depth is a hard error. A read-side table with a hole in it is worse than none.
     """
-    text = path.read_text()
+    text = path.read_text(encoding="utf-8")
     out = {}
     for arm in READ_ARMS:
         depths = {}
@@ -332,7 +338,7 @@ def parse_arms_read(path):
 
 def parse_growth(path):
     """Arm 1's two append-only Indexer growth curves, both measured in the arms report."""
-    text = path.read_text()
+    text = path.read_text(encoding="utf-8")
     if PROBED_CLOSE_ROW_DEPTH not in CLOSE_ROW_DEPTHS:
         sys.exit("build-model-page.py: the probed cycle-close depth %d is not among the measured "
                  "depths %s, so the page's like-for-like comparison has nothing to read"
@@ -352,7 +358,7 @@ def parse_heartbeat_variants(path):
     attestation's own publication time rather than from a separate clock a write has to touch.
     Both are quoted verbatim; neither is the arm's headline read, which is measured separately.
     """
-    text = path.read_text()
+    text = path.read_text(encoding="utf-8")
     return {
         "withHeartbeat": _read_int(
             text, r"arm2 price\(\) WITH rebuilt per-writer heartbeat: (\d+)", path,
@@ -393,7 +399,7 @@ def parse_eas_close_write(path):
     storage. Every row is cooled on EVERY address its call touches -- EAS, the SchemaRegistry it
     reads the schema from, and the Indexer or pointer being written -- in both halves of each pair.
     """
-    text = path.read_text()
+    text = path.read_text(encoding="utf-8")
     return {
         # `attestOnly` and `arm1Indexed` were parsed here until ENG-3964 measured both arms' closes
         # properly. Nothing reads them now, so nothing ships them: a payload field no template
@@ -428,7 +434,7 @@ def assert_dial_1000_decomposition(path):
     that can explain what actually went wrong -- never runs. The build refused either way; it just
     refused with the wrong reason, which sends the next person looking in the wrong place.
     """
-    text = path.read_text()
+    text = path.read_text(encoding="utf-8")
     attest = {}
     for n in BOUNDARY_SIZES:
         match = re.search(r"EAS multiAttest n=%d -- WHOLE TRANSACTION: (\d+)" % n, text)
@@ -454,7 +460,7 @@ def parse_attribute_writes(path):
     both regimes are measured at the 100 batch so the model can charge them apart, exactly as it
     does on the bespoke layer.
     """
-    text = path.read_text()
+    text = path.read_text(encoding="utf-8")
 
     def batch(label, sizes, suffix=""):
         return {str(n): _read_int(
@@ -496,7 +502,7 @@ def parse_batch_boundary(path, chain_gas_limit):
         sys.exit("build-model-page.py: the bench measured against a %s gas block limit but "
                  "chain-data.json reads %s from chain; the boundary would be wrong"
                  % (f"{BLOCK_GAS_LIMIT:,}", f"{chain_gas_limit:,}"))
-    text = path.read_text()
+    text = path.read_text(encoding="utf-8")
     attest = {n: _read_int(text, r"EAS multiAttest n=%d -- WHOLE TRANSACTION: (\d+)" % n, path,
                            "multiAttest n=%d" % n) for n in BOUNDARY_SIZES}
     fits = sorted(n for n, g in attest.items() if g <= BLOCK_GAS_LIMIT)
@@ -543,7 +549,7 @@ def parse_baseline_read(path):
     on Sepolia today -- and it is deliberately NOT the denominator of pass mark A. A also has to
     hold everything but the fact layer constant, which only the calibration arm does.
     """
-    text = path.read_text()
+    text = path.read_text(encoding="utf-8")
     # The source count is READ out of each row rather than pinned in the pattern, because every
     # per-hop figure on the page divides by READ_SOURCES: a baseline regenerated at a different
     # count would otherwise produce quietly wrong hop costs with no other symptom. Matching it
@@ -580,7 +586,7 @@ def parse_sepolia_probes(path, fork):
     revision of the report ever has the arms returning different prices they are no longer
     measuring the same read, and the comparison on this page is void.
     """
-    text = path.read_text()
+    text = path.read_text(encoding="utf-8")
     out, prices = {}, {}
     for arm in READ_ARMS:
         if not arm["probe"]:
@@ -615,6 +621,391 @@ def parse_sepolia_probes(path, fork):
     return {"probes": out, "priceReturned": distinct[0]}
 
 
+# ENG-4342: the projection the shipped batch is reconciled against.
+#
+# These are NOT chain reads and NOT Foundry rows. They are the batch-size model
+# fabrica-v3-api#1903 published on ENG-4204 *before* the first scheduled pass ran, carried here
+# as pre-registered inputs — the same treatment the read side's pass marks get — so the page can
+# compare a prediction with a measurement rather than a measurement with itself. The model is
+# `gas(n) = fixedGas + marginalGas * n`, where `marginalGas` was derived from the writer's own
+# two-fact transaction on 2026-09-18 and `fixedGas` was an assumed intrinsic. Both the derivation
+# and the quoted figures are re-checked against the chain in `parse_shipped`, so a typo here
+# fails the build rather than misstating what was predicted.
+SHIPPED_PROJECTION = {
+    "fixedGas": 24_700,
+    "quotedN": 25,
+    "quotedTotal": 1_887_175,
+    "quotedPerFact": 75_487,
+    "source": "ENG-4204 / fabrica-v3-api#1903, batch-size table, posted 2026-09-18",
+    # prycd's first broadcast, the two-fact transaction the marginal rate was derived from.
+    "baselineTx": "0xf42aac9d84a5e93f0e533d95ad2a03eff5e9bd818e563436a0d789300d40a674",
+    # The 24-fact batch of the first scheduled pass: the largest batch the keeper has sent, and
+    # the row the summary card and the reconciliation are both quoted from.
+    "headlineTx": "0xfe757d9c6ba9f7d8fa4a638a181983ecbd739b6d9ef3b8535e6d291fdec79a66",
+}
+# The book sizes the summary card prices, from ENG-3913's original brief ("a quote at those three
+# scales"), and the two shipped inputs the card holds fixed. Both are asserted against the chain.
+SHIPPED_SCALE_TOKENS = [100, 1_000, 100_000]
+SHIPPED_PRICE_SOURCES = 3
+SHIPPED_CYCLES_PER_DAY = 1
+# The keeper's significance threshold. Rendered on the page in five places and described in
+# prose in a sixth; one binding so the description cannot drift from the figure.
+SHIPPED_THRESHOLD_BPS = 100
+# The price fact kind, `keccak256("price")`, taken from the kinds actually observed rather than
+# hard-coded: the reconciliation compares price batches with price batches, and a token-wide
+# score or attribute batch writes a different number of storage words per fact.
+SHIPPED_PRICE_KIND_SOURCE = "the kind written by every keeper price batch in the window"
+
+
+def _shipped_fit(rows, path, what):
+    """Solve `exec(n) = fixed + marginal * n` on `rows` and refuse anything but an exact fit.
+
+    The whole reconciliation rests on the claim that a batched write is linear in the fact count
+    with a per-transaction fixed term, so the claim is solved from the two extreme batch sizes and
+    then CHECKED against every row, including the ones it was solved from. A residual of even one
+    gas means the page's decomposition is wrong, and a wrong decomposition presented as an exact
+    one is worse than no decomposition: the build stops.
+    """
+    if len(rows) < 2:
+        sys.exit("%s: %s has %d batch size(s); a fixed-plus-marginal fit needs at least two"
+                 % (path, what, len(rows)))
+    rows = sorted(rows, key=lambda r: r["facts"])
+    lo, hi = rows[0], rows[-1]
+    if lo["facts"] == hi["facts"]:
+        sys.exit("%s: %s has only one distinct batch size (%d)" % (path, what, lo["facts"]))
+    span = hi["execGas"] - lo["execGas"]
+    steps = hi["facts"] - lo["facts"]
+    if span % steps:
+        sys.exit("%s: %s is not linear in the fact count: %d gas over %d facts is not a whole "
+                 "number per fact" % (path, what, span, steps))
+    marginal = span // steps
+    fixed = hi["execGas"] - marginal * hi["facts"]
+    checked = []
+    for row in rows:
+        fitted = fixed + marginal * row["facts"]
+        if fitted != row["execGas"]:
+            sys.exit("%s: %s does not fit exec(n) = %d + %d*n: %s at n=%d measured %d, fitted %d"
+                     % (path, what, fixed, marginal, row["hash"], row["facts"], row["execGas"],
+                        fitted))
+        checked.append({"hash": row["hash"], "facts": row["facts"], "execGas": row["execGas"],
+                        "fittedGas": fitted})
+    return {"fixedExecGas": fixed, "marginalExecGas": marginal, "rows": checked}
+
+
+def assert_ascending(name, values):
+    """Refuse a depth list whose literals are not in ascending order.
+
+    READ_DEPTHS, INDEXER_ROW_DEPTHS and CLOSE_ROW_DEPTHS are read by the page as `[0]` and
+    `[len-1]` endpoints of a walk. Nothing about the literal enforces the order those lookups
+    assume, and a reordered edit would render a wrong span with no error -- exactly the defect
+    the setLock gas span turned out to be. Asserted here rather than sorted at the point of use
+    so that a scrambled literal fails the build loudly instead of being silently corrected.
+    """
+    if list(values) != sorted(values):
+        sys.exit("%s is not ascending (%s); the page reads its first and last entries as the "
+                 "endpoints of a walk" % (name, ", ".join(str(v) for v in values)))
+    if len(set(values)) != len(values):
+        sys.exit("%s contains a duplicate (%s)" % (name, ", ".join(str(v) for v in values)))
+
+
+def parse_shipped(path):
+    """ENG-4342: the SHIPPED rows, from `shipped-writes.json` (see collect-shipped-writes.py).
+
+    This is the only input on the page that is a real transaction on a real chain rather than a
+    Foundry measurement, so it is also the only one where "did it revert?" and "was that really
+    the whole transaction set?" are live questions. Both are answered in the file and asserted
+    here; a collection that cannot answer them does not reach the page.
+    """
+    data = json.loads(path.read_text(encoding="utf-8"))
+    if data["chain"]["chainId"] != 11155111:
+        sys.exit("%s: chainId %s is not Sepolia" % (path, data["chain"]["chainId"]))
+    cross = data["etherscanCrossCheck"]
+    if not (cross.get("ran") and cross.get("ok") and cross.get("matchesLogDerivedSet")):
+        sys.exit("%s: the Etherscan cross-check did not run or did not agree with the log-derived "
+                 "transaction set; the page cannot claim the set is complete. Re-collect with "
+                 "--etherscan-cross-check." % path)
+    if cross["failed"]:
+        sys.exit("%s: %d transaction(s) in the window reverted (%s). The page's shipped rows read "
+                 "as successful writes; a reverted batch needs its own row before this builds."
+                 % (path, len(cross["failed"]), ", ".join(cross["failed"])))
+
+    # Every derived field in the collection is RECOMPUTED here from the fields it derives from,
+    # rather than trusted. The collection is a committed JSON file: it can be hand-edited, merged
+    # badly, or truncated, and until this check existed a one-gas edit to `gasUsed` passed the
+    # build cleanly because the fit reads the stored `execGas` and never looked. A page whose
+    # arithmetic is its whole claim cannot take its own inputs on trust.
+    const = data["gasConstants"]
+    for t in data["transactions"]:
+        fee = int(t["feeWei"])
+        if fee != t["gasUsed"] * int(t["effectiveGasPriceWei"]):
+            sys.exit("%s: %s feeWei %d != gasUsed %d x effectiveGasPrice %s"
+                     % (path, t["hash"], fee, t["gasUsed"], t["effectiveGasPriceWei"]))
+        if t["op"] not in ("writeFacts", "writeFact"):
+            continue
+        exec_gas = t["gasUsed"] - const["txBase"] - t["calldata"]["gas"]
+        if exec_gas != t["execGas"]:
+            sys.exit("%s: %s execGas %d but gasUsed − %d intrinsic − %d calldata = %d"
+                     % (path, t["hash"], t["execGas"], const["txBase"], t["calldata"]["gas"],
+                        exec_gas))
+        if t["gasUsed"] // t["facts"] != t["gasPerFact"]:
+            sys.exit("%s: %s gasPerFact %d but %d // %d = %d"
+                     % (path, t["hash"], t["gasPerFact"], t["gasUsed"], t["facts"],
+                        t["gasUsed"] // t["facts"]))
+        if t["firstWrites"] + t["repeatWrites"] != t["facts"]:
+            sys.exit("%s: %s has %d first + %d repeat writes, which is not its %d facts"
+                     % (path, t["hash"], t["firstWrites"], t["repeatWrites"], t["facts"]))
+        cd = t["calldata"]
+        if cd["headGas"] + cd["bodyGas"] != cd["gas"] or cd["headBytes"] + cd["bodyBytes"] != cd["bytes"]:
+            sys.exit("%s: %s calldata head + body does not sum to the whole" % (path, t["hash"]))
+
+    txns = data["transactions"]
+    writes = [t for t in txns if t["op"] in ("writeFacts", "writeFact")]
+    keeper_writes = [t for t in writes if t["keeperSigner"]]
+    if not keeper_writes:
+        sys.exit("%s: no keeper writes in the window; there is nothing shipped to show" % path)
+    # keeperPass is all() over a time-grouped pass, so a keeper transaction landing within
+    # PASS_GAP_SECONDS of a non-keeper one makes its whole group a non-keeper pass. Keeper
+    # WRITES existing therefore does not imply any keeper PASS exists, and the page quotes
+    # keeperPasses[0] unguarded -- an empty list took the whole shipped panel down with a
+    # TypeError rather than failing here with a message.
+    if not any(p["keeperPass"] for p in data["passes"]):
+        sys.exit("%s: no pass in this window is entirely keeper traffic; the shipped panel "
+                 "quotes the first keeper pass and would have nothing to quote" % path)
+
+    # The price kind is whatever the keeper's price batches actually carry. A token-wide batch
+    # (score, attributes) writes a different number of words per fact and must not be fitted
+    # together with price batches, so the split is by measured kind, not by assumption.
+    kind_counts = {}
+    for t in keeper_writes:
+        for kind in t["kinds"]:
+            kind_counts[kind] = kind_counts.get(kind, 0) + t["facts"]
+    price_kind = max(kind_counts, key=kind_counts.get)
+
+    def single_kind(t, kind):
+        return t["kinds"] == [kind]
+
+    # `writeFacts` only. The single-fact `writeFact` entry point decodes a struct rather than an
+    # array, so it pays a different per-transaction head cost (413 gas less, measured) and does
+    # not share the batch entry point's fixed term. Mixing the two would break the fit for the
+    # right reason and hide it behind a wrong one.
+    price_first = [t for t in keeper_writes if t["op"] == "writeFacts"
+                   and single_kind(t, price_kind) and t["repeatWrites"] == 0]
+    fit = _shipped_fit(price_first, path, "the keeper's first-write price batches")
+    # The ENG-4203 deployment verification wrote the same entry point with a different fact shape
+    # and a different sender. Its fixed term must come out identical — that is what makes the
+    # fixed term a property of the transaction rather than of this keeper's data.
+    other_first = [t for t in writes if t["op"] == "writeFacts"
+                   and not t["keeperSigner"] and t["repeatWrites"] == 0 and len(t["kinds"]) == 1]
+    independent = _shipped_fit(other_first, path, "the ENG-4203 verification batches")
+    if independent["fixedExecGas"] != fit["fixedExecGas"]:
+        sys.exit("%s: the fixed execution term is %d on the keeper's batches but %d on the "
+                 "ENG-4203 verification batches; the page presents it as a property of the "
+                 "transaction and that is no longer true"
+                 % (path, fit["fixedExecGas"], independent["fixedExecGas"]))
+
+    by_hash = {t["hash"]: t for t in txns}
+    baseline = by_hash.get(SHIPPED_PROJECTION["baselineTx"])
+    headline = by_hash.get(SHIPPED_PROJECTION["headlineTx"])
+    for label, row in (("baselineTx", baseline), ("headlineTx", headline)):
+        if row is None:
+            sys.exit("%s: the %s named in SHIPPED_PROJECTION is not in the collected window"
+                     % (path, label))
+        if row["op"] != "writeFacts":
+            sys.exit("%s: the %s is a %s, not a writeFacts batch" % (path, label, row["op"]))
+    if headline["facts"] != max(t["facts"] for t in keeper_writes):
+        sys.exit("%s: the headline transaction carries %d facts but the largest keeper batch in "
+                 "the window carries %d; the summary card must quote the largest shipped batch"
+                 % (path, headline["facts"], max(t["facts"] for t in keeper_writes)))
+
+    # Re-derive the projection from the baseline transaction exactly as ENG-4204 derived it, and
+    # refuse to carry a quoted figure this repo cannot reproduce.
+    proj = dict(SHIPPED_PROJECTION)
+    residual = baseline["gasUsed"] - proj["fixedGas"]
+    if residual % baseline["facts"]:
+        sys.exit("%s: the projection's marginal rate is not a whole number: (%d - %d) / %d"
+                 % (path, baseline["gasUsed"], proj["fixedGas"], baseline["facts"]))
+    proj["marginalGas"] = residual // baseline["facts"]
+    proj["baselineFacts"] = baseline["facts"]
+    proj["baselineGas"] = baseline["gasUsed"]
+    total = proj["fixedGas"] + proj["marginalGas"] * proj["quotedN"]
+    if total != proj["quotedTotal"]:
+        sys.exit("%s: the projection does not reproduce: %d + %d*%d = %d, quoted %d"
+                 % (path, proj["fixedGas"], proj["marginalGas"], proj["quotedN"], total,
+                    proj["quotedTotal"]))
+    if total // proj["quotedN"] != proj["quotedPerFact"]:
+        sys.exit("%s: the projection's per-fact figure does not reproduce: %d // %d = %d, "
+                 "quoted %d" % (path, total, proj["quotedN"], total // proj["quotedN"],
+                                proj["quotedPerFact"]))
+
+    # Cycle closes: two regimes, and the page names them. The first close a writer makes on a
+    # store bootstraps cold words; every later one does not. If the window ever shows more than
+    # two distinct close costs the page's two-regime sentence is wrong.
+    closes = [t for t in txns if t["op"] == "closeCycle" and t["keeperSigner"]]
+    close_gas = sorted({t["gasUsed"] for t in closes})
+    if len(close_gas) != 2:
+        sys.exit("%s: cycle closes show %d distinct gas figures (%s); the page states two regimes"
+                 % (path, len(close_gas), ", ".join(str(g) for g in close_gas)))
+    close_repeat, close_first = close_gas[0], close_gas[1]
+    first_time = max(t["timestamp"] for t in closes if t["gasUsed"] == close_first)
+    repeat_time = min(t["timestamp"] for t in closes if t["gasUsed"] == close_repeat)
+    if first_time > repeat_time:
+        sys.exit("%s: a dearer cycle close came after a cheaper one; 'first close, then repeats' "
+                 "is not what happened" % path)
+
+    # Cadence: the cycle number the closes carry, and how many days they span. The summary card
+    # multiplies by cycles per month, so the claim that a cycle is a day is checked, not assumed.
+    cycles = sorted({t["cycle"] for t in closes})
+    if cycles != list(range(cycles[0], cycles[-1] + 1)):
+        sys.exit("%s: the closed cycles %s are not consecutive; the page's one-cycle-per-day "
+                 "reading does not hold" % (path, cycles))
+    days = {t["timeUtc"][:10] for t in closes}
+    if len(days) != len(cycles):
+        sys.exit("%s: %d closed cycles across %d calendar days; a cycle is not a day in this "
+                 "window" % (path, len(cycles), len(days)))
+
+    # ENG-4342, after Tim (#engineering, 2026-09-21 13:33Z): "Repeat writes are skipped, bud …
+    # if a valuation does not change by a certain percentage, we skip the write."
+    #
+    # The keeper's significance gate (fabrica-v3-api src/onchain-oracle-keeper/significance.ts,
+    # ENG-3926) writes a price fact only on a FIRST write or when the value moves at least
+    # `materialChangeBps` against the value read back from the store. So a steady-state month is
+    # NOT one write per token per cycle; the cycle close is the only guaranteed per-writer work.
+    #
+    # The rate at which rows actually move past the threshold is a property of the valuation
+    # feed, not of the configuration, and this repo cannot derive it from a bps figure. What it
+    # CAN do is measure what happened: a row written in cycle c had an opportunity to be
+    # rewritten in every cycle its own writer closed after c. Counting those against the repeat
+    # writes that actually occurred gives an observed rate with a stated denominator, which is
+    # the only rate this page is entitled to quote.
+    keeper_closes = {}
+    for t in txns:
+        if t["op"] == "closeCycle" and t["keeperSigner"]:
+            keeper_closes.setdefault(t["signer"], set()).add(t["cycle"])
+    opportunities = 0
+    observed = 0
+    rewrite_rows = []
+    for t in txns:
+        if t["op"] != "writeFacts" or not t["keeperSigner"] or t["kinds"] != [price_kind]:
+            continue
+        later = sorted(c for c in keeper_closes.get(t["signer"], ()) if c > max(t["cycles"]))
+        opportunities += t["facts"] * len(later)
+        observed += t["repeatWrites"]
+        rewrite_rows.append({"hash": t["hash"], "signer": t["signer"], "facts": t["facts"],
+                             "writtenInCycle": max(t["cycles"]), "laterClosedCycles": later,
+                             "opportunities": t["facts"] * len(later),
+                             "rewrites": t["repeatWrites"]})
+    if opportunities == 0:
+        sys.exit("%s: no row in this window has yet had a chance to be rewritten, so the page "
+                 "cannot state an observed rewrite rate at all. Collect a window that spans at "
+                 "least one cycle beyond a price write." % path)
+    rewrite = {
+        "opportunities": opportunities,
+        "observed": observed,
+        # How many cycles the window actually spans. The page uses this to say "no repeat write
+        # in N observed cycles" rather than "a 0% rate": four cycles cannot tell a static book
+        # from one whose rows have not yet moved past the threshold, and the difference matters.
+        "cyclesObserved": len(cycles),
+        # The fact count that shares this denominator. The rewrite rows are PRICE rows only --
+        # the token-wide score/attribute batch has different write semantics and is rightly
+        # excluded -- so a sentence quoting this denominator must quote this numerator with it,
+        # not the all-kinds total. (Reviewer N3: the two halves were coming from different sets.)
+        "priceFacts": sum(r["facts"] for r in rewrite_rows),
+        # And the complement, carried EXPLICITLY rather than left to the page to derive by
+        # subtracting a differently-filtered total. `priceFacts` counts keeper `writeFacts` rows
+        # of the single price kind; a keeper SINGULAR `writeFact` of a price fact is in neither
+        # set, so `totalFactsShipped - priceFacts` would have labelled it a token-wide fact. The
+        # window contains two `writeFact` rows already (both non-keeper, which is the only reason
+        # the rendered figure is right today). Computed here over the same keeper-write basis, the
+        # two halves are structurally consistent instead of arithmetically coupled.
+        "excludedFacts": sum(t["facts"] for t in txns
+                             if t["op"] in ("writeFacts", "writeFact") and t["keeperSigner"]
+                             and not (t["op"] == "writeFacts" and t["kinds"] == [price_kind])),
+        "rows": rewrite_rows,
+        "thresholdBps": SHIPPED_THRESHOLD_BPS,
+        # Authored here but RENDERED verbatim on the page, so its numbers are page numbers: they
+        # must come from the same binding the page's own ${RW.thresholdBps} sites read, or the
+        # sentence can disagree with the figure beside it (eng-4342-review check #16).
+        "thresholdSource": "fabrica-v3-api onchainOracleKeeper.materialChangeBps, default %d "
+                           "(= %g%% of the prior published price), enforced by "
+                           "src/onchain-oracle-keeper/significance.ts (ENG-3926)"
+                           % (SHIPPED_THRESHOLD_BPS, SHIPPED_THRESHOLD_BPS / 100),
+        "method": "a price row first written in cycle c could have been rewritten in every cycle "
+                  "its own writer closed after c; opportunities counts those, observed counts "
+                  "the repeat writes that actually happened",
+        "notARate": "a threshold in bps does not imply a rewrite rate: that depends on how often "
+                    "valuations move past it, which is a property of the feed and is not "
+                    "measured here. The page quotes the observed rate with its denominator and "
+                    "offers the 100% upper bound; it does not compute a rate from the threshold.",
+    }
+
+    # The trusted price set. The summary card multiplies its per-fact figure by this count, so the
+    # count and the labels are both checked against the signers the collection actually resolved.
+    price_writers = data["keeperConfig"]["priceWriters"]
+    if len(price_writers) != SHIPPED_PRICE_SOURCES:
+        sys.exit("%s: keeperConfig names %d price writers (%s) but the summary card is built for "
+                 "%d sources" % (path, len(price_writers), ", ".join(price_writers),
+                                 SHIPPED_PRICE_SOURCES))
+    labels = set(data["signers"].values())
+    unknown = [w for w in price_writers if w not in labels]
+    if unknown:
+        sys.exit("%s: price writer(s) %s never appear as a sender in this window; the card would "
+                 "charge for a writer the chain does not show"
+                 % (path, ", ".join(unknown)))
+
+    # Locks, grouped. Sixty near-identical rows do not belong on a page; their gas distribution
+    # does, with one example hash each so any of them can be re-read from the chain.
+    def group(rows):
+        out = {}
+        for row in rows:
+            slot = out.setdefault(row["gasUsed"], {"gasUsed": row["gasUsed"], "count": 0,
+                                                   "exampleHash": row["hash"]})
+            slot["count"] += 1
+        return sorted(out.values(), key=lambda g: -g["count"])
+
+    locks = [t for t in txns if t["op"] == "setLock" and t["keeperSigner"]]
+    # Grouped once and reused below, rather than regrouped inside the payload literal.
+    #
+    # The cardinality is deliberately NOT asserted. Two distinct setLock gas figures is an
+    # accident of the data -- 12 gas is one byte of a tokenId that happens to be zero -- so a
+    # window whose locked tokens all have the same byte pattern would legitimately show one
+    # group, and a more varied window three. That is unlike the cycle close, where two regimes
+    # are a property of the CONTRACT (a writer's first close allocates cold words) and so are
+    # asserted above. The page derives its sentence from this list's length instead; what
+    # would be a defect is an unguarded index, not an unexpected count.
+    lock_groups = group(locks)
+    return {
+        "store": data["store"],
+        "storeSource": data["storeSource"],
+        "gasConstants": data["gasConstants"],
+        "chain": data["chain"],
+        "window": data["window"],
+        "collection": data["collection"],
+        "passGrouping": data["passGrouping"],
+        "signers": data["signers"],
+        "signerSource": data["signerSource"],
+        "keeperConfig": data["keeperConfig"],
+        "easWritePath": data["easWritePath"],
+        "etherscanCrossCheck": cross,
+        "passes": data["passes"],
+        # Every batched write in the window, keeper and verification alike, in full. These are the
+        # rows a reviewer re-derives from the chain, so none of them is summarised away.
+        "writes": writes,
+        "priceKind": price_kind,
+        "priceKindSource": SHIPPED_PRICE_KIND_SOURCE,
+        "fit": fit,
+        "independentFit": independent,
+        "projection": proj,
+        "baselineTx": baseline["hash"],
+        "headlineTx": headline["hash"],
+        "closes": {"repeatGas": close_repeat, "firstGas": close_first,
+                   "groups": group(closes), "cycles": cycles, "days": sorted(days)},
+        "locks": {"groups": lock_groups, "count": len(locks)},
+        "rewrite": rewrite,
+        "scale": {"tokens": SHIPPED_SCALE_TOKENS, "priceSources": SHIPPED_PRICE_SOURCES,
+                  "cyclesPerDay": SHIPPED_CYCLES_PER_DAY},
+    }
+
+
 def git(*args):
     return subprocess.check_output(["git", "-C", str(REPO), *args], text=True).strip()
 
@@ -646,10 +1037,22 @@ def input_digest():
 
 
 def main():
+    # Every FILE read and write in this module pins utf-8, but stdout and stderr are wrapped in
+    # the LOCALE codec, which is a different thing. On a C/POSIX locale -- routine in minimal
+    # containers and CI images -- the single em dash in the --check success path below raised
+    # UnicodeEncodeError and exited 1 on a page that had just verified as correct
+    # (eng-4342-review check #13). That is the worst possible place for it: --check is the one
+    # command a reviewer runs, and the failing line is reached whenever HEAD has moved past the
+    # commit the page was built at, which is the normal case rather than an edge one.
+    #
+    # Pinning the two streams fixes the class rather than the two strings that happen to carry
+    # non-ASCII today: a diagnostic must never be able to fail the command that emits it.
+    for stream in (sys.stdout, sys.stderr):
+        stream.reconfigure(encoding="utf-8", errors="backslashreplace")
     check_only = "--check" in sys.argv[1:]
     rows = parse_bench_rows(HERE / "reports" / "bench-rows.txt")
     compare = parse_compare(HERE / "reports" / "deployed-vs-main.txt")
-    chain = json.loads((HERE / "chain-data.json").read_text())
+    chain = json.loads((HERE / "chain-data.json").read_text(encoding="utf-8"))
     required = [
         "register:first under validator", "register:subsequent",
         "registerBatch:1", "registerBatch:10", "registerBatch:100", "registerBatch:1000",
@@ -765,18 +1168,93 @@ def main():
         "source": source,
     }
 
+    # ENG-4342: the shipped rows. Parsed after the modelled arms so that a broken collection
+    # cannot be mistaken for a broken report, and so the build fails on the shipped input with
+    # its own message.
+    shipped = parse_shipped(HERE / "shipped-writes.json")
+    # The read-side panel takes the first and last entry of each of these as the endpoints of a
+    # walk, so their order is load-bearing and nothing but this check enforces it.
+    assert_ascending("READ_DEPTHS", READ_DEPTHS)
+    assert_ascending("INDEXER_ROW_DEPTHS", INDEXER_ROW_DEPTHS)
+    assert_ascending("CLOSE_ROW_DEPTHS", CLOSE_ROW_DEPTHS)
+    # BATCH_SIZES belongs in this block for the same reason: the cost-at-scale card prices the
+    # WHOLE EAS arm at `BATCH.sizes[BATCH.sizes.length - 1]`, taking the last entry as the largest
+    # measured batch, and the batch-dial hint reads the same position to say where per-item attest
+    # cost stops converging. Reordered to [100, 1, 10] the card would silently price EAS at the
+    # n=10 row (292,983 gas/fact instead of 286,421) and the hint would name the wrong size --
+    # with no error anywhere.
+    assert_ascending("BATCH_SIZES", BATCH_SIZES)
+    # The cost-at-scale card reads tokens[1] and tokens[2] by POSITION, so the length of this
+    # list is load-bearing in the same way the depth lists' order is. A shorter list would not
+    # fail: it would render the missing values as em dashes and silently drop a scale row.
+    if len(SHIPPED_SCALE_TOKENS) != 3:
+        sys.exit("SHIPPED_SCALE_TOKENS has %d entries (%s), not 3; the cost-at-scale card reads "
+                 "its second and third entries by position"
+                 % (len(SHIPPED_SCALE_TOKENS),
+                    ", ".join(str(t) for t in SHIPPED_SCALE_TOKENS)))
+    assert_ascending("SHIPPED_SCALE_TOKENS", SHIPPED_SCALE_TOKENS)
+    # Read the template before validating: the assertions below derive what they check --
+    # the gas-anchor labels and the EAS arm key the page looks up by name -- from its text,
+    # so that no list here has to be kept in agreement with a list there.
+    template = (HERE / "page-template.html").read_text(encoding="utf-8")
+
+    # The summary card says "three pinned gas scenarios" and renders one column per anchor that is
+    # pinned to a named historical block. `now` is re-read on every chain-data refresh and is
+    # deliberately not one of them. If the anchor set ever changes, the card's own sentence goes
+    # stale, so the count is asserted rather than trusted to stay at three.
+    pinned = [a for a in chain["gasAnchors"] if a["label"] != "now"]
+    if len(pinned) != 3:
+        sys.exit("chain-data.json has %d pinned gas anchors (%s), not 3; the summary card's "
+                 "'three pinned gas scenarios' no longer describes the page"
+                 % (len(pinned), ", ".join(a["label"] for a in pinned)))
+    # The count above says how many pinned anchors there are; it cannot say anything about the
+    # anchors the page looks up BY NAME and then dereferences -- `now`, `extremely high` and
+    # `historical peak` are all found with .find(a => a.label === "...") and immediately read.
+    # A chain-data.json refresh that drops or renames any of them would build clean and throw
+    # at init, blanking the whole page: the keeperPasses[0] shape again.
+    #
+    # Rather than restate those names here -- a second list that must agree with the first, the
+    # defect this page keeps producing -- read them out of the template itself and require each
+    # to resolve exactly once. Any future lookup added to the template is covered automatically.
+    wanted = sorted(set(re.findall(
+        r'gasAnchors\.find\(\s*\w+\s*=>\s*\w+\.label === "([^"]+)"\)', template)))
+    if not wanted:
+        sys.exit("page-template.html no longer looks up any gas anchor by name; this assertion "
+                 "was reading that list out of the template and now has nothing to check")
+    have = [a["label"] for a in chain["gasAnchors"]]
+    for label in wanted:
+        if have.count(label) != 1:
+            sys.exit("page-template.html dereferences the gas anchor labelled %r, which appears "
+                     "%d times in chain-data.json (labels: %s)"
+                     % (label, have.count(label), ", ".join(have)))
+
+    # Same shape on the EAS write arms: the template picks its headline arm by key and, when the
+    # EAS layer is selected, also requires a second arm for the "other arm" figure. The key is a
+    # template literal; read it back rather than duplicating it.
+    headline = re.search(r'const EAS_HEADLINE_ARM = "([^"]+)";', template)
+    if not headline:
+        sys.exit("page-template.html no longer declares EAS_HEADLINE_ARM; the builder reads that "
+                 "literal to check the arm it names is present in the emitted data")
+    arm_keys = [a["key"] for a in batch["eas"]["arms"]]
+    if arm_keys.count(headline.group(1)) != 1:
+        sys.exit("page-template.html reads EAS arm %r by key and dereferences it, but the emitted "
+                 "arms are %s" % (headline.group(1), ", ".join(arm_keys)))
+    if len(set(arm_keys)) < 2:
+        sys.exit("the EAS layer quotes a second arm alongside the headline; emitted arm keys are "
+                 "%s, which cannot supply one" % ", ".join(arm_keys))
+
     meta = {
         "commit": git("rev-parse", "HEAD"),
         "commitShort": git("rev-parse", "--short", "HEAD"),
         "historyDepth": 48,
-        "reportHeader": (HERE / "reports" / "bench-rows.txt").read_text().split("\n\n")[0],
+        "reportHeader": (HERE / "reports" / "bench-rows.txt").read_text(encoding="utf-8").split("\n\n")[0],
     }
 
     meta["inputDigest"] = input_digest()
 
     payload = json.dumps(
         {"rows": rows, "compare": compare, "chain": chain, "meta": meta, "batch": batch,
-         "read": read},
+         "read": read, "shipped": shipped},
         indent=1, sort_keys=True)
     # The payload is embedded inside a <script> block, so two sequences must not survive
     # verbatim: `</script` would end the block early, and a bare `&` is ambiguous to an HTML
@@ -789,19 +1267,23 @@ def main():
                       .replace("\u2028", "\\u2028")
                       .replace("\u2029", "\\u2029"))
 
-    template = (HERE / "page-template.html").read_text()
     if PLACEHOLDER not in template:
         sys.exit("page-template.html no longer contains the %r placeholder; refusing to write a "
                  "page with no data in it" % PLACEHOLDER)
     html = template.replace(PLACEHOLDER, payload)
     if PLACEHOLDER in html:
         sys.exit("placeholder survived substitution; refusing to write")
+    # len() on a str is a CHARACTER count. This page is UTF-8 and carries em dashes, arrows and
+    # multiplication signs, so its byte length runs several hundred above its character length
+    # (274,605 vs 274,045 at the time of writing). The figure below is labelled "bytes", is
+    # quoted into FV comments, and gets compared against `ls -l` -- so it has to be bytes.
+    html_bytes = len(html.encode("utf-8"))
 
     target = HERE / "index.html"
     if check_only:
         if not target.exists():
             sys.exit("--check: index.html does not exist")
-        current = target.read_text()
+        current = target.read_text(encoding="utf-8")
         # The git-meta fields record the commit the page was BUILT from, which is necessarily
         # the parent of the commit that carries the page -- committing the page changes HEAD.
         # So they differ on every head after the one that built it, and comparing them would
@@ -810,7 +1292,7 @@ def main():
         # repository, and that IS compared.
         if normalise(current) == normalise(html):
             print("--check: index.html is exactly what its committed inputs produce "
-                  f"({len(html):,} bytes, {len(rows)} measured scenarios)")
+                  f"({html_bytes:,} bytes, {len(rows)} measured scenarios)")
             print("         input digest %s" % meta["inputDigest"])
             cur_commit = re.search(r'"commitShort": "([^"]*)"', current)
             if cur_commit and cur_commit.group(1) != meta["commitShort"]:
@@ -827,8 +1309,8 @@ def main():
         sys.exit("--check FAILED: index.html does not match its inputs (%d diff lines)\n%s"
                  % (len(diff), "\n".join(diff[:40])))
 
-    target.write_text(html)
-    print("wrote", target, f"({len(html):,} bytes, {len(rows)} measured scenarios)")
+    target.write_text(html, encoding="utf-8")
+    print("wrote", target, f"({html_bytes:,} bytes, {len(rows)} measured scenarios)")
 
 
 if __name__ == "__main__":
