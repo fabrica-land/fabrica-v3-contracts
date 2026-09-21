@@ -1005,8 +1005,8 @@ function renderScale() {
     the keeper wrote <strong>${fmt(RW.priceFacts)} price facts, every one of them a first write,
     and not a single repeat</strong> — ${fmt(RW.observed)} rewrites across
     ${fmt(RW.opportunities)} row-cycle opportunities. (The numerator and the denominator are the
-    same set: price rows only. The ${fmt(SHIPPED_CMP.totalFactsShipped - RW.priceFacts)}
-    token-wide score and attribute facts of the same window are excluded from both, because they
+    same set: price rows only. The ${fmt(RW.excludedFacts)}
+    other keeper facts of the same window are excluded from both, because they
     have their own write semantics and do not belong in a price-rewrite rate.) That is a real measurement and it is the
     reason this card no longer charges a write per token per cycle. It is <em>not</em> a measured
     rate of zero: ${fmt(RW.cyclesObserved)} cycles is too little time to distinguish a book that

@@ -899,6 +899,16 @@ def parse_shipped(path):
         # excluded -- so a sentence quoting this denominator must quote this numerator with it,
         # not the all-kinds total. (Reviewer N3: the two halves were coming from different sets.)
         "priceFacts": sum(r["facts"] for r in rewrite_rows),
+        # And the complement, carried EXPLICITLY rather than left to the page to derive by
+        # subtracting a differently-filtered total. `priceFacts` counts keeper `writeFacts` rows
+        # of the single price kind; a keeper SINGULAR `writeFact` of a price fact is in neither
+        # set, so `totalFactsShipped - priceFacts` would have labelled it a token-wide fact. The
+        # window contains two `writeFact` rows already (both non-keeper, which is the only reason
+        # the rendered figure is right today). Computed here over the same keeper-write basis, the
+        # two halves are structurally consistent instead of arithmetically coupled.
+        "excludedFacts": sum(t["facts"] for t in txns
+                             if t["op"] in ("writeFacts", "writeFact") and t["keeperSigner"]
+                             and not (t["op"] == "writeFacts" and t["kinds"] == [price_kind])),
         "rows": rewrite_rows,
         "thresholdBps": 100,
         "thresholdSource": "fabrica-v3-api onchainOracleKeeper.materialChangeBps, default 100 "
@@ -1140,6 +1150,13 @@ def main():
     assert_ascending("READ_DEPTHS", READ_DEPTHS)
     assert_ascending("INDEXER_ROW_DEPTHS", INDEXER_ROW_DEPTHS)
     assert_ascending("CLOSE_ROW_DEPTHS", CLOSE_ROW_DEPTHS)
+    # BATCH_SIZES belongs in this block for the same reason: the cost-at-scale card prices the
+    # WHOLE EAS arm at `BATCH.sizes[BATCH.sizes.length - 1]`, taking the last entry as the largest
+    # measured batch, and the batch-dial hint reads the same position to say where per-item attest
+    # cost stops converging. Reordered to [100, 1, 10] the card would silently price EAS at the
+    # n=10 row (292,983 gas/fact instead of 286,421) and the hint would name the wrong size --
+    # with no error anywhere.
+    assert_ascending("BATCH_SIZES", BATCH_SIZES)
     # The cost-at-scale card reads tokens[1] and tokens[2] by POSITION, so the length of this
     # list is load-bearing in the same way the depth lists' order is. A shorter list would not
     # fail: it would render the missing values as em dashes and silently drop a scale row.

@@ -176,12 +176,29 @@ def passes_per_day(cron):
     if len(fields) != 5:
         sys.exit("cronSchedule %r does not have five fields; cannot derive passes per day" % cron)
     minute, hour = fields[0], fields[1]
+    # Fields 3-5 (day-of-month, month, day-of-week) decide WHICH DAYS run at all, and this
+    # function answers "how many passes on a day that runs". Ignoring them is how `0 */6 * * 1`
+    # -- Mondays only -- would return 4 and make the first-fill estimate seven times too short.
+    # Rather than implement calendar semantics for a case the keeper has never used, refuse the
+    # schedule: the page would rather say nothing than say a number it cannot stand behind.
+    for name, value in (("day-of-month", fields[2]), ("month", fields[3]),
+                        ("day-of-week", fields[4])):
+        if value != "*":
+            sys.exit("cronSchedule %r restricts %s to %r, so it does not run every day; "
+                     "passes-per-day is not defined for it and this refuses to guess one"
+                     % (cron, name, value))
     if minute == "*" or "/" in minute or "," in minute or "-" in minute:
         sys.exit("cronSchedule %r fires more than once an hour; the page's day count assumes a "
                  "whole number of passes per day" % cron)
     if hour == "*":
         return 24
     if hour.startswith("*/"):
+        # Guarded: `int()` on a malformed step raises an uncaught ValueError, and a traceback is
+        # a worse message than a named refusal for whoever has to fix the cron string. Every
+        # other rejection in this module says what was wrong; this one should too.
+        if not hour[2:].isdigit():
+            sys.exit("cronSchedule %r has a malformed hour step (%r); expected */<positive "
+                     "integer>" % (cron, hour[2:]))
         step = int(hour[2:])
         if step <= 0 or 24 % step:
             sys.exit("cronSchedule %r steps hours by %d, which does not divide 24 evenly; the "

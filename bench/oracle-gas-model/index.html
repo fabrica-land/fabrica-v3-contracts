@@ -2916,10 +2916,10 @@ const DATA = {
   }
  ],
  "meta": {
-  "commit": "fa630241ecda7551d3f5e51caead7d6ad04d7c0c",
-  "commitShort": "fa63024",
+  "commit": "c631eae4e07af1f53436b1377a61d61bb6fbfcc1",
+  "commitShort": "c631eae",
   "historyDepth": 48,
-  "inputDigest": "0c42fdaa622ed4d1",
+  "inputDigest": "1ccafa022694fce1",
   "reportHeader": "# ENG-3913 \u2014 per-scenario gas bench, literal output\n#\n# repo:    fabrica-v3-contracts\n# base:    origin/main @ 4b9201d17d78c7296545a6bd5ef6ac8da1d5a86e\n# branch:  tozzetto/eng-3913-oracle-gas-model\n# command: forge test --match-path test/Eng3913OracleGasBench.t.sol -vv\n# forge:   forge Version: 1.7.1 (Commit SHA: 4072e48705af9d93e3c0f6e29e93b5e9a40caed8)\n# profile: optimizer=true, optimizer_runs=1, via_ir=false (foundry.toml [profile.default])\n# knobs:   FabricaAttributeOracle.defaultKnobs() \u2014 the config\n#          script/FabricaAttributeOracleDeploy.s.sol deploys with.\n#\n# \u26a0 RUN THIS WITHOUT --gas-report.\n#   Foundry's gas-report instrumentation inflates the gasleft() deltas these benches\n#   read, and the codeless-control subtraction absorbs most but not all of it. The CSV\n#   rows here are valid ONLY from a plain -vv run. Under --gas-report the steady-state\n#   writePrice row reads 72,268 instead of 73,812."
  },
  "read": {
@@ -3867,6 +3867,7 @@ const DATA = {
   },
   "rewrite": {
    "cyclesObserved": 4,
+   "excludedFacts": 4,
    "method": "a price row first written in cycle c could have been rewritten in every cycle its own writer closed after c; opportunities counts those, observed counts the repeat writes that actually happened",
    "notARate": "a threshold in bps does not imply a rewrite rate: that depends on how often valuations move past it, which is a property of the feed and is not measured here. The page quotes the observed rate with its denominator and offers the 100% upper bound; it does not compute a rate from the threshold.",
    "observed": 0,
@@ -5283,8 +5284,8 @@ function renderScale() {
     the keeper wrote <strong>${fmt(RW.priceFacts)} price facts, every one of them a first write,
     and not a single repeat</strong> — ${fmt(RW.observed)} rewrites across
     ${fmt(RW.opportunities)} row-cycle opportunities. (The numerator and the denominator are the
-    same set: price rows only. The ${fmt(SHIPPED_CMP.totalFactsShipped - RW.priceFacts)}
-    token-wide score and attribute facts of the same window are excluded from both, because they
+    same set: price rows only. The ${fmt(RW.excludedFacts)}
+    other keeper facts of the same window are excluded from both, because they
     have their own write semantics and do not belong in a price-rewrite rate.) That is a real measurement and it is the
     reason this card no longer charges a write per token per cycle. It is <em>not</em> a measured
     rate of zero: ${fmt(RW.cyclesObserved)} cycles is too little time to distinguish a book that
