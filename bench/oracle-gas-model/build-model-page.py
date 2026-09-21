@@ -689,6 +689,22 @@ def _shipped_fit(rows, path, what):
     return {"fixedExecGas": fixed, "marginalExecGas": marginal, "rows": checked}
 
 
+def assert_ascending(name, values):
+    """Refuse a depth list whose literals are not in ascending order.
+
+    READ_DEPTHS, INDEXER_ROW_DEPTHS and CLOSE_ROW_DEPTHS are read by the page as `[0]` and
+    `[len-1]` endpoints of a walk. Nothing about the literal enforces the order those lookups
+    assume, and a reordered edit would render a wrong span with no error -- exactly the defect
+    the setLock gas span turned out to be. Asserted here rather than sorted at the point of use
+    so that a scrambled literal fails the build loudly instead of being silently corrected.
+    """
+    if list(values) != sorted(values):
+        sys.exit("%s is not ascending (%s); the page reads its first and last entries as the "
+                 "endpoints of a walk" % (name, ", ".join(str(v) for v in values)))
+    if len(set(values)) != len(values):
+        sys.exit("%s contains a duplicate (%s)" % (name, ", ".join(str(v) for v in values)))
+
+
 def parse_shipped(path):
     """ENG-4342: the SHIPPED rows, from `shipped-writes.json` (see collect-shipped-writes.py).
 
@@ -836,6 +852,62 @@ def parse_shipped(path):
         sys.exit("%s: %d closed cycles across %d calendar days; a cycle is not a day in this "
                  "window" % (path, len(cycles), len(days)))
 
+    # ENG-4342, after Tim (#engineering, 2026-09-21 13:33Z): "Repeat writes are skipped, bud …
+    # if a valuation does not change by a certain percentage, we skip the write."
+    #
+    # The keeper's significance gate (fabrica-v3-api src/onchain-oracle-keeper/significance.ts,
+    # ENG-3926) writes a price fact only on a FIRST write or when the value moves at least
+    # `materialChangeBps` against the value read back from the store. So a steady-state month is
+    # NOT one write per token per cycle; the cycle close is the only guaranteed per-writer work.
+    #
+    # The rate at which rows actually move past the threshold is a property of the valuation
+    # feed, not of the configuration, and this repo cannot derive it from a bps figure. What it
+    # CAN do is measure what happened: a row written in cycle c had an opportunity to be
+    # rewritten in every cycle its own writer closed after c. Counting those against the repeat
+    # writes that actually occurred gives an observed rate with a stated denominator, which is
+    # the only rate this page is entitled to quote.
+    keeper_closes = {}
+    for t in txns:
+        if t["op"] == "closeCycle" and t["keeperSigner"]:
+            keeper_closes.setdefault(t["signer"], set()).add(t["cycle"])
+    opportunities = 0
+    observed = 0
+    rewrite_rows = []
+    for t in txns:
+        if t["op"] != "writeFacts" or not t["keeperSigner"] or t["kinds"] != [price_kind]:
+            continue
+        later = sorted(c for c in keeper_closes.get(t["signer"], ()) if c > max(t["cycles"]))
+        opportunities += t["facts"] * len(later)
+        observed += t["repeatWrites"]
+        rewrite_rows.append({"hash": t["hash"], "signer": t["signer"], "facts": t["facts"],
+                             "writtenInCycle": max(t["cycles"]), "laterClosedCycles": later,
+                             "opportunities": t["facts"] * len(later),
+                             "rewrites": t["repeatWrites"]})
+    if opportunities == 0:
+        sys.exit("%s: no row in this window has yet had a chance to be rewritten, so the page "
+                 "cannot state an observed rewrite rate at all. Collect a window that spans at "
+                 "least one cycle beyond a price write." % path)
+    rewrite = {
+        "opportunities": opportunities,
+        "observed": observed,
+        # How many cycles the window actually spans. The page uses this to say "no repeat write
+        # in N observed cycles" rather than "a 0% rate": four cycles cannot tell a static book
+        # from one whose rows have not yet moved past the threshold, and the difference matters.
+        "cyclesObserved": len(cycles),
+        "rows": rewrite_rows,
+        "thresholdBps": 100,
+        "thresholdSource": "fabrica-v3-api onchainOracleKeeper.materialChangeBps, default 100 "
+                           "(= 1% of the prior published price), enforced by "
+                           "src/onchain-oracle-keeper/significance.ts (ENG-3926)",
+        "method": "a price row first written in cycle c could have been rewritten in every cycle "
+                  "its own writer closed after c; opportunities counts those, observed counts "
+                  "the repeat writes that actually happened",
+        "notARate": "a threshold in bps does not imply a rewrite rate: that depends on how often "
+                    "valuations move past it, which is a property of the feed and is not "
+                    "measured here. The page quotes the observed rate with its denominator and "
+                    "offers the 100% upper bound; it does not compute a rate from the threshold.",
+    }
+
     # The trusted price set. The summary card multiplies its per-fact figure by this count, so the
     # count and the labels are both checked against the signers the collection actually resolved.
     price_writers = data["keeperConfig"]["priceWriters"]
@@ -898,6 +970,7 @@ def parse_shipped(path):
         "closes": {"repeatGas": close_repeat, "firstGas": close_first,
                    "groups": group(closes), "cycles": cycles, "days": sorted(days)},
         "locks": {"groups": lock_groups, "count": len(locks)},
+        "rewrite": rewrite,
         "scale": {"tokens": SHIPPED_SCALE_TOKENS, "priceSources": SHIPPED_PRICE_SOURCES,
                   "cyclesPerDay": SHIPPED_CYCLES_PER_DAY},
     }
@@ -1057,6 +1130,11 @@ def main():
     # cannot be mistaken for a broken report, and so the build fails on the shipped input with
     # its own message.
     shipped = parse_shipped(HERE / "shipped-writes.json")
+    # The read-side panel takes the first and last entry of each of these as the endpoints of a
+    # walk, so their order is load-bearing and nothing but this check enforces it.
+    assert_ascending("READ_DEPTHS", READ_DEPTHS)
+    assert_ascending("INDEXER_ROW_DEPTHS", INDEXER_ROW_DEPTHS)
+    assert_ascending("CLOSE_ROW_DEPTHS", CLOSE_ROW_DEPTHS)
     # The summary card says "three pinned gas scenarios" and renders one column per anchor that is
     # pinned to a named historical block. `now` is re-read on every chain-data refresh and is
     # deliberately not one of them. If the anchor set ever changes, the card's own sentence goes
@@ -1098,6 +1176,11 @@ def main():
     html = template.replace(PLACEHOLDER, payload)
     if PLACEHOLDER in html:
         sys.exit("placeholder survived substitution; refusing to write")
+    # len() on a str is a CHARACTER count. This page is UTF-8 and carries em dashes, arrows and
+    # multiplication signs, so its byte length runs several hundred above its character length
+    # (274,605 vs 274,045 at the time of writing). The figure below is labelled "bytes", is
+    # quoted into FV comments, and gets compared against `ls -l` -- so it has to be bytes.
+    html_bytes = len(html.encode("utf-8"))
 
     target = HERE / "index.html"
     if check_only:
@@ -1112,7 +1195,7 @@ def main():
         # repository, and that IS compared.
         if normalise(current) == normalise(html):
             print("--check: index.html is exactly what its committed inputs produce "
-                  f"({len(html):,} bytes, {len(rows)} measured scenarios)")
+                  f"({html_bytes:,} bytes, {len(rows)} measured scenarios)")
             print("         input digest %s" % meta["inputDigest"])
             cur_commit = re.search(r'"commitShort": "([^"]*)"', current)
             if cur_commit and cur_commit.group(1) != meta["commitShort"]:
@@ -1130,7 +1213,7 @@ def main():
                  % (len(diff), "\n".join(diff[:40])))
 
     target.write_text(html)
-    print("wrote", target, f"({len(html):,} bytes, {len(rows)} measured scenarios)")
+    print("wrote", target, f"({html_bytes:,} bytes, {len(rows)} measured scenarios)")
 
 
 if __name__ == "__main__":

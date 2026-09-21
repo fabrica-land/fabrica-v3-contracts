@@ -179,6 +179,14 @@ def fetch_logs(url, from_block, to_block):
     """
     logs = []
     start, span = from_block, LOG_RANGE_BLOCKS
+    # The ceiling only ever comes DOWN. Growing back to LOG_RANGE_BLOCKS after every success
+    # looks harmless and is not: against a provider whose cap is below it, the span climbs back
+    # to a refused value, so almost every accepted chunk is followed by a refusal that walks
+    # rpc()'s full retry ladder (~15 s of sleep, since a range cap is deterministic and all five
+    # attempts fail). Measured over this window's 43,862 blocks: at a 10-block cap, 6,266
+    # accepted chunks against 6,272 refusals -- 26 hours of pure sleep; at 1,000, 44 against 43.
+    # Lowering the ceiling on each refusal and never exceeding it again turns those into 8 and 1.
+    ceiling = LOG_RANGE_BLOCKS
     while start <= to_block:
         end = min(start + span - 1, to_block)
         try:
@@ -188,9 +196,10 @@ def fetch_logs(url, from_block, to_block):
             if span == 1:
                 raise
             span = max(1, span // 2)
+            ceiling = span
             continue
         start = end + 1
-        span = min(LOG_RANGE_BLOCKS, span * 2)
+        span = min(ceiling, span * 2)
     return logs
 
 

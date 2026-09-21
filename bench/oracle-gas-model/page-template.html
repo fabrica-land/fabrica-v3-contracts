@@ -136,6 +136,15 @@ footer{border-top:1px solid var(--line);padding:18px 20px 40px;color:var(--muted
   </div>
 
   <div class="dial">
+    <label id="d-rewrite-label">Rewrite rate — rows that move past the threshold, per cycle</label>
+    <div class="seg" id="d-rewrite-seg" role="group" aria-labelledby="d-rewrite-label">
+      <button data-v="0">0%</button><button data-v="100">100%</button>
+    </div>
+    <input type="number" id="d-rewrite" min="0" max="100" step="1" style="margin-top:6px">
+    <div class="hint" id="rewrite-hint"></div>
+  </div>
+
+  <div class="dial">
     <label>Gas level</label>
     <div class="seg" id="d-gas-seg" role="group" aria-label="Gas level presets"></div>
     <div class="row2" style="margin-top:6px">
@@ -234,7 +243,10 @@ footer{border-top:1px solid var(--line);padding:18px 20px 40px;color:var(--muted
   <div class="panel">
     <h2>Cost at scale — the shipped batching, per month</h2>
     <div id="scale-intro"></div>
+    <h3>First fill — paid once, when the book is onboarded</h3>
     <div class="scroll"><table id="scale-table"></table></div>
+    <h3 id="scale-steady-h">Steady state — every month after that</h3>
+    <div class="scroll"><table id="scale-table-2"></table></div>
     <div class="eq" id="scale-eq"></div>
     <div id="scale-inputs"></div>
     <div id="scale-notes"></div>
@@ -280,6 +292,7 @@ footer{border-top:1px solid var(--line);padding:18px 20px 40px;color:var(--muted
 
   <div class="panel">
     <h2>Cost of running the fact layer</h2>
+    <div id="batching-caveat"></div>
     <div id="headline-caveat"></div>
     <div class="cards" id="headline"></div>
     <div class="eq" id="headline-eq"></div>
@@ -391,6 +404,10 @@ const DEFAULTS = {
   gasKey: "now", gas: CHAIN.now.baseFeeGwei, tip: CHAIN.priorityFee.medianPriorityFeeGwei,
   eth: CHAIN.ethUsd.price, maxSilence: 3, margin: 20, hbPolicy: "whenSilent",
   attrs: 0, batch: 100, urgent: 1, urgentMult: 20, defer: 5, reg: true, moved: 100,
+  // ENG-4342. The fraction of already-written rows that move past the keeper's significance
+  // threshold in a given cycle, and so get REWRITTEN. Defaults to the measured value, which is
+  // zero: see SHIPPED.rewrite for the denominator.
+  rewriteRate: 0,
 };
 let S = Object.assign({}, DEFAULTS);
 
@@ -844,89 +861,180 @@ const SCALE_ARMS = (() => {
   const cyclesPerMonth = MONTH_DAYS * SC.cyclesPerDay;
   const easArm = BATCH.eas.arms.find(a => a.key === EAS_HEADLINE_ARM);
   // EAS is priced at the LARGEST batch size this page has a measured row for. It is not the
-  // shipped size, because no EAS batch has ever shipped; quoting it at 24 would require a row
-  // nobody has measured. Past 100 the measured per-item attest cost RISES, so 100 is if anything
-  // the kindest size to EAS available.
+  // shipped size, because no EAS batch has ever shipped; quoting it at 24 would need a row
+  // nobody has measured. Past 100 the measured per-item attest cost RISES, so 100 is if
+  // anything the kindest size to EAS available.
   const easBatch = BATCH.sizes[BATCH.sizes.length - 1];
   const easPerFact = Math.floor(
     (BATCH.ops[easArm.addends[0]][String(easBatch)].total
      + BATCH.ops[easArm.addends[1]][String(easBatch)].total) / easBatch);
-  const easClose = BATCH.eas.close.attestSecond + BATCH.eas.close.pointRepeat;
   const arms = [
     {key: "shipped", kind: "shipped", label: "Bespoke fact store — SHIPPED",
-     perFact: SHIPPED_CMP.measuredFloor, closeGas: SHIPPED.closes.repeatGas,
-     batch: SHIPPED_CMP.headline.facts, txPerBatch: 1, closeTxns: 1,
-     basis: `measured on chain: ${SHIPPED_CMP.headline.facts} facts in one
-             <code>writeFacts</code> transaction`},
-    {key: "eas", kind: "modelled", label: `EAS — ${easArm.label} — MODELLED, never shipped`,
-     perFact: easPerFact, closeGas: easClose,
-     batch: easBatch, txPerBatch: easArm.addends.length, closeTxns: BATCH.eas.arms.length > 0 ? 2 : 1,
-     basis: `Foundry rows at batch ${fmt(easBatch)}:
-             <code>${BATCH.opLabels[easArm.addends[0]]}</code> +
-             <code>${BATCH.opLabels[easArm.addends[1]]}</code>`},
+     perFact: SHIPPED_CMP.measuredFloor,
+     closeRepeat: SHIPPED.closes.repeatGas, closeFirst: SHIPPED.closes.firstGas,
+     batch: SHIPPED_CMP.headline.facts, txPerBatch: 1, closeTxns: 1},
+    {key: "eas", kind: "modelled", label: `${easArm.label} — MODELLED, never shipped`,
+     perFact: easPerFact,
+     closeRepeat: BATCH.eas.close.attestSecond + BATCH.eas.close.pointRepeat,
+     closeFirst: BATCH.eas.close.attestFirst + BATCH.eas.close.pointFirst,
+     batch: easBatch, txPerBatch: easArm.addends.length, closeTxns: 2},
   ];
-  const project = (arm, tokens) => {
-    const facts = tokens * SC.priceSources * cyclesPerMonth;
-    const priceGas = facts * arm.perFact;
-    const closes = SC.priceSources * cyclesPerMonth;
-    const closeGas = closes * arm.closeGas;
+  /* ENG-4342, after Tim (2026-09-21 13:33Z): "Repeat writes are skipped, bud."
+     The keeper writes a price fact on a FIRST write, or when the value has moved at least
+     `materialChangeBps` against the value read back from the store. So a month has two
+     genuinely different shapes and the card must not average them into one:
+       FIRST FILL   one write per token per writer, paid ONCE, plus each writer's first
+                    cycle close, which bootstraps cold words and is dearer than every later one;
+       STEADY STATE the cycle closes, which are the only guaranteed per-writer work, PLUS
+                    whatever fraction of rows moves past the threshold and is rewritten.
+     At a rewrite rate of 1 the steady-state term collapses to one write per token per cycle,
+     which is exactly what this card showed before this was corrected -- so the 100% column is
+     the old card, now labelled as the upper bound it always was. */
+  const firstFill = (arm, tokens) => {
+    const facts = tokens * SC.priceSources;
+    const closes = SC.priceSources;
     return {
-      facts, priceGas, closes, closeGas, totalGas: priceGas + closeGas,
-      // A batch is per writer per cycle, so the transaction count follows the book each writer
-      // covers in a cycle, not the month's fact total.
-      txns: SC.priceSources * cyclesPerMonth * Math.ceil(tokens / arm.batch) * arm.txPerBatch
+      facts, closes,
+      priceGas: facts * arm.perFact,
+      closeGas: closes * arm.closeFirst,
+      gas: facts * arm.perFact + closes * arm.closeFirst,
+      txns: SC.priceSources * Math.ceil(tokens / arm.batch) * arm.txPerBatch
+            + closes * arm.closeTxns,
+    };
+  };
+  const steady = (arm, tokens, rate) => {
+    const closes = SC.priceSources * cyclesPerMonth;
+    const facts = tokens * SC.priceSources * cyclesPerMonth * rate;
+    return {
+      facts, closes,
+      priceGas: facts * arm.perFact,
+      closeGas: closes * arm.closeRepeat,
+      gas: facts * arm.perFact + closes * arm.closeRepeat,
+      txns: (rate > 0
+              ? SC.priceSources * cyclesPerMonth * Math.ceil(tokens * rate / arm.batch)
+                * arm.txPerBatch
+              : 0)
             + closes * arm.closeTxns,
     };
   };
   return {arms, easArm, easBatch, cyclesPerMonth, sources: SC.priceSources, tokens: SC.tokens,
-          project};
+          firstFill, steady};
 })();
 
 function renderScale() {
   const {arms, easArm, cyclesPerMonth, sources, tokens} = SCALE_ARMS;
   const anchors = SHIPPED_CMP.pinnedAnchors;
-  const H = SHIPPED_CMP.headline;
+  const H = SHIPPED_CMP.headline, RW = SHIPPED.rewrite;
+  const rate = S.rewriteRate / 100;
   const usdAt = (baseFeeGwei, gas) => gas * (baseFeeGwei + S.tip) * 1e-9 * S.eth;
-  document.getElementById("scale-intro").innerHTML = `
-    <p class="small">What a month of the fact layer costs at
-    ${tokens.map(t => fmt(t)).join(" / ")} tokens, at the cadence and batch size the keeper is
-    <strong>actually running</strong> on Sepolia, priced at mainnet gas. The bespoke row's gas per
-    fact is a chain read; the EAS row beside it is a Foundry measurement of a path that has never
-    been broadcast by anything. This card is pinned to the shipped configuration — only the
-    <em>ETH price</em> and <em>priority fee</em> dials move it.</p>
-    <div class="note bad"><p><strong>Gas is the same on either chain; the price is not.</strong>
-    The per-fact figure is measured on Sepolia, where ETH has no market value, so the ETH actually
-    spent there is not a cost. What transfers is the <em>gas</em>: the same bytecode charges the
-    same gas on mainnet. Every USD figure below is that measured gas priced at a mainnet base-fee
-    anchor, the priority-fee dial and the ETH-price dial — never at a Sepolia gas price.</p></div>`;
+  const measured = S.rewriteRate === 0;
 
-  const head = `<thead><tr><th>Book</th><th>Arm</th><th class="n">Facts / month</th>
-    <th class="n">Transactions / month</th><th class="n">Gas / month</th>
+  document.getElementById("scale-intro").innerHTML = `
+    <p class="small">What the fact layer costs at ${tokens.map(t => fmt(t)).join(" / ")} tokens, at
+    the cadence and batch size the keeper is <strong>actually running</strong> on Sepolia, priced
+    at mainnet gas. The bespoke arm's gas per fact is a chain read; the EAS arm beside it is a
+    Foundry measurement of a path that has never been broadcast.</p>
+    <div class="note bad"><p><strong>A month has two shapes, and averaging them is how this card
+    was wrong.</strong> The keeper does not write every token every cycle. It writes a price fact
+    on a <em>first</em> write, or when the value has moved at least
+    <strong>${RW.thresholdBps} bps (${(RW.thresholdBps / 100).toFixed(0)}%)</strong> against the
+    value it reads back from the store — otherwise it skips
+    (<code>significance.ts</code>, ENG-3926; <code>materialChangeBps</code>). So the book is
+    filled <em>once</em>, and after that the only guaranteed per-writer work is the cycle close.
+    Both are below, and the rewrite-rate dial drives the second.</p>
+    <p class="small">Tim, 2026-09-21: “Repeat writes are skipped, bud. That is why we write the
+    ‘we are done writing’ flag… so that if a valuation does not change by a certain percentage,
+    we skip the write.” Until this card was rebuilt it charged one write per token per cycle —
+    that is the <strong>100%</strong> column, and it is an upper bound, not a forecast.</p></div>
+    <div class="note"><p><strong>Gas is the same on either chain; the price is not.</strong> The
+    per-fact figure is measured on Sepolia, where ETH has no market value, so the ETH actually
+    spent there is not a cost. What transfers is the <em>gas</em>. Every USD figure below is that
+    measured gas priced at a mainnet base-fee anchor, the priority-fee dial and the ETH-price
+    dial — never at a Sepolia gas price.</p></div>`;
+
+  const head = lead => `<thead><tr><th>Book</th><th>Arm</th><th class="n">${lead}</th>
+    <th class="n">Transactions</th><th class="n">Gas</th>
     ${anchors.map(a => `<th class="n">${a.label}<div class="src">${gwei(a.baseFeeGwei)} gwei</div></th>`).join("")}
     </tr></thead>`;
-  const body = tokens.map(t => arms.map((arm, i) => {
-    const p = SCALE_ARMS.project(arm, t);
+  const body = fn => tokens.map(t => arms.map((arm, i) => {
+    const p = fn(arm, t);
     const shipped = arm.kind === "shipped";
     return `<tr${shipped ? ' style="background:var(--accent-soft)"' : ""}>
       ${i === 0 ? `<td rowspan="${arms.length}"><strong>${fmt(t)}</strong> tokens</td>` : ""}
       <td>${shipped ? "<strong>Bespoke — shipped</strong>" : `${easArm.label} — <em>modelled</em>`}
         <div class="src">${fmt(arm.perFact)} gas/fact at batch ${fmt(arm.batch)}</div></td>
       <td class="n">${fmt(p.facts, 0)}</td><td class="n">${fmt(p.txns, 0)}</td>
-      <td class="n">${fmt(p.totalGas, 0)}</td>
-      ${anchors.map(a => `<td class="n">${usd(usdAt(a.baseFeeGwei, p.totalGas))}</td>`).join("")}
+      <td class="n">${fmt(p.gas, 0)}</td>
+      ${anchors.map(a => `<td class="n">${usd(usdAt(a.baseFeeGwei, p.gas))}</td>`).join("")}
     </tr>`;
   }).join("")).join("");
-  document.getElementById("scale-table").innerHTML = head + `<tbody>${body}</tbody>`;
 
-  const ratio = SCALE_ARMS.arms[1].perFact / SCALE_ARMS.arms[0].perFact;
+  document.getElementById("scale-table").innerHTML =
+    head("Facts") + `<tbody>${body(SCALE_ARMS.firstFill)}</tbody>`;
+  document.getElementById("scale-table-2").innerHTML =
+    head("Facts / month") + `<tbody>${body((arm, t) => SCALE_ARMS.steady(arm, t, rate))}</tbody>`;
+
+  const shippedSteady = t => SCALE_ARMS.steady(arms[0], t, rate);
   document.getElementById("scale-eq").textContent =
-    `facts per month   = tokens x ${sources} price sources x ${MONTH_DAYS} cycles\n` +
-    `gas per month     = facts x gas-per-fact  +  ${sources} x ${MONTH_DAYS} x cycle-close gas\n` +
-    `USD per month     = gas x (base fee + ${S.tip.toPrecision(4)} gwei tip) x 1e-9 x ${usd(S.eth)}\n` +
-    `bespoke, shipped  = ${fmt(SHIPPED_CMP.measuredFloor)} gas/fact, ` +
-      `${fmt(SHIPPED.closes.repeatGas)} gas/close\n` +
-    `EAS, modelled     = ${fmt(SCALE_ARMS.arms[1].perFact)} gas/fact, ` +
-      `${fmt(SCALE_ARMS.arms[1].closeGas)} gas/close   (${ratio.toFixed(2)}x the shipped figure)`;
+    `FIRST FILL, once      = tokens x ${sources} writers x gas-per-fact\n` +
+    `                        + ${sources} x first-cycle-close gas\n` +
+    `STEADY STATE, monthly = ${sources} x ${MONTH_DAYS} cycles x repeat-close gas\n` +
+    `                        + tokens x ${sources} x ${MONTH_DAYS} x REWRITE RATE x gas-per-fact\n` +
+    `USD                   = gas x (base fee + ${S.tip.toPrecision(4)} gwei tip) x 1e-9 x ${usd(S.eth)}\n` +
+    `rewrite rate          = ${S.rewriteRate}%` +
+      (measured ? "   (measured: no repeat write in " + RW.cyclesObserved + " observed cycles)"
+                : S.rewriteRate === 100 ? "   (upper bound, not a forecast)" : "   (your assumption)") + `\n` +
+    `bespoke, shipped      = ${fmt(SHIPPED_CMP.measuredFloor)} gas/fact, ` +
+      `${fmt(SHIPPED.closes.firstGas)} first close, ${fmt(SHIPPED.closes.repeatGas)} repeat close\n` +
+    `EAS, modelled         = ${fmt(arms[1].perFact)} gas/fact, ` +
+      `${fmt(arms[1].closeFirst)} first close, ${fmt(arms[1].closeRepeat)} repeat close`;
+
+  document.getElementById("scale-notes").innerHTML = `
+    ${measured ? `<div class="note ok"><p><strong>At the measured rewrite rate the steady-state
+    cost does not depend on the size of the book at all.</strong> With no row moving past the
+    threshold, the only writes are the cycle closes: ${sources} writers × ${MONTH_DAYS} cycles ×
+    ${fmt(SHIPPED.closes.repeatGas)} gas = <span class="num">${fmt(shippedSteady(tokens[0]).gas, 0)}</span>
+    gas a month, <strong>${usd(usdAt(anchors[0].baseFeeGwei, shippedSteady(tokens[0]).gas))}</strong>
+    at the <em>${anchors[0].label}</em> anchor, whether the book is ${fmt(tokens[0])} tokens or
+    ${fmt(tokens[2])}. The cost of scale sits almost entirely in the one-time first fill, and after
+    that in however often valuations actually move.</p>
+    <p class="small">Read that as a property of the <em>design</em>, not as a forecast: see the
+    caveat below on what four cycles can and cannot establish.</p></div>` : ""}
+    <div class="note warn"><p><strong>What the measured rewrite rate does and does not say.</strong>
+    Across cycles ${SHIPPED.closes.cycles[0]}–${SHIPPED.closes.cycles[SHIPPED.closes.cycles.length - 1]}
+    the keeper wrote <strong>${fmt(SHIPPED_CMP.totalFactsShipped)} facts, every one of them a first
+    write, and not a single repeat</strong> — ${fmt(RW.observed)} rewrites across
+    ${fmt(RW.opportunities)} row-cycle opportunities. That is a real measurement and it is the
+    reason this card no longer charges a write per token per cycle. It is <em>not</em> a measured
+    rate of zero: ${fmt(RW.cyclesObserved)} cycles is too little time to distinguish a book that
+    genuinely does not move from one whose rows simply have not moved ${RW.thresholdBps} bps
+    <em>yet</em>. The honest reading is “no repeat write has been observed”, and the 100% position
+    is the other end of the range.</p>
+    <p class="small">${RW.notARate} Opportunity counting: ${RW.method}.</p></div>
+    <div class="note bad"><p><strong>${SHIPPED.easWritePath.headline}</strong>
+    ${SHIPPED.easWritePath.surface} Every EAS figure on this card and everywhere else on this page
+    is modelled from Foundry measurements — what EAS <em>would</em> cost, not what it <em>has</em>
+    cost. Checked, not assumed: ${SHIPPED.easWritePath.checkedAt}. The same significance gate would
+    apply to it, since the gate is in the keeper and not in the contract, so both arms are driven
+    by the same rewrite dial.</p></div>
+    <div class="note"><p><strong>The transaction ceiling still binds the first fill.</strong> At
+    ${fmt(tokens[2])} tokens the initial fill needs
+    ${fmt(SCALE_ARMS.firstFill(arms[0], tokens[2]).txns, 0)} transactions against a configured
+    ceiling of ${SHIPPED_CMP.ceiling} per pass — ${fmt(Math.ceil(
+      SCALE_ARMS.firstFill(arms[0], tokens[2]).txns / SHIPPED_CMP.ceiling), 0)} passes, or
+    ${fmt(Math.ceil(SCALE_ARMS.firstFill(arms[0], tokens[2]).txns / SHIPPED_CMP.ceiling) / 4, 0)}
+    days at the ${SHIPPED.keeperConfig.cronSchedule} cadence. That is a scheduling limit on
+    onboarding, not a gas one, and it is the finding this card exists to surface.</p></div>
+    <div class="note"><p><strong>The three columns are the page's pinned anchors, and all three are
+    expensive days.</strong> The fourth anchor, <code>now</code>, is re-read on every refresh of
+    <code>chain-data.json</code> and so is pinned to nothing. Its last reading was
+    <span class="num">${gwei(SHIPPED_CMP.nowAnchor.baseFeeGwei)}</span> gwei at
+    ${SHIPPED_CMP.nowAnchor.timeUtc}, which prices the ${fmt(tokens[1])}-token steady-state row at
+    <strong>${usd(usdAt(SHIPPED_CMP.nowAnchor.baseFeeGwei, shippedSteady(tokens[1]).gas))}</strong>
+    a month and its first fill at
+    <strong>${usd(usdAt(SHIPPED_CMP.nowAnchor.baseFeeGwei, SCALE_ARMS.firstFill(arms[0], tokens[1]).gas))}</strong>.
+    The <em>Gas</em> columns are scenario-independent, so any base fee can be applied to them
+    directly; the <em>Congestion</em> panel renders all four anchors.</p></div>`;
 
   document.getElementById("scale-inputs").innerHTML = `
     <div class="scroll"><table>
@@ -937,47 +1045,50 @@ function renderScale() {
         ${fmt(H.facts)} facts, ${fmt(H.gasUsed)} gas,
         <code>floor(${fmt(H.gasUsed)} ÷ ${H.facts})</code>. The largest batch the keeper has
         sent.</td></tr>
-      <tr><td>Gas per cycle close, bespoke</td><td class="n">${fmt(SHIPPED.closes.repeatGas)}</td>
-        <td class="small">CHAIN READ. The repeat-close regime, identical on
+      <tr><td>Cycle close, bespoke — first / repeat</td>
+        <td class="n">${fmt(SHIPPED.closes.firstGas)} / ${fmt(SHIPPED.closes.repeatGas)}</td>
+        <td class="small">CHAIN READ, two regimes.
+        ${fmt(SHIPPED.closes.groups.find(g => g.gasUsed === SHIPPED.closes.firstGas).count)}
+        first closes (one per writer, cold words) and
         ${fmt(SHIPPED.closes.groups.find(g => g.gasUsed === SHIPPED.closes.repeatGas).count)}
-        transactions; example ${txLink(SHIPPED.closes.groups.find(g => g.gasUsed === SHIPPED.closes.repeatGas).exampleHash)}.
-        A writer's FIRST close on a store costs ${fmt(SHIPPED.closes.firstGas)} and is paid
-        once.</td></tr>
-      <tr><td>Gas per fact, ${easArm.label}</td><td class="n">${fmt(SCALE_ARMS.arms[1].perFact)}</td>
-        <td class="small">MODELLED. ${SCALE_ARMS.arms[1].basis}, from
-        <code>${BATCH.source.file}</code> @ <code>${srcCommitShort()}</code>. No EAS write has
-        ever been broadcast — see the note below.</td></tr>
-      <tr><td>Gas per cycle close, EAS</td><td class="n">${fmt(SCALE_ARMS.arms[1].closeGas)}</td>
-        <td class="small">MODELLED. <code>attest</code> ${fmt(BATCH.eas.close.attestSecond)} +
-        pointer write ${fmt(BATCH.eas.close.pointRepeat)}, both measured
+        repeats. First fill is charged the first, steady state the repeat.</td></tr>
+      <tr><td>Rewrite rate</td><td class="n">${S.rewriteRate}%</td>
+        <td class="small">THE DIAL. Measured position: <strong>no repeat write in
+        ${fmt(RW.cyclesObserved)} observed cycles</strong> (${fmt(RW.observed)} of
+        ${fmt(RW.opportunities)} row-cycle opportunities). 100% is the upper bound — one write per
+        token per cycle — and was what this card charged before it was corrected. No
+        threshold-implied position is offered: ${RW.notARate}</td></tr>
+      <tr><td>Significance threshold</td><td class="n">${RW.thresholdBps} bps</td>
+        <td class="small">CONFIGURATION, named as the mechanism and not used as a rate.
+        ${RW.thresholdSource}.</td></tr>
+      <tr><td>Gas per fact, ${easArm.label}</td><td class="n">${fmt(arms[1].perFact)}</td>
+        <td class="small">MODELLED. Foundry rows at batch ${fmt(SCALE_ARMS.easBatch)}:
+        <code>${BATCH.opLabels[easArm.addends[0]]}</code> +
+        <code>${BATCH.opLabels[easArm.addends[1]]}</code>, from
+        <code>${BATCH.source.file}</code> @ <code>${srcCommitShort()}</code>.</td></tr>
+      <tr><td>Cycle close, EAS — first / repeat</td>
+        <td class="n">${fmt(arms[1].closeFirst)} / ${fmt(arms[1].closeRepeat)}</td>
+        <td class="small">MODELLED. attest + pointer write in each regime
         (<a href="https://linear.app/fabrica/issue/ENG-3964">ENG-3964</a>).</td></tr>
       <tr><td>Oracle price sources</td><td class="n">${sources}</td>
-        <td class="small">NAMED ASSUMPTION. The aggregator's trusted set holds three price
-        writers and the card charges all three. In this window only
-        ${fmt(SHIPPED_CMP.pricingSigners.length)} of them —
-        ${SHIPPED_CMP.pricingSigners.join(", ")} — actually wrote price facts;
-        ${SHIPPED_CMP.silentPriceSigners.join(", ") || "none"} closed
-        ${SHIPPED_CMP.silentPriceSigners.length === 1 ? "its cycle" : "their cycles"} without
-        writing any. A book covered by ${fmt(SHIPPED_CMP.pricingSigners.length)} sources instead
-        of ${sources} costs ${(SHIPPED_CMP.pricingSigners.length / sources).toFixed(2)}× these
-        figures on the price term. <code>fabrica</code> writes token-wide facts and is
-        deliberately not in the trusted price set at all.</td></tr>
+        <td class="small">NAMED ASSUMPTION. The aggregator's trusted set holds three price writers
+        and the card charges all three. In this window only
+        ${fmt(SHIPPED_CMP.pricingSigners.length)} —
+        ${SHIPPED_CMP.pricingSigners.join(", ")} — wrote price facts;
+        ${SHIPPED_CMP.silentPriceSigners.join(", ") || "none"} closed cycles without writing any.
+        A book covered by ${fmt(SHIPPED_CMP.pricingSigners.length)} sources instead of ${sources}
+        costs ${(SHIPPED_CMP.pricingSigners.length / sources).toFixed(2)}× the price term.</td></tr>
       <tr><td>Cycles per month</td><td class="n">${MONTH_DAYS}</td>
-        <td class="small">CHAIN READ. One cycle per day: cycles
-        ${SHIPPED.closes.cycles.join(", ")} were closed on
-        ${SHIPPED.closes.days.join(", ")} — ${SHIPPED.closes.cycles.length} consecutive cycles
-        across ${SHIPPED.closes.days.length} consecutive days. × the mean Gregorian month.</td></tr>
-      <tr><td>Rows written per cycle</td><td class="n">100%</td>
-        <td class="small">Every row written every cycle. The keeper's skip-unchanged policy writes
-        FEWER than this, so the price term is an upper bound at a given book size. This card has
-        no movers dial of its own; the <em>Movers</em> dial drives the Foundry-based running-cost
-        panel below, not these rows.</td></tr>
+        <td class="small">CHAIN READ. One cycle per day: cycles ${SHIPPED.closes.cycles.join(", ")}
+        closed on ${SHIPPED.closes.days.join(", ")} — ${SHIPPED.closes.cycles.length} consecutive
+        cycles across ${SHIPPED.closes.days.length} consecutive days. × the mean Gregorian
+        month.</td></tr>
       <tr><td>Batch size, bespoke</td><td class="n">${fmt(H.facts)}</td>
         <td class="small">CHAIN READ, the shipped batch. Configured
-        <code>writeBatchSize</code> ${SHIPPED.keeperConfig.writeBatchSize} and
+        <code>writeBatchSize</code> ${SHIPPED.keeperConfig.writeBatchSize},
         <code>maxTokensPerCycle</code> ${SHIPPED.keeperConfig.maxTokensPerCycle}
-        (${SHIPPED.keeperConfig.source}); the largest batch actually sent is
-        ${H.facts}, and the card quotes what shipped, not what is configured.</td></tr>
+        (${SHIPPED.keeperConfig.source}); the card quotes what shipped, not what is
+        configured.</td></tr>
       <tr><td>Priority fee</td><td class="n">${S.tip.toPrecision(4)} gwei</td>
         <td class="small">The priority-fee dial. Default: median actually paid over
         ${CHAIN.priorityFee.blocksSampled} mainnet blocks to
@@ -990,35 +1101,6 @@ function renderScale() {
         (block ${fmt(a.block)}, ${a.timeUtc})`).join("; ")}. Each is pinned to a named historical
         mainnet block and cannot move.</td></tr>
       </tbody></table></div>`;
-
-  document.getElementById("scale-notes").innerHTML = `
-    <div class="note warn"><p><strong>${SHIPPED.easWritePath.headline}</strong>
-    ${SHIPPED.easWritePath.surface} The EAS row above, and every EAS figure anywhere on this
-    page, is modelled from Foundry measurements — it is what EAS <em>would</em> cost, not what it
-    <em>has</em> cost. Checked, not assumed: ${SHIPPED.easWritePath.checkedAt}. So “both bespoke
-    and EAS” on this page means <strong>one shipped arm and one modelled arm</strong>, and the two
-    columns are not the same kind of evidence.</p></div>
-    <div class="note"><p><strong>The three columns are the page's pinned anchors, and all three
-    are expensive days.</strong> The fourth anchor, <code>now</code>, is deliberately not a column:
-    it is re-read from the chain on every refresh of <code>chain-data.json</code> and so is not
-    pinned to anything. Its last reading was
-    <span class="num">${gwei(SHIPPED_CMP.nowAnchor.baseFeeGwei)}</span> gwei at
-    ${SHIPPED_CMP.nowAnchor.timeUtc}, which prices the
-    ${fmt(tokens[1])}-token shipped row at
-    <strong>${usd(usdAt(SHIPPED_CMP.nowAnchor.baseFeeGwei,
-                        SCALE_ARMS.project(arms[0], tokens[1]).totalGas))}</strong> a month. The
-    <em>Gas per month</em> column is scenario-independent, so any base fee can be applied to it
-    directly; the <em>Congestion</em> panel below renders all four anchors.</p></div>
-    <div class="note"><p><strong>What this card is not.</strong> The keeper has never priced a
-    book of ${fmt(tokens[2])} tokens. <code>maxTokensPerCycle</code> is
-    ${SHIPPED.keeperConfig.maxTokensPerCycle}, and the most tokens it has written price facts for
-    in one transaction is ${SHIPPED_CMP.headline.facts}. These rows are the measured per-fact cost multiplied out, by the formula above; the
-    per-fact figure holds at any book size because the batch size does not change, but the
-    <em>transaction ceiling</em> does bind: at ${fmt(tokens[2])} tokens a cycle needs
-    ${fmt(Math.ceil(tokens[2] / arms[0].batch) * sources, 0)} batch transactions against a
-    configured ceiling of ${SHIPPED_CMP.ceiling} per pass, so the cadence assumed here is not
-    reachable on today's configuration. That is a scheduling limit, not a gas one, and it is the
-    finding this card exists to surface.</p></div>`;
 }
 
 function renderShipped() {
@@ -1514,6 +1596,25 @@ function render() {
      an upper bound that has never actually occurred, and a reader will take it for a
      forecast unless told otherwise. */
   const peakish = ["extremely high", "historical peak"].includes(S.gasKey);
+  /* ENG-4342 (N1). This panel charges bespoke price writes ONE TRANSACTION PER ROW; the batch
+     dial drives registration here, not the price term. That is defensible as a model of the
+     round-1 contract, but it was invisible on the page, and an invisible modelling choice is how
+     a reader ends up comparing an UNBATCHED bespoke figure against a BATCHED EAS one and calling
+     it like for like. Said out loud, on the panel, next to the number it applies to. */
+  document.getElementById("batching-caveat").innerHTML = isEas ? "" : `
+    <div class="note warn"><p><strong>These bespoke figures are UNBATCHED.</strong> This panel
+    sends one <code>writePrice</code> transaction per row — ${fmt(m.priceTxns, 0)} price
+    transactions for ${fmt(m.priceWrites, 0)} facts at the current dials — because it models the
+    round-1 contract, where that is what the keeper did. <strong>The batch-size dial does not
+    apply to this term</strong>; on this panel it drives registration only, which is why moving it
+    barely moves the total. The EAS arm, by contrast, IS batched here, so comparing the two arms
+    on this panel alone is not like for like.</p>
+    <p class="small">The shipped batching — ${fmt(SHIPPED_CMP.headline.facts)} facts in one
+    <code>writeFacts</code> transaction at
+    <span class="num">${fmt(SHIPPED_CMP.measuredFloor)}</span> gas per fact — is priced in the
+    <em>Cost at scale</em> card at the top of the page, and nowhere else. The two are different
+    contracts as well as different batch sizes; see <em>Shipped</em>.</p></div>`;
+
   document.getElementById("headline-caveat").innerHTML = peakish ? `
     <div class="note warn"><p><strong>These figures assume the peak holds for a whole month.
     It never has.</strong> ${S.gasKey === "historical peak"
@@ -2430,6 +2531,22 @@ function sync() {
        ${BATCH.eas.arms.find(a => a.key === EAS_HEADLINE_ARM).label}, with the other arm on every
        card, and excludes the terms EAS has no measured row for.`
     : `The custom fact store as deployed for round 1, measured on <code>main</code>.`;
+  const RW = SHIPPED.rewrite;
+  document.getElementById("d-rewrite").value = S.rewriteRate;
+  [...document.querySelectorAll("#d-rewrite-seg button[data-v]")].forEach(b =>
+    b.setAttribute("aria-pressed", String(+b.dataset.v === S.rewriteRate)));
+  document.getElementById("rewrite-hint").innerHTML =
+    `The keeper writes a price fact on a FIRST write, or when the value moves at least
+     <strong>${RW.thresholdBps} bps (${(RW.thresholdBps / 100).toFixed(0)}%)</strong> against the
+     value read back from the store — otherwise it skips
+     (<code>significance.ts</code>, ENG-3926). <strong>Measured so far: no repeat write in
+     ${fmt(RW.cyclesObserved)} observed cycles</strong> — ${fmt(RW.observed)} rewrites across
+     ${fmt(RW.opportunities)} row-cycle opportunities. That is <em>not</em> a measured rate of
+     zero: four cycles is too little time to tell a genuinely static book from one whose rows
+     simply have not moved ${RW.thresholdBps} bps yet. A bps threshold does not imply a rate
+     either — that depends on how often valuations move past it, a property of the feed the
+     keeper does not expose — so 100% is offered as an upper bound, not a forecast, and anything
+     between is your own assumption.`;
   const a = CHAIN.gasAnchors.find(x => x.label === S.gasKey);
   document.getElementById("gas-hint").innerHTML = S.gasKey === "custom"
     ? "Your own figure."
@@ -2473,17 +2590,20 @@ function init() {
   seg("d-tokens-seg", "tokens");
   seg("d-cadence-seg", "cadence");
   seg("d-batch-seg", "batch");
+  seg("d-rewrite-seg", "rewriteRate");
   num("d-tokens", "tokens"); num("d-sources", "sources"); num("d-eth", "eth");
   num("d-cadence", "cadence");
   num("d-maxsilence", "maxSilence"); num("d-margin", "margin"); num("d-attrs", "attrs");
   num("d-urgent", "urgent"); num("d-urgentmult", "urgentMult"); num("d-defer", "defer");
   num("d-moved", "moved");
+  num("d-rewrite", "rewriteRate");
   num("d-gas", "gas", () => { S.gasKey = "custom"; });
   num("d-tip", "tip");
   document.getElementById("d-month").addEventListener("input", e => { S.month = +e.target.value; sync(); });
   document.getElementById("d-layer").addEventListener("change", e => { S.layer = e.target.value; sync(); });
   document.getElementById("d-hbpolicy").addEventListener("change", e => { S.hbPolicy = e.target.value; sync(); });
   document.getElementById("d-reg").addEventListener("change", e => { S.reg = e.target.checked; render(); });
+  document.getElementById("d-rewrite").value = S.rewriteRate;
   document.getElementById("d-reset").addEventListener("click", () => { S = Object.assign({}, DEFAULTS); sync(); });
   sync();
 }
