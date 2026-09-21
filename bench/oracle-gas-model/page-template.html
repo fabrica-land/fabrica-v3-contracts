@@ -125,8 +125,7 @@ footer{border-top:1px solid var(--line);padding:18px 20px 40px;color:var(--muted
       <button data-v="1">1 day</button><button data-v="3">3 days</button>
     </div>
     <input type="number" id="d-cadence" min="0.01" step="0.01" style="margin-top:6px">
-    <div class="hint">Days between writes. Free entry: set it to 30.44 to put exactly one
-      write in a month, which is how the self-check below isolates a single regime.</div>
+    <div class="hint" id="cadence-hint"></div>
   </div>
 
   <div class="dial">
@@ -208,7 +207,7 @@ footer{border-top:1px solid var(--line);padding:18px 20px 40px;color:var(--muted
   </div>
 
   <div class="dial">
-    <label for="d-urgent">Urgent writes per 1,000 tokens per month</label>
+    <label for="d-urgent" id="urgent-label"></label>
     <input type="number" id="d-urgent" min="0" step="0.1">
     <div class="hint">A token-score collapse or a lock. Must land within a bounded time even
       at peak. The heartbeat is <em>not</em> in this class (Tim, 3 Sep 16:29Z).</div>
@@ -376,6 +375,15 @@ const NO_REPEATS = SHIPPED.rewrite.observed === 0;
    off chain and has no lookup write of its own, so the write model does not carry it.) Arm 1's
    figure is computed alongside and shown on every card, never dropped. */
 const EAS_HEADLINE_ARM = "arm2";
+// The dial offers a batch size the bench never measured; its cost is COMPOSED from measured
+// rows rather than extrapolated. Named once so the code that detects it and the prose that
+// describes it cannot drift apart (eng-4342-review check #15's class).
+const COMPOSED_BATCH = 1000;
+// The urgent dial is quoted PER THIS MANY tokens, and the computation divides by it. One
+// binding so the label and the divisor cannot disagree.
+const URGENT_PER = 1000;
+// The largest batched-registration scenario the bench measured. Its own prose names it.
+const REG_BATCH_MAX = 1000;
 const MONTH_DAYS = 30.436875;           // mean Gregorian month
 const HISTORY_DEPTH = META.historyDepth; // ring depth, 48, read from the contract in the bench
 const G = n => R[n].txTotal;            // whole-transaction gas for a measured scenario
@@ -493,13 +501,13 @@ function writeProfile(armKey) {
   // At a dial size no single transaction can carry, the cost is COMPOSED from measured rows:
   // `fullBatches` transactions at the largest measured batch that fits a block, plus one residual
   // batch, each a measured row. Nothing is extrapolated and nothing is dropped.
-  const composedAtDial = !measuredAtDial && S.batch === 1000;
+  const composedAtDial = !measuredAtDial && S.batch === COMPOSED_BATCH;
   const leg = isArm1 ? BD.legs.index : BD.legs.point;
   const composedPrice = BD.fullBatches * (BD.attest[String(BD.nMax)] + leg[String(BD.nMax)])
     + (BD.attest[String(BD.residual)] + leg[String(BD.residual)]);
   const perFact = measuredAtDial
     ? Math.floor((O[addA][String(S.batch)].total + O[addB][String(S.batch)].total) / S.batch)
-    : composedAtDial ? Math.floor(composedPrice / 1000) : null;
+    : composedAtDial ? Math.floor(composedPrice / COMPOSED_BATCH) : null;
   // The attribute stream is composed the SAME way as the price stream, which at dial 1,000 means
   // `fullBatches` batches of nMax plus the residual -- NOT one nMax batch divided by nMax. Dividing
   // the 230 measurement by 230 quietly drops the residual and disagrees with the split the sidecar
@@ -513,7 +521,7 @@ function writeProfile(armKey) {
       : 0;
   if (perFact === null) excluded.push(`price writes at batch ${fmt(S.batch)}: no measured EAS row
     and no measured decomposition — the EAS write side is measured at
-    ${BATCH.sizes.join(" / ")} and composed at 1,000, and this term is excluded rather than
+    ${BATCH.sizes.join(" / ")} and composed at ${fmt(COMPOSED_BATCH)}, and this term is excluded rather than
     extrapolated`);
   // The cycle close, both regimes measured (ENG-3964 items 1 and 2). Arm 1 pays the attestation
   // plus its Indexer write; arm 2 pays the attestation plus the pointer write that makes the row
@@ -645,7 +653,7 @@ function model(armKey) {
 
   // Urgency split. Deferrable = routine price writes + the cycle close. Urgent = a
   // token-score collapse or a lock, priced at the urgent tip.
-  const urgentCount = S.urgent * (S.tokens / 1000);
+  const urgentCount = S.urgent * (S.tokens / URGENT_PER);
   const urgentPerWrite = P.urgentPerWrite(before + writesPerRowPerMonth);
   const urgentGas = urgentCount * urgentPerWrite;
   const urgentPrice = (S.gas + S.tip * S.urgentMult) * 1e-9;
@@ -1601,7 +1609,7 @@ function render() {
     terms this page used to footnote were measured by
     <a href="https://linear.app/fabrica/issue/ENG-3964">ENG-3964</a>: a writer's first cycle close
     (the attestation and its lookup write, both regimes), arm 2's cycle-close pointer write,
-    attribute writes on both arms, and the batch dial at 1,000.</p>`}
+    attribute writes on both arms, and the batch dial at ${fmt(COMPOSED_BATCH)}.</p>`}
     <p><strong>But none of it has shipped.</strong> ${SHIPPED.easWritePath.headline}
     ${SHIPPED.easWritePath.surface} Measured is not shipped: everything on this dial is what EAS <em>would</em> cost. The bespoke arm's
     batched writes are real transactions — see <em>Shipped</em> at the top of the page.</p>
@@ -1634,8 +1642,8 @@ function render() {
   document.getElementById("headline-caveat").innerHTML = peakish ? `
     <div class="note warn"><p><strong>These figures assume the peak holds for a whole month.
     It never has.</strong> ${S.gasKey === "historical peak"
-      ? "The 8,629 gwei base fee of 2022-05-01 lasted minutes."
-      : "The 547 gwei of 2025-10-10 lasted a matter of hours."} Read this row as
+      ? `The ${gwei(CHAIN.gasAnchors.find(a => a.label === "historical peak").baseFeeGwei)} gwei base fee of 2022-05-01 lasted minutes.`
+      : `The ${gwei(CHAIN.gasAnchors.find(a => a.label === "extremely high").baseFeeGwei)} gwei of 2025-10-10 lasted a matter of hours.`} Read this row as
     <em>an upper bound on what a month of unlucky timing could cost</em>, not as a forecast.
     The realistic question is the one the congestion section below answers: what the urgent
     class costs while a peak is running, and what deferring the rest saves. The deferral
@@ -1717,7 +1725,7 @@ function render() {
     : "not counted this month";
   document.getElementById("headline-eq").textContent =
 `price rows        = ${fmt(S.tokens)} tokens x ${S.sources} sources         = ${fmt(m.rows)}
-writes per row    = 30.44 / ${S.cadence}d cadence x ${S.moved}% moved   = ${fmt(m.writesPerRowPerMonth, 2)} per month
+writes per row    = ${MONTH_DAYS} / ${S.cadence}d cadence x ${S.moved}% moved   = ${fmt(m.writesPerRowPerMonth, 2)} per month
 gas per row       = ${eqPerRow}= ${eqNum(m.perRow)}
 price writes      = ${noTotal ? "excluded, see above" : fmt(m.rows) + " rows x " + fmt(m.perRow) + " gas"}           = ${eqNum(m.priceGas)}
 cycle closes      = ${fmt(m.hbCount, 1)} x ${fmt(m.P.closeRepeat)} gas       = ${fmt(m.hbCount * m.P.closeRepeat)}
@@ -2041,7 +2049,7 @@ total                                                    = ${noTotal ? "— not 
         <td class="n" ${share > 100 ? 'style="color:var(--bad);font-weight:600"' : share > 50 ? 'style="color:var(--warn);font-weight:600"' : ""}>${share.toFixed(1)}%</td></tr>`;
     }).join("")}</tbody>`;
 
-  const b1000 = G("registerBatch:1000");
+  const b1000 = G("registerBatch:" + REG_BATCH_MAX);
   document.getElementById("batch-notes").innerHTML = isEas ? `
     <div class="note"><p>The EAS arm has <strong>no per-token registration</strong>: there is no
     owner and no registry gate to batch through. Round 2 deletes registration on the custom store
@@ -2050,11 +2058,11 @@ total                                                    = ${noTotal ? "— not 
     registration figures.</p></div>` : `
     <div class="note ${b1000 > blockLimit ? "bad" : "warn"}"><p><strong>Batching removes the
     per-transaction overhead and nothing else.</strong> Per token it converges from
-    ${fmt(G("registerBatch:1"))} at n=1 to ${fmt(batchPerItem(1000), 0)} at n=1,000, and it is
+    ${fmt(G("registerBatch:1"))} at n=1 to ${fmt(batchPerItem(REG_BATCH_MAX), 0)} at n=${fmt(REG_BATCH_MAX)}, and it is
     essentially converged by n=100 (${fmt(batchPerItem(100), 0)}). The floor is the storage a
     registry entry actually costs; the saving is the 21,000 intrinsic and the dispatch, spread
     thinner.</p>
-    <p><strong>n=1,000 is one transaction of ${fmt(b1000)} gas.</strong> The live mainnet block
+    <p><strong>n=${fmt(REG_BATCH_MAX)} is one transaction of ${fmt(b1000)} gas.</strong> The live mainnet block
     gas limit is <span class="num">${fmt(blockLimit)}</span> (block ${fmt(CHAIN.now.block)},
     ${CHAIN.now.timeUtc}), so it ${b1000 > blockLimit
       ? "<strong>does not fit in a block at all</strong>"
@@ -2062,7 +2070,7 @@ total                                                    = ${noTotal ? "— not 
     Over the year sampled, the limit ranged ${fmt(CHAIN.dailyYear.gasLimitMin)} to
     ${fmt(CHAIN.dailyYear.gasLimitMax)}, so this margin is not stable. A transaction that large
     also drives the base fee up by its own inclusion, which this model does not attempt to
-    price. The dial is left at 1,000 because the ticket asks for it; treat n≈100 as the
+    price. The dial is left at ${fmt(COMPOSED_BATCH)} because the ticket asks for it; treat n≈100 as the
     practical setting.</p>
     <p><strong>The batch dial also drives the price-write arm now</strong> — see the write-side
     table above, where a batched <code>writePrice</code> (ENG-3922's prototype) is measured against
@@ -2578,8 +2586,8 @@ function sync() {
     const per = n => Math.floor(BD.attest[String(n)] / n);
     return `Drives the write-side per-item cost of the selected arm — <code>writePriceBatch</code>
      on the bespoke store, attest + its lookup write (<code>indexAttestations</code> or the
-     pointer) on EAS — measured at ${BATCH.sizes.join("/")} (ENG-3922) and composed at 1,000
-     (ENG-3964), plus round-1 registration on the bespoke store (measured to 1,000).
+     pointer) on EAS — measured at ${BATCH.sizes.join("/")} (ENG-3922) and composed at ${fmt(COMPOSED_BATCH)}
+     (ENG-3964), plus round-1 registration on the bespoke store (measured to ${fmt(REG_BATCH_MAX)}).
      <strong>On EAS, batching does not merely converge past ${fmt(BATCH.sizes[BATCH.sizes.length - 1])};
      it reverses.</strong> Per-item attest cost measured at ${fmt(per(100))} at 100,
      ${fmt(per(200))} at 200 and ${fmt(per(BD.firstOver))} at ${fmt(BD.firstOver)} — larger batches
@@ -2593,6 +2601,15 @@ function sync() {
 }
 
 function init() {
+  // The advisory tells a reader what to type to isolate one write per month, and the
+  // self-check isolates that regime with `cadence: MONTH_DAYS`. Deriving the number from the
+  // same constant keeps the instruction and the mechanism it describes from drifting apart
+  // (eng-4342-review check #15 found the same class in the headline equation).
+  document.getElementById("urgent-label").textContent =
+    `Urgent writes per ${fmt(URGENT_PER)} tokens per month`;
+  document.getElementById("cadence-hint").textContent =
+    `Days between writes. Free entry: set it to ${MONTH_DAYS} to put exactly one write in a `
+    + `month, which is how the self-check below isolates a single regime.`;
   const gseg = document.getElementById("d-gas-seg");
   gseg.innerHTML = CHAIN.gasAnchors.map(a =>
     `<button data-k="${a.label}">${a.label}</button>`).join("")
