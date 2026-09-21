@@ -104,7 +104,7 @@ gas(n) = 21,000 intrinsic + head calldata + body calldata(n) + fixed exec + marg
 
 and on the keeper's first-write price batches the last two terms are **2,800 + 72,677 x n**, exact
 to the gas at n = 2, 2, 21 and 24 across two writers. The same fixed term, 2,800, falls out of the
-ENG-4203 deployment-verification batches at n = 1, 10, 12, 50 and 100 with a different writer and a
+ENG-4203 deployment-verification batches at n = 1, 10, 12, 50 and 100 with two other writers and a
 different fact shape — which is what makes it a property of the transaction rather than of this
 keeper's data. The build solves it from the extreme batch sizes and then checks every row; a
 residual of one gas fails the build.

@@ -136,7 +136,7 @@ footer{border-top:1px solid var(--line);padding:18px 20px 40px;color:var(--muted
   </div>
 
   <div class="dial">
-    <label id="d-rewrite-label">Rewrite rate — rows that move past the threshold, per cycle</label>
+    <label id="d-rewrite-label" for="d-rewrite">Rewrite rate — rows that move past the threshold, per cycle</label>
     <div class="seg" id="d-rewrite-seg" role="group" aria-labelledby="d-rewrite-label">
       <button data-v="0">0%</button><button data-v="100">100%</button>
     </div>
@@ -2916,10 +2916,10 @@ const DATA = {
   }
  ],
  "meta": {
-  "commit": "c631eae4e07af1f53436b1377a61d61bb6fbfcc1",
-  "commitShort": "c631eae",
+  "commit": "698e5eddca752487b316f2c31a43c6ed3fd5d2c6",
+  "commitShort": "698e5ed",
   "historyDepth": 48,
-  "inputDigest": "1ccafa022694fce1",
+  "inputDigest": "1228c4146645b3a0",
   "reportHeader": "# ENG-3913 \u2014 per-scenario gas bench, literal output\n#\n# repo:    fabrica-v3-contracts\n# base:    origin/main @ 4b9201d17d78c7296545a6bd5ef6ac8da1d5a86e\n# branch:  tozzetto/eng-3913-oracle-gas-model\n# command: forge test --match-path test/Eng3913OracleGasBench.t.sol -vv\n# forge:   forge Version: 1.7.1 (Commit SHA: 4072e48705af9d93e3c0f6e29e93b5e9a40caed8)\n# profile: optimizer=true, optimizer_runs=1, via_ir=false (foundry.toml [profile.default])\n# knobs:   FabricaAttributeOracle.defaultKnobs() \u2014 the config\n#          script/FabricaAttributeOracleDeploy.s.sol deploys with.\n#\n# \u26a0 RUN THIS WITHOUT --gas-report.\n#   Foundry's gas-report instrumentation inflates the gasleft() deltas these benches\n#   read, and the codeless-control subtraction absorbs most but not all of it. The CSV\n#   rows here are valid ONLY from a plain -vv run. Under --gas-report the steady-state\n#   writePrice row reads 72,268 instead of 73,812."
  },
  "read": {
@@ -5207,6 +5207,10 @@ function renderScale() {
   const rate = S.rewriteRate / 100;
   const usdAt = (baseFeeGwei, gas) => gas * (baseFeeGwei + S.tip) * 1e-9 * S.eth;
   const measured = S.rewriteRate === 0;
+  // The dial sitting at 0% is a UI state; whether any repeat write was actually observed is a
+  // property of the collected window. Every "not a single repeat" claim keys on this, so a later
+  // --to-block window that records a repeat cannot print a non-zero count beside a denial of it.
+  const noRepeats = RW.observed === 0;
 
   document.getElementById("scale-intro").innerHTML = `
     <p class="small">What the fact layer costs at ${tokens.map(t => fmt(t)).join(" / ")} tokens, at
@@ -5261,7 +5265,7 @@ function renderScale() {
     `                        + tokens x ${sources} x ${MONTH_DAYS} x REWRITE RATE x gas-per-fact\n` +
     `USD                   = gas x (base fee + ${S.tip.toPrecision(4)} gwei tip) x 1e-9 x ${usd(S.eth)}\n` +
     `rewrite rate          = ${S.rewriteRate}%` +
-      (measured ? "   (measured: no repeat write in " + RW.cyclesObserved + " observed cycles)"
+      (measured && noRepeats ? "   (measured: no repeat write in " + RW.cyclesObserved + " observed cycles)"
                 : S.rewriteRate === 100 ? "   (upper bound, not a forecast)" : "   (your assumption)") + `\n` +
     `bespoke, shipped      = ${fmt(SHIPPED_CMP.measuredFloor)} gas/fact, ` +
       `${fmt(SHIPPED.closes.firstGas)} first close, ${fmt(SHIPPED.closes.repeatGas)} repeat close\n` +
@@ -5281,8 +5285,9 @@ function renderScale() {
     caveat below on what ${fmt(RW.cyclesObserved)} cycles can and cannot establish.</p></div>` : ""}
     <div class="note warn"><p><strong>What the measured rewrite rate does and does not say.</strong>
     Across cycles ${SHIPPED.closes.cycles[0]}–${SHIPPED.closes.cycles[SHIPPED.closes.cycles.length - 1]}
-    the keeper wrote <strong>${fmt(RW.priceFacts)} price facts, every one of them a first write,
-    and not a single repeat</strong> — ${fmt(RW.observed)} rewrites across
+    the keeper wrote <strong>${fmt(RW.priceFacts)} price facts${noRepeats
+      ? ", every one of them a first write, and not a single repeat"
+      : `, ${fmt(RW.observed)} of them repeat writes`}</strong> — ${fmt(RW.observed)} rewrites across
     ${fmt(RW.opportunities)} row-cycle opportunities. (The numerator and the denominator are the
     same set: price rows only. The ${fmt(RW.excludedFacts)}
     other keeper facts of the same window are excluded from both, because they
@@ -5290,8 +5295,10 @@ function renderScale() {
     reason this card no longer charges a write per token per cycle. It is <em>not</em> a measured
     rate of zero: ${fmt(RW.cyclesObserved)} cycles is too little time to distinguish a book that
     genuinely does not move from one whose rows simply have not moved ${RW.thresholdBps} bps
-    <em>yet</em>. The honest reading is “no repeat write has been observed”, and the 100% position
-    is the other end of the range.</p>
+    <em>yet</em>. The honest reading is ${noRepeats
+      ? "“no repeat write has been observed”"
+      : `“${fmt(RW.observed)} repeat writes have been observed in ${fmt(RW.opportunities)} opportunities”`},
+    and the 100% position is the other end of the range.</p>
     <p class="small">${RW.notARate} Opportunity counting: ${RW.method}.</p></div>
     <div class="note bad"><p><strong>${SHIPPED.easWritePath.headline}</strong>
     ${SHIPPED.easWritePath.surface} Every EAS figure on this card and everywhere else on this page
@@ -5337,7 +5344,9 @@ function renderScale() {
         ${fmt(SHIPPED.closes.groups.find(g => g.gasUsed === SHIPPED.closes.repeatGas).count)}
         repeats. First fill is charged the first, steady state the repeat.</td></tr>
       <tr><td>Rewrite rate</td><td class="n">${S.rewriteRate}%</td>
-        <td class="small">THE DIAL. Measured position: <strong>no repeat write in
+        <td class="small">THE DIAL. Measured position: <strong>${noRepeats
+          ? "no repeat write"
+          : `${fmt(RW.observed)} repeat writes`} in
         ${fmt(RW.cyclesObserved)} observed cycles</strong> (${fmt(RW.observed)} of
         ${fmt(RW.opportunities)} row-cycle opportunities). 100% is the upper bound — one write per
         token per cycle — and was what this card charged before it was corrected. No
