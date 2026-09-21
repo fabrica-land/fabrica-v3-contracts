@@ -648,6 +648,9 @@ SHIPPED_PROJECTION = {
 SHIPPED_SCALE_TOKENS = [100, 1_000, 100_000]
 SHIPPED_PRICE_SOURCES = 3
 SHIPPED_CYCLES_PER_DAY = 1
+# The keeper's significance threshold. Rendered on the page in five places and described in
+# prose in a sixth; one binding so the description cannot drift from the figure.
+SHIPPED_THRESHOLD_BPS = 100
 # The price fact kind, `keccak256("price")`, taken from the kinds actually observed rather than
 # hard-coded: the reconciliation compares price batches with price batches, and a token-wide
 # score or attribute batch writes a different number of storage words per fact.
@@ -918,10 +921,14 @@ def parse_shipped(path):
                              if t["op"] in ("writeFacts", "writeFact") and t["keeperSigner"]
                              and not (t["op"] == "writeFacts" and t["kinds"] == [price_kind])),
         "rows": rewrite_rows,
-        "thresholdBps": 100,
-        "thresholdSource": "fabrica-v3-api onchainOracleKeeper.materialChangeBps, default 100 "
-                           "(= 1% of the prior published price), enforced by "
-                           "src/onchain-oracle-keeper/significance.ts (ENG-3926)",
+        "thresholdBps": SHIPPED_THRESHOLD_BPS,
+        # Authored here but RENDERED verbatim on the page, so its numbers are page numbers: they
+        # must come from the same binding the page's own ${RW.thresholdBps} sites read, or the
+        # sentence can disagree with the figure beside it (eng-4342-review check #16).
+        "thresholdSource": "fabrica-v3-api onchainOracleKeeper.materialChangeBps, default %d "
+                           "(= %g%% of the prior published price), enforced by "
+                           "src/onchain-oracle-keeper/significance.ts (ENG-3926)"
+                           % (SHIPPED_THRESHOLD_BPS, SHIPPED_THRESHOLD_BPS / 100),
         "method": "a price row first written in cycle c could have been rewritten in every cycle "
                   "its own writer closed after c; opportunities counts those, observed counts "
                   "the repeat writes that actually happened",

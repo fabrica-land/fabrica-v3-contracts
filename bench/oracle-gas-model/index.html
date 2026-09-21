@@ -2915,10 +2915,10 @@ const DATA = {
   }
  ],
  "meta": {
-  "commit": "416e0c6a2fafe50a3587255d83c4d26d9aed554c",
-  "commitShort": "416e0c6",
+  "commit": "4b23bbd68d089edb5a29212e2545aedc71bbc03c",
+  "commitShort": "4b23bbd",
   "historyDepth": 48,
-  "inputDigest": "06534121272c5bbf",
+  "inputDigest": "f04916775cfe2898",
   "reportHeader": "# ENG-3913 \u2014 per-scenario gas bench, literal output\n#\n# repo:    fabrica-v3-contracts\n# base:    origin/main @ 4b9201d17d78c7296545a6bd5ef6ac8da1d5a86e\n# branch:  tozzetto/eng-3913-oracle-gas-model\n# command: forge test --match-path test/Eng3913OracleGasBench.t.sol -vv\n# forge:   forge Version: 1.7.1 (Commit SHA: 4072e48705af9d93e3c0f6e29e93b5e9a40caed8)\n# profile: optimizer=true, optimizer_runs=1, via_ir=false (foundry.toml [profile.default])\n# knobs:   FabricaAttributeOracle.defaultKnobs() \u2014 the config\n#          script/FabricaAttributeOracleDeploy.s.sol deploys with.\n#\n# \u26a0 RUN THIS WITHOUT --gas-report.\n#   Foundry's gas-report instrumentation inflates the gasleft() deltas these benches\n#   read, and the codeless-control subtraction absorbs most but not all of it. The CSV\n#   rows here are valid ONLY from a plain -vv run. Under --gas-report the steady-state\n#   writePrice row reads 72,268 instead of 73,812."
  },
  "read": {
@@ -6531,9 +6531,9 @@ total                                                    = ${noTotal ? "— not 
     repeat-write figure came out ~5,600 gas low. A real oracle writer hashes each cycle's payload
     and inputs, so they change every time.</p>
     <p><strong>“First versus repeat” is four regimes, not two.</strong> The ring is
-    ${HISTORY_DEPTH} deep, so a row does not reach its cheapest state until its 49th write — at
+    ${HISTORY_DEPTH} deep, so a row does not reach its cheapest state until its ${HISTORY_DEPTH + 1}th write — at
     weekly cadence, eleven months. ENG-3922 read <code>historyLength</code> on the live round-1
-    store and found 0 and 2 against a depth of 48: <strong>nothing on Sepolia has wrapped</strong>,
+    store and found 0 and 2 against a depth of ${HISTORY_DEPTH}: <strong>nothing on Sepolia has wrapped</strong>,
     and only two tokens have ever been written. Quoting the wrapped figure as “the” per-write cost
     would understate the next year by ${(100 * (1 - G("writePrice:write 49+ (ring wrapped), price moved")
       / G("writePrice:writes 3-48 (ring slot fresh, counter warm)"))).toFixed(0)}%.</p></div>
@@ -6805,12 +6805,13 @@ function sync() {
   // advance the ring any more than it costs anything.
   const mv = S.moved / 100;
   const w = (MONTH_DAYS / S.cadence) * mv, before = (S.month - 1) * w, after = before + w;
-  const rn = n => n < 1 ? "write 1" : n < 2 ? "write 2" : n < HISTORY_DEPTH ? "writes 3–48" : "write 49+";
+  const rn = n => n < 1 ? "write 1" : n < 2 ? "write 2"
+    : n < HISTORY_DEPTH ? `writes 3–${HISTORY_DEPTH}` : `write ${HISTORY_DEPTH + 1}+`;
   const monthsToWrap = w > 0 ? Math.max(1, Math.ceil(HISTORY_DEPTH / w)) : null;
   document.getElementById("regime-hint").innerHTML = w <= 0
     ? `No writes are sent at 0% movers, so no row ever advances through the ring.`
     : `Writes ${fmt(before + 1, 1)}–${fmt(after, 1)} of each row's life, i.e. ${rn(before)} → ${rn(after - 0.001)}.
-       The ring is ${HISTORY_DEPTH} deep, so a row reaches its cheapest state on write 49 —
+       The ring is ${HISTORY_DEPTH} deep, so a row reaches its cheapest state on write ${HISTORY_DEPTH + 1} —
        month ${monthsToWrap} at this cadence${S.moved < 100
          ? ` and ${S.moved}% movers (the skip policy pushes that out by ${fmt(100 / S.moved, 1)}x)` : ""}.`;
   document.getElementById("hb-hint").textContent =
