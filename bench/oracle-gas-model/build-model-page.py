@@ -1030,6 +1030,18 @@ def input_digest():
 
 
 def main():
+    # Every FILE read and write in this module pins utf-8, but stdout and stderr are wrapped in
+    # the LOCALE codec, which is a different thing. On a C/POSIX locale -- routine in minimal
+    # containers and CI images -- the single em dash in the --check success path below raised
+    # UnicodeEncodeError and exited 1 on a page that had just verified as correct
+    # (eng-4342-review check #13). That is the worst possible place for it: --check is the one
+    # command a reviewer runs, and the failing line is reached whenever HEAD has moved past the
+    # commit the page was built at, which is the normal case rather than an edge one.
+    #
+    # Pinning the two streams fixes the class rather than the two strings that happen to carry
+    # non-ASCII today: a diagnostic must never be able to fail the command that emits it.
+    for stream in (sys.stdout, sys.stderr):
+        stream.reconfigure(encoding="utf-8", errors="backslashreplace")
     check_only = "--check" in sys.argv[1:]
     rows = parse_bench_rows(HERE / "reports" / "bench-rows.txt")
     compare = parse_compare(HERE / "reports" / "deployed-vs-main.txt")
