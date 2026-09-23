@@ -47,6 +47,18 @@ contract FabricaImmutableAggregator is IPriceOracle {
     /// @dev Pinned against the live store in the constructor, so a store of the wrong shape — or the
     ///      round-1 store, which has no `KIND_PRICE` at all — cannot be wired in silently.
     bytes32 public constant KIND_PRICE = keccak256("fabrica.fact.price");
+    /// @notice The `kind` under which Fabrica publishes the packed per-token eligibility result.
+    /// @dev The fact store does not interpret kinds, so this contract owns the convention. The packed
+    ///      value uses fixed two-bit pairs for current check-results rows: bits 0-1 allTransfersKycd,
+    ///      2-3 claimMatchesLegalDescription, 4-5 coordinatesValid, 6-7 currentOwnersKycd, 8-9
+    ///      currentOwnersNotInDarklist, 10-11 deedAvailable, 12-13 feesInGoodStanding, 14-15
+    ///      formationDocumentAvailable, 16-17 holdingEntityDeclared, 18-19
+    ///      holdingEntityMatchesOwnerNameAtAssessor, 20-21 legalDescriptionAvailable, 22-23
+    ///      noLiensFound, 24-25 notReportedAsStolen, 26-27 ownerHasVerifiedContact, 28-29
+    ///      proofOfTitleValid, 30-31 propertyTaxesCurrent, 32-33 recoveryStatusNormal, 34-35
+    ///      transferCooldownMet. Each pair is 00 unknown, 01 fail, 11 pass and 10 reserved/fail-closed.
+    ///      Bits 36+ are reserved for approved synthetic eligibility fields.
+    bytes32 public constant KIND_ELIGIBILITY = keccak256("fabrica.fact.eligibility");
 
     /// @notice Upper bound on the trusted writer set, fixed by the number of immutable slots below.
     /// @dev Eight is well above the three oracle sources round 2 trusts (Prycd, OpenAVM, Regrid
@@ -61,6 +73,10 @@ contract FabricaImmutableAggregator is IPriceOracle {
     bytes32 public constant CHECK_MIN_SOURCES = keccak256("min_sources");
     /// @notice Check id: dispersion (max/min) exceeded.
     bytes32 public constant CHECK_DISPERSION = keccak256("dispersion");
+    /// @notice Check id: no live, fresh eligibility fact exists for the token.
+    bytes32 public constant CHECK_ELIGIBILITY_UNAVAILABLE = keccak256("eligibility_unavailable");
+    /// @notice Check id: the live eligibility fact is missing at least one required pass pair.
+    bytes32 public constant CHECK_ELIGIBILITY = keccak256("eligibility");
 
     // -------------------------------------------------------------------------
     // Types
@@ -71,6 +87,8 @@ contract FabricaImmutableAggregator is IPriceOracle {
         address factStore;
         address usdc;
         address[] writers;
+        address eligibilityWriter;
+        uint128 requiredEligibilityMask;
         uint8 minLiveSources;
         uint64 maxSilence;
         uint64 cycleCloseInterval;
@@ -119,7 +137,9 @@ contract FabricaImmutableAggregator is IPriceOracle {
     event AggregatorDeployed(
         address indexed factStore,
         address indexed usdc,
+        address indexed eligibilityWriter,
         address[] writers,
+        uint128 requiredEligibilityMask,
         uint8 minLiveSources,
         uint64 maxSilence,
         uint64 cycleCloseInterval,
@@ -143,6 +163,10 @@ contract FabricaImmutableAggregator is IPriceOracle {
     address public immutable usdc;
     /// @notice Number of trusted writers actually configured.
     uint8 public immutable writerCount;
+    /// @notice Writer whose live `KIND_ELIGIBILITY` fact gates every token before pricing.
+    address public immutable eligibilityWriter;
+    /// @notice Two-bit pairs that must all be set to pass in the live eligibility fact.
+    uint128 public immutable requiredEligibilityMask;
     /// @notice Valuations required before a token can be priced at all.
     uint8 public immutable minLiveSources;
     /// @notice Longest gap since a writer's last cycle close that still counts as a live feed.
@@ -183,6 +207,8 @@ contract FabricaImmutableAggregator is IPriceOracle {
         factStore = IFabricaFactStore(config.factStore);
         usdc = config.usdc;
         writerCount = uint8(config.writers.length);
+        eligibilityWriter = config.eligibilityWriter;
+        requiredEligibilityMask = config.requiredEligibilityMask;
         minLiveSources = config.minLiveSources;
         maxSilence = config.maxSilence;
         cycleCloseInterval = config.cycleCloseInterval;
@@ -202,7 +228,9 @@ contract FabricaImmutableAggregator is IPriceOracle {
         emit AggregatorDeployed(
             config.factStore,
             config.usdc,
+            config.eligibilityWriter,
             config.writers,
+            config.requiredEligibilityMask,
             config.minLiveSources,
             config.maxSilence,
             config.cycleCloseInterval,
@@ -222,8 +250,8 @@ contract FabricaImmutableAggregator is IPriceOracle {
     /// @dev `oracleContext` is unused and must stay so: Tim ruled proof-at-read out on 3 September
     ///      2026 18:44Z because buy-now-pay-later calldata is fixed days before execution, so nothing
     ///      is supplied per read and nothing is computed per quote. USDC 1e6 per unit of supply.
-    ///      Evaluation order: currency -> maximum silence -> live valuations + breakers -> MIN ->
-    ///      dispersion -> temporal floor.
+    ///      Evaluation order: currency -> eligibility -> maximum silence -> live valuations + breakers
+    ///      -> MIN -> dispersion -> temporal floor.
     function price(
         address, /* collateralToken */
         address currencyToken,
@@ -298,6 +326,10 @@ contract FabricaImmutableAggregator is IPriceOracle {
         if (currencyToken != usdc) {
             return (false, CHECK_CURRENCY, 0);
         }
+        bytes32 eligibilityFailure = _eligibilityFailure(tokenId);
+        if (eligibilityFailure != bytes32(0)) {
+            return (false, eligibilityFailure, 0);
+        }
         uint256 freshCount;
         uint256 liveCount;
         uint128 currentMin = type(uint128).max;
@@ -327,6 +359,22 @@ contract FabricaImmutableAggregator is IPriceOracle {
             return (false, CHECK_DISPERSION, 0);
         }
         return (true, bytes32(0), uint256(_applyTemporalFloor(tokenId, currentMin, valuations)));
+    }
+
+    /// @notice Fail-closed eligibility gate, checked before any price-source read.
+    function _eligibilityFailure(uint256 tokenId) internal view returns (bytes32) {
+        IFabricaFactStore store = factStore;
+        address writer = eligibilityWriter;
+        IFabricaFactStore.CycleClose memory close = store.lastCycleClose(writer);
+        if (close.closedAt == 0) return CHECK_ELIGIBILITY_UNAVAILABLE;
+        if (block.timestamp > uint256(close.closedAt) + uint256(maxSilence)) {
+            return CHECK_ELIGIBILITY_UNAVAILABLE;
+        }
+        if (!store.isCycleValid(writer, close.cycle)) return CHECK_ELIGIBILITY_UNAVAILABLE;
+        (IFabricaFactStore.Fact memory fact, bool live) = store.getLiveFact(writer, tokenId, KIND_ELIGIBILITY);
+        if (!live) return CHECK_ELIGIBILITY_UNAVAILABLE;
+        if ((fact.value & requiredEligibilityMask) != requiredEligibilityMask) return CHECK_ELIGIBILITY;
+        return bytes32(0);
     }
 
     /// @notice One writer's valuation of one token, after every round-2 filter.
@@ -448,7 +496,9 @@ contract FabricaImmutableAggregator is IPriceOracle {
     }
 
     function _validateWiring(Config memory config) internal view {
-        if (config.factStore == address(0) || config.usdc == address(0)) revert ZeroAddress();
+        if (config.factStore == address(0) || config.usdc == address(0) || config.eligibilityWriter == address(0)) {
+            revert ZeroAddress();
+        }
         if (config.factStore.code.length == 0 || config.usdc.code.length == 0) revert InvalidConfig();
         bytes32 storeKind = IFabricaFactStore(config.factStore).KIND_PRICE();
         if (storeKind != KIND_PRICE) revert UnexpectedFactStoreKind(KIND_PRICE, storeKind);
@@ -476,6 +526,7 @@ contract FabricaImmutableAggregator is IPriceOracle {
         // Must permit at least 1.0x, or no two valuations could ever agree closely enough.
         if (config.maxDispersionBps < BPS_DENOMINATOR) revert InvalidConfig();
         if (config.maxFirstPriceUsdc6 == 0 || config.valueCeilingUsdc6 == 0) revert InvalidConfig();
+        if (config.requiredEligibilityMask == 0) revert InvalidConfig();
         // Round-1's `_validateKnobs` rule: a first-price cap above the ceiling is unreachable.
         if (config.maxFirstPriceUsdc6 > config.valueCeilingUsdc6) revert InvalidConfig();
     }

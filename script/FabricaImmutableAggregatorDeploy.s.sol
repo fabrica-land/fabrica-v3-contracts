@@ -145,6 +145,14 @@ contract FabricaImmutableAggregatorDeployScript is Script {
             factStore: vm.envAddress("FABRICA_FACT_STORE"),
             usdc: vm.envAddress("FABRICA_LENDING_USDC"),
             writers: writers,
+            eligibilityWriter: vm.envAddress("FABRICA_ELIGIBILITY_WRITER"),
+            requiredEligibilityMask: uint128(
+                _bounded(
+                    "requiredEligibilityMask",
+                    vm.envUint("FABRICA_AGGREGATOR_REQUIRED_ELIGIBILITY_MASK"),
+                    type(uint128).max
+                )
+            ),
             minLiveSources: uint8(
                 _bounded(
                     "minLiveSources",
@@ -245,6 +253,8 @@ contract FabricaImmutableAggregatorDeployScript is Script {
         console.log("=== ENG-4203 round-3 immutable aggregator: INTENDED parameters ===");
         console.log("factStore          ", params.factStore);
         console.log("usdc               ", params.usdc);
+        console.log("eligibilityWriter  ", params.eligibilityWriter);
+        console.log("eligibilityMask    ", params.requiredEligibilityMask);
         for (uint256 i; i < params.writers.length; ++i) {
             console.log("writer             ", i, params.writers[i]);
         }
@@ -264,6 +274,8 @@ contract FabricaImmutableAggregatorDeployScript is Script {
         console.log("address            ", address(aggregator));
         console.log("factStore          ", address(aggregator.factStore()));
         console.log("usdc               ", aggregator.usdc());
+        console.log("eligibilityWriter  ", aggregator.eligibilityWriter());
+        console.log("eligibilityMask    ", aggregator.requiredEligibilityMask());
         address[] memory writers = aggregator.writers();
         for (uint256 i; i < writers.length; ++i) {
             console.log("writer             ", i, writers[i]);
@@ -289,6 +301,12 @@ contract FabricaImmutableAggregatorDeployScript is Script {
             revert IntendedVsDeployedMismatch("factStore");
         }
         if (aggregator.usdc() != params.usdc) revert IntendedVsDeployedMismatch("usdc");
+        if (aggregator.eligibilityWriter() != params.eligibilityWriter) {
+            revert IntendedVsDeployedMismatch("eligibilityWriter");
+        }
+        if (aggregator.requiredEligibilityMask() != params.requiredEligibilityMask) {
+            revert IntendedVsDeployedMismatch("requiredEligibilityMask");
+        }
         if (aggregator.minLiveSources() != params.minLiveSources) {
             revert IntendedVsDeployedMismatch("minLiveSources");
         }

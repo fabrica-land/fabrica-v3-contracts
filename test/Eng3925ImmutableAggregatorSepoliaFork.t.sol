@@ -50,6 +50,7 @@ contract Eng3925ImmutableAggregatorSepoliaForkTest is Eng3523OraclePoolSepoliaFo
     uint128 internal constant R2_MAX_FIRST_PRICE_USDC6 = 50_000_000e6;
     uint128 internal constant R2_VALUE_CEILING_USDC6 = 50_000_000e6;
     uint8 internal constant R2_HISTORY_DEPTH = 48;
+    uint128 internal constant R2_ELIGIBILITY_PASS = 3;
 
     uint64 internal constant R2_CYCLE = 1;
     uint24 internal constant R2_CONFIDENCE = 9000;
@@ -76,6 +77,7 @@ contract Eng3925ImmutableAggregatorSepoliaForkTest is Eng3523OraclePoolSepoliaFo
     address internal writerPrycd = makeAddr("eng3925-writer-prycd");
     address internal writerOpenAvm = makeAddr("eng3925-writer-openavm");
     address internal writerRegrid = makeAddr("eng3925-writer-regrid");
+    address internal eligibilityWriter = makeAddr("eng4327-eligibility-writer");
 
     /* The SHIPPED round-2 deployment (2026-09-08), pinned. Everything below is READ; nothing here is
        constructed. These assertions are the only thing in this suite that can catch a
@@ -347,6 +349,8 @@ contract Eng3925ImmutableAggregatorSepoliaForkTest is Eng3523OraclePoolSepoliaFo
     function test_round2_pastMaximumSilenceItRefusesAndTheReportNamesTheCheck() public {
         _setUpRound2();
         vm.warp(block.timestamp + R2_MAX_SILENCE + 1);
+        vm.prank(eligibilityWriter);
+        fixtureStore.closeCycle(eligibilityWriter, R2_CYCLE);
         bytes memory silenceRevert = abi.encodeWithSelector(
             FabricaImmutableAggregator.CheckFailed.selector, fixtureAggregator.CHECK_MAX_SILENCE()
         );
@@ -395,6 +399,8 @@ contract Eng3925ImmutableAggregatorSepoliaForkTest is Eng3523OraclePoolSepoliaFo
                 factStore: address(fixtureStore),
                 usdc: USDC,
                 writers: writerSet,
+                eligibilityWriter: eligibilityWriter,
+                requiredEligibilityMask: R2_ELIGIBILITY_PASS,
                 minLiveSources: R2_MIN_LIVE_SOURCES,
                 maxSilence: R2_MAX_SILENCE,
                 cycleCloseInterval: R2_CYCLE_CLOSE_INTERVAL,
@@ -426,6 +432,7 @@ contract Eng3925ImmutableAggregatorSepoliaForkTest is Eng3523OraclePoolSepoliaFo
         fixtureStore.closeCycle(writerOpenAvm, R2_CYCLE);
         vm.prank(writerRegrid);
         fixtureStore.closeCycle(writerRegrid, R2_CYCLE);
+        _writeRound2Eligibility(COLLATERAL_TOKEN_ID, R2_ELIGIBILITY_PASS);
     }
 
     function _writeRound2(address writer, uint256 tokenId, uint128 value) internal {
@@ -440,6 +447,22 @@ contract Eng3925ImmutableAggregatorSepoliaForkTest is Eng3523OraclePoolSepoliaFo
         });
         vm.prank(writer);
         fixtureStore.writeFact(writer, input);
+    }
+
+    function _writeRound2Eligibility(uint256 tokenId, uint128 value) internal {
+        FabricaFactStore.FactInput memory input = FabricaFactStore.FactInput({
+            tokenId: tokenId,
+            kind: fixtureAggregator.KIND_ELIGIBILITY(),
+            value: value,
+            confidence: 0,
+            valuedAt: uint64(block.timestamp),
+            cycle: R2_CYCLE,
+            data: keccak256(abi.encodePacked("eng4327-fork", tokenId, value, block.timestamp))
+        });
+        vm.prank(eligibilityWriter);
+        fixtureStore.writeFact(eligibilityWriter, input);
+        vm.prank(eligibilityWriter);
+        fixtureStore.closeCycle(eligibilityWriter, R2_CYCLE);
     }
 
     /// @dev Counts writers the aggregator would actually use, read through the STORE's own live flag

@@ -42,6 +42,10 @@ contract FabricaImmutableAggregatorTest is Test {
     uint256 internal constant TOKEN_ID = 3561233430243998108;
     uint64 internal constant CYCLE = 1;
     uint24 internal constant CONFIDENCE = 9000;
+    uint128 internal constant ELIGIBILITY_PASS = 3;
+    uint128 internal constant ELIGIBILITY_FAIL = 1;
+    uint128 internal constant ELIGIBILITY_UNKNOWN = 0;
+    uint128 internal constant ELIGIBILITY_RESERVED = 2;
 
     /* Deliberately unequal, with the LOWEST live value on the LAST writer, so a MIN assertion
        cannot be satisfied by "first writer" or "lowest address" semantics. */
@@ -64,6 +68,7 @@ contract FabricaImmutableAggregatorTest is Test {
     address internal prycd = makeAddr("eng3925-writer-prycd");
     address internal openAvm = makeAddr("eng3925-writer-openavm");
     address internal regrid = makeAddr("eng3925-writer-regrid");
+    address internal eligibilityWriter = makeAddr("eng4327-eligibility-writer");
     address internal stranger = makeAddr("eng3925-untrusted-writer");
 
     function setUp() public {
@@ -75,6 +80,7 @@ contract FabricaImmutableAggregatorTest is Test {
         kindPrice = store.KIND_PRICE();
         aggregator = new FabricaImmutableAggregator(_config());
         _seedSeasonedThenLive();
+        _writeEligibility(store, TOKEN_ID, ELIGIBILITY_PASS, CYCLE);
     }
 
     /* =====================================================================
@@ -134,6 +140,9 @@ contract FabricaImmutableAggregatorTest is Test {
         assertEq(aggregator.maxFirstPriceUsdc6(), MAX_FIRST_PRICE_USDC6, "maxFirstPriceUsdc6");
         assertEq(aggregator.valueCeilingUsdc6(), VALUE_CEILING_USDC6, "valueCeilingUsdc6");
         assertEq(aggregator.KIND_PRICE(), store.KIND_PRICE(), "KIND_PRICE pinned to the store");
+        assertEq(aggregator.KIND_ELIGIBILITY(), keccak256("fabrica.fact.eligibility"), "KIND_ELIGIBILITY");
+        assertEq(aggregator.eligibilityWriter(), eligibilityWriter, "eligibilityWriter");
+        assertEq(aggregator.requiredEligibilityMask(), ELIGIBILITY_PASS, "requiredEligibilityMask");
         address[] memory set = aggregator.writers();
         assertEq(set.length, 3, "writers length");
         assertEq(set[0], prycd, "writers[0]");
@@ -157,6 +166,11 @@ contract FabricaImmutableAggregatorTest is Test {
         new FabricaImmutableAggregator(config);
         config = _config();
         config.usdc = address(0);
+        vm.expectRevert(FabricaImmutableAggregator.ZeroAddress.selector);
+        new FabricaImmutableAggregator(config);
+
+        config = _config();
+        config.eligibilityWriter = address(0);
         vm.expectRevert(FabricaImmutableAggregator.ZeroAddress.selector);
         new FabricaImmutableAggregator(config);
     }
@@ -243,6 +257,11 @@ contract FabricaImmutableAggregatorTest is Test {
         config.maxDispersionBps = 9_999;
         vm.expectRevert(FabricaImmutableAggregator.InvalidConfig.selector);
         new FabricaImmutableAggregator(config);
+
+        config = _config();
+        config.requiredEligibilityMask = 0;
+        vm.expectRevert(FabricaImmutableAggregator.InvalidConfig.selector);
+        new FabricaImmutableAggregator(config);
     }
 
     function test_constructor_rejectsUnreachableOrAbsentValueBounds() public {
@@ -319,6 +338,85 @@ contract FabricaImmutableAggregatorTest is Test {
     }
 
     /* =====================================================================
+       Eligibility
+       ===================================================================== */
+
+    function test_eligibility_missingFactRefusesBeforePriceSources() public {
+        uint256 token = TOKEN_ID + 100;
+        _write(store, prycd, token, LIVE_PRYCD, CYCLE);
+        _write(store, openAvm, token, LIVE_OPENAVM, CYCLE);
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                FabricaImmutableAggregator.CheckFailed.selector, aggregator.CHECK_ELIGIBILITY_UNAVAILABLE()
+            )
+        );
+        aggregator.price(address(this), usdc, _singleton(token), _singleton(1), "");
+        (bool ok, bytes32 failed) = aggregator.eligibilityReport(usdc, token);
+        assertFalse(ok, "missing eligibility fact refuses");
+        assertEq(failed, aggregator.CHECK_ELIGIBILITY_UNAVAILABLE(), "missing fact is unavailable");
+    }
+
+    function test_eligibility_writerLockRefuses() public {
+        vm.prank(eligibilityWriter);
+        store.setLock(eligibilityWriter, TOKEN_ID, true);
+        _expectCheck(aggregator.CHECK_ELIGIBILITY_UNAVAILABLE());
+        _priceCall();
+    }
+
+    function test_eligibility_minValidCycleFloorRefuses() public {
+        vm.prank(eligibilityWriter);
+        store.setMinValidCycle(eligibilityWriter, CYCLE + 1);
+        _expectCheck(aggregator.CHECK_ELIGIBILITY_UNAVAILABLE());
+        _priceCall();
+    }
+
+    function test_eligibility_staleCycleCloseRefuses() public {
+        vm.warp(block.timestamp + MAX_SILENCE + 1);
+        _expectCheck(aggregator.CHECK_ELIGIBILITY_UNAVAILABLE());
+        _priceCall();
+    }
+
+    function test_eligibility_invalidCycleCloseRefuses() public {
+        vm.prank(eligibilityWriter);
+        store.setMinValidCycle(eligibilityWriter, CYCLE + 1);
+        vm.prank(eligibilityWriter);
+        store.closeCycle(eligibilityWriter, CYCLE + 1);
+        _writeEligibility(store, TOKEN_ID, ELIGIBILITY_PASS, CYCLE + 1);
+        assertEq(_price(), EXPECTED_USABLE, "new valid eligibility cycle restores pricing");
+
+        vm.prank(eligibilityWriter);
+        store.setMinValidCycle(eligibilityWriter, CYCLE + 2);
+        _expectCheck(aggregator.CHECK_ELIGIBILITY_UNAVAILABLE());
+        _priceCall();
+    }
+
+    function test_eligibility_failUnknownAndReservedPairsRefuse() public {
+        _writeEligibility(store, TOKEN_ID, ELIGIBILITY_FAIL, CYCLE);
+        _expectCheck(aggregator.CHECK_ELIGIBILITY());
+        _priceCall();
+        _writeEligibility(store, TOKEN_ID, ELIGIBILITY_UNKNOWN, CYCLE);
+        _expectCheck(aggregator.CHECK_ELIGIBILITY());
+        _priceCall();
+        _writeEligibility(store, TOKEN_ID, ELIGIBILITY_RESERVED, CYCLE);
+        _expectCheck(aggregator.CHECK_ELIGIBILITY());
+        _priceCall();
+    }
+
+    function test_eligibility_missingRequiredPairRefuses() public {
+        FabricaImmutableAggregator.Config memory config = _config();
+        config.requiredEligibilityMask = 15;
+        FabricaImmutableAggregator stricter = new FabricaImmutableAggregator(config);
+        vm.expectRevert(
+            abi.encodeWithSelector(FabricaImmutableAggregator.CheckFailed.selector, aggregator.CHECK_ELIGIBILITY())
+        );
+        stricter.price(address(this), usdc, _singleton(TOKEN_ID), _singleton(1), "");
+    }
+
+    function test_eligibility_passPairPrices() public view {
+        assertEq(_price(), EXPECTED_USABLE, "baseline pass pair prices");
+    }
+
+    /* =====================================================================
        Maximum silence — per writer, and the ENG-3924 floor caveat
        ===================================================================== */
 
@@ -330,6 +428,8 @@ contract FabricaImmutableAggregatorTest is Test {
            to the live MIN. That is the floor working, not failing: an increase has aged through. */
         assertEq(_price(), EXPECTED_LIVE_MIN, "a close exactly maxSilence old is still live");
 
+        vm.prank(eligibilityWriter);
+        store.closeCycle(eligibilityWriter, CYCLE);
         vm.warp(block.timestamp + 1);
         _expectCheck(aggregator.CHECK_MAX_SILENCE());
         _priceCall();
@@ -352,6 +452,7 @@ contract FabricaImmutableAggregatorTest is Test {
         _write(fresh, prycd, TOKEN_ID, LIVE_PRYCD, CYCLE);
         _write(fresh, openAvm, TOKEN_ID, LIVE_OPENAVM, CYCLE);
         _write(fresh, regrid, TOKEN_ID, LIVE_REGRID, CYCLE);
+        _writeEligibility(fresh, TOKEN_ID, ELIGIBILITY_PASS, CYCLE);
         /* Every writer has a fact and none has closed a cycle. */
         (bool ok, bytes32 failed) = agg.eligibilityReport(usdc, TOKEN_ID);
         assertFalse(ok, "facts alone are not liveness");
@@ -481,6 +582,7 @@ contract FabricaImmutableAggregatorTest is Test {
         uint128 cap = 1_000e6;
         FabricaImmutableAggregator agg = _aggregatorWithBounds(cap, VALUE_CEILING_USDC6);
         uint256 freshToken = TOKEN_ID + 8;
+        _writeEligibility(store, freshToken, ELIGIBILITY_PASS, CYCLE);
 
         _write(store, prycd, freshToken, cap + 1, CYCLE);
         _write(store, openAvm, freshToken, cap + 1, CYCLE);
@@ -491,6 +593,7 @@ contract FabricaImmutableAggregatorTest is Test {
 
         /* Exactly at the cap is permitted — the round-1 store reverted only strictly above it. */
         uint256 atCapToken = TOKEN_ID + 9;
+        _writeEligibility(store, atCapToken, ELIGIBILITY_PASS, CYCLE);
         _write(store, prycd, atCapToken, cap, CYCLE);
         _write(store, openAvm, atCapToken, cap, CYCLE);
         assertEq(
@@ -505,6 +608,7 @@ contract FabricaImmutableAggregatorTest is Test {
         uint128 cap = 100_000e6;
         FabricaImmutableAggregator agg = _aggregatorWithBounds(cap, VALUE_CEILING_USDC6);
         uint256 token = TOKEN_ID + 10;
+        _writeEligibility(store, token, ELIGIBILITY_PASS, CYCLE);
         _write(store, prycd, token, 90_000e6, CYCLE);
         _write(store, openAvm, token, 90_000e6, CYCLE);
         assertEq(store.historyLength(prycd, token, kindPrice), 0, "no supersession yet");
@@ -588,6 +692,7 @@ contract FabricaImmutableAggregatorTest is Test {
     /// @notice A writer outside the trusted set is invisible however loudly it writes.
     function test_untrustedWriterIsIgnoredEntirely() public {
         uint256 token = TOKEN_ID + 11;
+        _writeEligibility(store, token, ELIGIBILITY_PASS, CYCLE);
         vm.prank(stranger);
         store.closeCycle(stranger, CYCLE);
         _write(store, stranger, token, 1e6, CYCLE);
@@ -618,6 +723,8 @@ contract FabricaImmutableAggregatorTest is Test {
             factStore: address(store),
             usdc: usdc,
             writers: writerSet,
+            eligibilityWriter: eligibilityWriter,
+            requiredEligibilityMask: ELIGIBILITY_PASS,
             minLiveSources: MIN_LIVE_SOURCES,
             maxSilence: MAX_SILENCE,
             cycleCloseInterval: CYCLE_CLOSE_INTERVAL,
@@ -679,6 +786,22 @@ contract FabricaImmutableAggregatorTest is Test {
         });
         vm.prank(writer);
         target.writeFact(writer, input);
+    }
+
+    function _writeEligibility(FabricaFactStore target, uint256 tokenId, uint128 value, uint64 cycle) internal {
+        FabricaFactStore.FactInput memory input = FabricaFactStore.FactInput({
+            tokenId: tokenId,
+            kind: aggregator.KIND_ELIGIBILITY(),
+            value: value,
+            confidence: 0,
+            valuedAt: uint64(block.timestamp),
+            cycle: cycle,
+            data: keccak256(abi.encodePacked("eng4327", tokenId, value, cycle))
+        });
+        vm.prank(eligibilityWriter);
+        target.writeFact(eligibilityWriter, input);
+        vm.prank(eligibilityWriter);
+        target.closeCycle(eligibilityWriter, cycle);
     }
 
     function _price() internal view returns (uint256) {

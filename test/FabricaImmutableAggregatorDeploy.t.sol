@@ -25,6 +25,7 @@ contract FabricaImmutableAggregatorDeployTest is Test {
     address internal prycd = makeAddr("deploy-writer-prycd");
     address internal openAvm = makeAddr("deploy-writer-openavm");
     address internal regrid = makeAddr("deploy-writer-regrid");
+    address internal eligibilityWriter = makeAddr("deploy-eligibility-writer");
 
     function setUp() public {
         script = new FabricaImmutableAggregatorDeployScript();
@@ -65,6 +66,8 @@ contract FabricaImmutableAggregatorDeployTest is Test {
         FabricaImmutableAggregator aggregator = script.runWithConfig(_config());
         assertEq(address(aggregator.factStore()), address(store), "factStore");
         assertEq(aggregator.usdc(), SEPOLIA_USDC, "usdc");
+        assertEq(aggregator.eligibilityWriter(), eligibilityWriter, "eligibilityWriter");
+        assertEq(aggregator.requiredEligibilityMask(), 3, "requiredEligibilityMask");
         assertEq(aggregator.writerCount(), 3, "writerCount");
         assertEq(aggregator.minLiveSources(), 2, "minLiveSources");
         assertEq(aggregator.maxSilence(), 3 days, "maxSilence");
@@ -234,6 +237,8 @@ contract FabricaImmutableAggregatorDeployTest is Test {
             factStore: SEPOLIA_FACT_STORE,
             usdc: SEPOLIA_USDC,
             writers: writers,
+            eligibilityWriter: eligibilityWriter,
+            requiredEligibilityMask: 3,
             minLiveSources: 2,
             maxSilence: 3 days,
             cycleCloseInterval: 1 days,
@@ -267,6 +272,8 @@ contract FabricaImmutableAggregatorDeployEnvTest is Test {
         address regrid = makeAddr("env-writer-regrid");
         vm.setEnv("FABRICA_FACT_STORE", vm.toString(SEPOLIA_FACT_STORE));
         vm.setEnv("FABRICA_LENDING_USDC", vm.toString(SEPOLIA_USDC));
+        vm.setEnv("FABRICA_ELIGIBILITY_WRITER", vm.toString(makeAddr("env-eligibility-writer")));
+        vm.setEnv("FABRICA_AGGREGATOR_REQUIRED_ELIGIBILITY_MASK", "3");
 
         /* The writer set has no default: a guessed oracle source address would be immutable. */
         vm.setEnv("FABRICA_AGGREGATOR_WRITERS", "");
@@ -280,6 +287,8 @@ contract FabricaImmutableAggregatorDeployEnvTest is Test {
         FabricaImmutableAggregator aggregator = script.run();
         assertEq(address(aggregator.factStore()), SEPOLIA_FACT_STORE, "factStore from the environment");
         assertEq(aggregator.usdc(), SEPOLIA_USDC, "usdc from the environment");
+        assertEq(aggregator.eligibilityWriter(), makeAddr("env-eligibility-writer"), "eligibility writer");
+        assertEq(aggregator.requiredEligibilityMask(), 3, "required eligibility mask");
         assertEq(aggregator.writerCount(), 3, "writers parsed from the environment");
         assertEq(aggregator.writers()[2], regrid, "writer order is preserved through the environment");
         assertEq(aggregator.minLiveSources(), 2, "default minimum live sources");
