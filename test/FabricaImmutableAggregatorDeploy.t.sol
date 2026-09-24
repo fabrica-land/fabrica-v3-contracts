@@ -18,6 +18,9 @@ contract FabricaImmutableAggregatorDeployTest is Test {
     uint256 internal constant SEPOLIA_CHAIN_ID = 11155111;
     address internal constant SEPOLIA_USDC = 0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238;
     address internal constant SEPOLIA_FACT_STORE = 0x97fC2C3A41d4DB570363C5e3425C3676E4B81c5D;
+    /// @dev Stated here independently of the script, as `SEPOLIA_FACT_STORE` is, so a drift in the
+    ///      script's constant fails the suite instead of agreeing with itself.
+    uint128 internal constant REQUIRED_ELIGIBILITY_MASK = 0xF3003000;
 
     FabricaImmutableAggregatorDeployScript internal script;
     FabricaFactStore internal store;
@@ -67,7 +70,7 @@ contract FabricaImmutableAggregatorDeployTest is Test {
         assertEq(address(aggregator.factStore()), address(store), "factStore");
         assertEq(aggregator.usdc(), SEPOLIA_USDC, "usdc");
         assertEq(aggregator.eligibilityWriter(), eligibilityWriter, "eligibilityWriter");
-        assertEq(aggregator.requiredEligibilityMask(), 3, "requiredEligibilityMask");
+        assertEq(aggregator.requiredEligibilityMask(), REQUIRED_ELIGIBILITY_MASK, "requiredEligibilityMask");
         assertEq(aggregator.writerCount(), 3, "writerCount");
         assertEq(aggregator.minLiveSources(), 2, "minLiveSources");
         assertEq(aggregator.maxSilence(), 3 days, "maxSilence");
@@ -85,6 +88,53 @@ contract FabricaImmutableAggregatorDeployTest is Test {
         assertFalse(ownerAnswers, "no owner() to answer");
         (bool renounceAnswers,) = address(aggregator).staticcall(abi.encodeWithSignature("renounceAggregator()"));
         assertFalse(renounceAnswers, "nothing to renounce");
+    }
+
+    /// @notice The documented mask is the off-chain quote's gate pairs, recomputed by name.
+    /// @dev The names are fabrica-v3-api `src/scoring/types/check-results.ts` in declaration order,
+    ///      which is the pair order `FabricaImmutableAggregator.KIND_ELIGIBILITY` documents.
+    function test_requiredEligibilityMaskIsTheOffChainGatePairs() public {
+        string[18] memory pairs = [
+            "allTransfersKycd",
+            "claimMatchesLegalDescription",
+            "coordinatesValid",
+            "currentOwnersKycd",
+            "currentOwnersNotInDarklist",
+            "deedAvailable",
+            "feesInGoodStanding",
+            "formationDocumentAvailable",
+            "holdingEntityDeclared",
+            "holdingEntityMatchesOwnerNameAtAssessor",
+            "legalDescriptionAvailable",
+            "noLiensFound",
+            "notReportedAsStolen",
+            "ownerHasVerifiedContact",
+            "proofOfTitleValid",
+            "propertyTaxesCurrent",
+            "recoveryStatusNormal",
+            "transferCooldownMet"
+        ];
+        FabricaImmutableAggregator aggregator = script.runWithConfig(_config());
+        assertEq(pairs.length, aggregator.ELIGIBILITY_PAIR_COUNT(), "one name per defined pair");
+        uint128 recomputed = _pairMask(pairs, "feesInGoodStanding") | _pairMask(pairs, "notReportedAsStolen")
+            | _pairMask(pairs, "proofOfTitleValid") | _pairMask(pairs, "propertyTaxesCurrent");
+        assertEq(recomputed, REQUIRED_ELIGIBILITY_MASK, "recomputed from the named pairs");
+        assertEq(script.requiredEligibilityMask(), recomputed, "the script's constant");
+        assertEq(aggregator.requiredEligibilityMask(), recomputed, "the deployed mask");
+    }
+
+    /// @notice `runWithConfig` refuses any mask but the documented one, well-formed or not.
+    function test_refusesANonCanonicalEligibilityMask() public {
+        FabricaImmutableAggregator.Config memory config = _config();
+        config.requiredEligibilityMask = 3;
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                FabricaImmutableAggregatorDeployScript.NonCanonicalEligibilityMask.selector,
+                uint128(3),
+                REQUIRED_ELIGIBILITY_MASK
+            )
+        );
+        script.runWithConfig(config);
     }
 
     /// @notice Mainnet is refused by the script, not left to the operator's care.
@@ -238,7 +288,7 @@ contract FabricaImmutableAggregatorDeployTest is Test {
             usdc: SEPOLIA_USDC,
             writers: writers,
             eligibilityWriter: eligibilityWriter,
-            requiredEligibilityMask: 3,
+            requiredEligibilityMask: REQUIRED_ELIGIBILITY_MASK,
             minLiveSources: 2,
             maxSilence: 3 days,
             cycleCloseInterval: 1 days,
@@ -248,6 +298,13 @@ contract FabricaImmutableAggregatorDeployTest is Test {
             maxFirstPriceUsdc6: 50_000_000e6,
             valueCeilingUsdc6: 50_000_000e6
         });
+    }
+
+    function _pairMask(string[18] memory pairs, string memory name) internal pure returns (uint128) {
+        for (uint256 i; i < pairs.length; ++i) {
+            if (keccak256(bytes(pairs[i])) == keccak256(bytes(name))) return uint128(3) << (2 * i);
+        }
+        revert(string.concat("no check-results pair named ", name));
     }
 }
 
@@ -273,6 +330,7 @@ contract FabricaImmutableAggregatorDeployEnvTest is Test {
         vm.setEnv("FABRICA_FACT_STORE", vm.toString(SEPOLIA_FACT_STORE));
         vm.setEnv("FABRICA_LENDING_USDC", vm.toString(SEPOLIA_USDC));
         vm.setEnv("FABRICA_ELIGIBILITY_WRITER", vm.toString(makeAddr("env-eligibility-writer")));
+        /* Not an input: the mask is the script's documented constant, whatever this says. */
         vm.setEnv("FABRICA_AGGREGATOR_REQUIRED_ELIGIBILITY_MASK", "3");
 
         /* The writer set has no default: a guessed oracle source address would be immutable. */
@@ -288,7 +346,7 @@ contract FabricaImmutableAggregatorDeployEnvTest is Test {
         assertEq(address(aggregator.factStore()), SEPOLIA_FACT_STORE, "factStore from the environment");
         assertEq(aggregator.usdc(), SEPOLIA_USDC, "usdc from the environment");
         assertEq(aggregator.eligibilityWriter(), makeAddr("env-eligibility-writer"), "eligibility writer");
-        assertEq(aggregator.requiredEligibilityMask(), 3, "required eligibility mask");
+        assertEq(aggregator.requiredEligibilityMask(), 0xF3003000, "the documented mask, not the environment's");
         assertEq(aggregator.writerCount(), 3, "writers parsed from the environment");
         assertEq(aggregator.writers()[2], regrid, "writer order is preserved through the environment");
         assertEq(aggregator.minLiveSources(), 2, "default minimum live sources");

@@ -3,6 +3,7 @@ pragma solidity ^0.8.28;
 
 import {Test, stdJson} from "forge-std/Test.sol";
 
+import {FabricaImmutableAggregatorDeployScript} from "../script/FabricaImmutableAggregatorDeploy.s.sol";
 import {FabricaFactStore} from "../src/FabricaFactStore.sol";
 import {FabricaImmutableAggregator} from "../src/FabricaImmutableAggregator.sol";
 
@@ -264,6 +265,38 @@ contract FabricaImmutableAggregatorTest is Test {
         new FabricaImmutableAggregator(config);
     }
 
+    /// @notice CodeRabbit 4087009495: with one bit of a pair required, a documented non-pass value
+    ///         satisfies the mask (`01` fail passes a mask of 1, `10` reserved passes a mask of 2).
+    function test_constructor_rejectsPartialEligibilityPairs() public {
+        _expectMaskRejected(1, FabricaImmutableAggregator.EligibilityMaskPartialPair.selector);
+        _expectMaskRejected(2, FabricaImmutableAggregator.EligibilityMaskPartialPair.selector);
+        /* A complete pair does not excuse a partial one beside it. */
+        _expectMaskRejected(3 | 4, FabricaImmutableAggregator.EligibilityMaskPartialPair.selector);
+        /* The high bit of the last defined pair alone. */
+        _expectMaskRejected(uint128(1) << 35, FabricaImmutableAggregator.EligibilityMaskPartialPair.selector);
+    }
+
+    /// @notice No writer sets a bit beyond the defined pairs, so such a mask would refuse every token
+    ///         for the life of the contract.
+    function test_constructor_rejectsEligibilityMaskBitsBeyondDefinedPairs() public {
+        assertEq(aggregator.ELIGIBILITY_PAIR_COUNT(), 18, "18 check-results pairs");
+        /* A complete pair beyond the defined ones: only the range check can refuse it. */
+        _expectMaskRejected(uint128(3) << 36, FabricaImmutableAggregator.EligibilityMaskBeyondDefinedPairs.selector);
+        _expectMaskRejected(
+            (uint128(3) << 36) | ELIGIBILITY_PASS, FabricaImmutableAggregator.EligibilityMaskBeyondDefinedPairs.selector
+        );
+        _expectMaskRejected(uint128(1) << 127, FabricaImmutableAggregator.EligibilityMaskBeyondDefinedPairs.selector);
+        _expectMaskRejected(type(uint128).max, FabricaImmutableAggregator.EligibilityMaskBeyondDefinedPairs.selector);
+    }
+
+    function test_constructor_acceptsCompleteEligibilityPairs() public {
+        _assertMaskAccepted(ELIGIBILITY_PASS);
+        _assertMaskAccepted(15);
+        _assertMaskAccepted(uint128(3) << 34);
+        _assertMaskAccepted((uint128(1) << 36) - 1);
+        _assertMaskAccepted(new FabricaImmutableAggregatorDeployScript().requiredEligibilityMask());
+    }
+
     function test_constructor_rejectsUnreachableOrAbsentValueBounds() public {
         FabricaImmutableAggregator.Config memory config = _config();
         config.maxFirstPriceUsdc6 = 0;
@@ -414,6 +447,37 @@ contract FabricaImmutableAggregatorTest is Test {
 
     function test_eligibility_passPairPrices() public view {
         assertEq(_price(), EXPECTED_USABLE, "baseline pass pair prices");
+    }
+
+    /// @notice Under the deploy mask, failing any one required pair refuses and failing any one
+    ///         other pair still prices.
+    function test_eligibility_deployMaskGatesExactlyTheRequiredPairs() public {
+        FabricaImmutableAggregator.Config memory config = _config();
+        config.requiredEligibilityMask = new FabricaImmutableAggregatorDeployScript().requiredEligibilityMask();
+        FabricaImmutableAggregator gated = new FabricaImmutableAggregator(config);
+        uint256 pairCount = gated.ELIGIBILITY_PAIR_COUNT();
+        uint128 allPass = uint128((uint256(1) << (2 * pairCount)) - 1);
+        uint256 required;
+        for (uint256 pair; pair < pairCount; ++pair) {
+            /* Clearing the high bit turns this pair's `11` pass into `01` fail. */
+            _writeEligibility(store, TOKEN_ID, allPass & ~(uint128(2) << (2 * pair)), CYCLE);
+            (bool ok, bytes32 failed) = gated.eligibilityReport(usdc, TOKEN_ID);
+            if ((config.requiredEligibilityMask >> (2 * pair)) & 3 == 3) {
+                ++required;
+                assertFalse(ok, "a failed required pair refuses");
+                assertEq(failed, gated.CHECK_ELIGIBILITY(), "the refusal names the eligibility check");
+                vm.expectRevert(
+                    abi.encodeWithSelector(FabricaImmutableAggregator.CheckFailed.selector, gated.CHECK_ELIGIBILITY())
+                );
+                gated.price(address(this), usdc, _singleton(TOKEN_ID), _singleton(1), "");
+            } else {
+                assertTrue(ok, "a failed pair the mask does not require still prices");
+                assertEq(
+                    gated.price(address(this), usdc, _singleton(TOKEN_ID), _singleton(1), ""), EXPECTED_USABLE, "priced"
+                );
+            }
+        }
+        assertEq(required, 4, "four required pairs");
     }
 
     /* =====================================================================
@@ -802,6 +866,19 @@ contract FabricaImmutableAggregatorTest is Test {
         target.writeFact(eligibilityWriter, input);
         vm.prank(eligibilityWriter);
         target.closeCycle(eligibilityWriter, cycle);
+    }
+
+    function _expectMaskRejected(uint128 mask, bytes4 selector) internal {
+        FabricaImmutableAggregator.Config memory config = _config();
+        config.requiredEligibilityMask = mask;
+        vm.expectRevert(abi.encodeWithSelector(selector, mask));
+        new FabricaImmutableAggregator(config);
+    }
+
+    function _assertMaskAccepted(uint128 mask) internal {
+        FabricaImmutableAggregator.Config memory config = _config();
+        config.requiredEligibilityMask = mask;
+        assertEq(new FabricaImmutableAggregator(config).requiredEligibilityMask(), mask, "complete pairs accepted");
     }
 
     function _price() internal view returns (uint256) {

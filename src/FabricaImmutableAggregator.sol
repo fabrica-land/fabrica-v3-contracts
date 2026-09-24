@@ -57,8 +57,17 @@ contract FabricaImmutableAggregator is IPriceOracle {
     ///      noLiensFound, 24-25 notReportedAsStolen, 26-27 ownerHasVerifiedContact, 28-29
     ///      proofOfTitleValid, 30-31 propertyTaxesCurrent, 32-33 recoveryStatusNormal, 34-35
     ///      transferCooldownMet. Each pair is 00 unknown, 01 fail, 11 pass and 10 reserved/fail-closed.
-    ///      Bits 36+ are reserved for approved synthetic eligibility fields.
+    ///      Bits at and above `2 * ELIGIBILITY_PAIR_COUNT` belong to no pair and no writer sets them.
     bytes32 public constant KIND_ELIGIBILITY = keccak256("fabrica.fact.eligibility");
+    /// @notice Number of defined two-bit check-results pairs in the eligibility fact (bits 0-35).
+    /// @dev The constructor refuses a required mask that selects any bit at or above
+    ///      `2 * ELIGIBILITY_PAIR_COUNT`: no writer can set a pair that does not exist, so such a mask
+    ///      would refuse every token for the life of this immutable contract. A future set of pairs
+    ///      ships as a successor contract with a new constant.
+    uint256 public constant ELIGIBILITY_PAIR_COUNT = 18;
+    /// @dev The low bit of every two-bit pair. A mask selects only complete pairs exactly when its
+    ///      low bits and its high bits shifted down by one are the same set.
+    uint128 internal constant _ELIGIBILITY_PAIR_LOW_BITS = 0x55555555555555555555555555555555;
 
     /// @notice Upper bound on the trusted writer set, fixed by the number of immutable slots below.
     /// @dev Eight is well above the three oracle sources round 2 trusts (Prycd, OpenAVM, Regrid
@@ -125,6 +134,12 @@ contract FabricaImmutableAggregator is IPriceOracle {
     error InvalidLength();
     error ZeroQuantity(uint256 index);
     error CheckFailed(bytes32 checkId);
+    /// @notice The required eligibility mask selects one bit of a two-bit pair without the other.
+    /// @dev With one bit of a pair required, a documented non-pass value satisfies the mask: `01`
+    ///      (fail) passes a mask of `01`, and `10` (reserved) passes a mask of `10`.
+    error EligibilityMaskPartialPair(uint128 mask);
+    /// @notice The required eligibility mask selects a bit at or above `2 * ELIGIBILITY_PAIR_COUNT`.
+    error EligibilityMaskBeyondDefinedPairs(uint128 mask);
 
     // -------------------------------------------------------------------------
     // Events
@@ -526,9 +541,20 @@ contract FabricaImmutableAggregator is IPriceOracle {
         // Must permit at least 1.0x, or no two valuations could ever agree closely enough.
         if (config.maxDispersionBps < BPS_DENOMINATOR) revert InvalidConfig();
         if (config.maxFirstPriceUsdc6 == 0 || config.valueCeilingUsdc6 == 0) revert InvalidConfig();
-        if (config.requiredEligibilityMask == 0) revert InvalidConfig();
+        _validateEligibilityMask(config.requiredEligibilityMask);
         // Round-1's `_validateKnobs` rule: a first-price cap above the ceiling is unreachable.
         if (config.maxFirstPriceUsdc6 > config.valueCeilingUsdc6) revert InvalidConfig();
+    }
+
+    /// @dev Refuses a mask no pass value can satisfy (a bit beyond the defined pairs) or one a
+    ///      documented non-pass value satisfies (a partial pair). Either mistake would be permanent on
+    ///      this immutable contract, so it has to surface at deploy time.
+    function _validateEligibilityMask(uint128 mask) internal pure {
+        if (mask == 0) revert InvalidConfig();
+        if (mask >> (2 * ELIGIBILITY_PAIR_COUNT) != 0) revert EligibilityMaskBeyondDefinedPairs(mask);
+        if ((mask & _ELIGIBILITY_PAIR_LOW_BITS) != ((mask >> 1) & _ELIGIBILITY_PAIR_LOW_BITS)) {
+            revert EligibilityMaskPartialPair(mask);
+        }
     }
 
     function _configuredWriter(address[] memory set, uint256 index) internal pure returns (address) {

@@ -31,6 +31,7 @@ contract FabricaImmutableAggregatorDeployScript is Script {
     error UnsupportedChain(uint256 chainId);
     error NonCanonicalUsdc(address configured, address expected);
     error NonCanonicalFactStore(address configured, address expected);
+    error NonCanonicalEligibilityMask(uint128 configured, uint128 expected);
     error FactStoreLacksBatchWrites(address factStore);
     error NoWritersConfigured();
     error EnvValueOutOfRange(string field, uint256 value, uint256 max);
@@ -57,6 +58,20 @@ contract FabricaImmutableAggregatorDeployScript is Script {
     /// @dev Must equal `FabricaFactStore.MAX_BATCH`. Named here because a type-level
     ///      `FabricaFactStore.MAX_BATCH` lookup is not visible from this script under solc 0.8.35.
     uint256 internal constant ROUND3_MAX_BATCH = 256;
+    /// @notice The eligibility pairs the off-chain signed quote gates on, as the required mask.
+    /// @dev ENG-4327, Tim 2026-09-24: "Just the ones the offchain quote gates on." Read from
+    ///      fabrica-v3-api `src/pool-lending/pool-lending-safe-appraisal.ts` and the pool oracle rule
+    ///      it applies, mapped onto the `KIND_ELIGIBILITY` pair order in `FabricaImmutableAggregator`:
+    ///        - feesInGoodStanding   (pair 6,  bits 12-13): the pool oracle rule.
+    ///        - notReportedAsStolen  (pair 12, bits 24-25): the check-results pair the gate's
+    ///          `tokens_darklist` read feeds.
+    ///        - proofOfTitleValid    (pair 14, bits 28-29): the pool oracle rule and `isFishyToken`.
+    ///        - propertyTaxesCurrent (pair 15, bits 30-31): the tax gate, unknown fails closed.
+    ///      Not required: currentOwnersNotInDarklist, since the gate reads the token darklist, not the
+    ///      owner-address darklist. The fishy score threshold has no pair; it is a sum over every
+    ///      check and stays off chain. The mask is a constant, not an environment input, and
+    ///      `runWithConfig` refuses any other value, so the immutable rule is the reviewed one.
+    uint128 internal constant REQUIRED_ELIGIBILITY_MASK = 0xF3003000;
 
     /* Tim's numbers, 2026-09-03 18:12Z, and the round-1 values ENG-3925 carries forward. These are
        DEFAULTS, not the only accepted values: each is overridable by env so a redeploy under a later
@@ -84,6 +99,7 @@ contract FabricaImmutableAggregatorDeployScript is Script {
         returns (FabricaImmutableAggregator aggregator)
     {
         _validateChainCurrencyAndStore(params.usdc, params.factStore);
+        _requireCanonicalEligibilityMask(params.requiredEligibilityMask);
         _logIntended(params);
         vm.startBroadcast();
         aggregator = new FabricaImmutableAggregator(params);
@@ -107,6 +123,11 @@ contract FabricaImmutableAggregatorDeployScript is Script {
     ///      pin and a desynced literal would stop failing the suite.
     function pinnedFactStore() external pure returns (address) {
         return SEPOLIA_FACT_STORE;
+    }
+
+    /// @notice The documented required eligibility mask this script deploys and accepts.
+    function requiredEligibilityMask() external pure returns (uint128) {
+        return REQUIRED_ELIGIBILITY_MASK;
     }
 
     /// @notice Tim's numbers, as this script will apply them when the environment does not override.
@@ -146,13 +167,7 @@ contract FabricaImmutableAggregatorDeployScript is Script {
             usdc: vm.envAddress("FABRICA_LENDING_USDC"),
             writers: writers,
             eligibilityWriter: vm.envAddress("FABRICA_ELIGIBILITY_WRITER"),
-            requiredEligibilityMask: uint128(
-                _bounded(
-                    "requiredEligibilityMask",
-                    vm.envUint("FABRICA_AGGREGATOR_REQUIRED_ELIGIBILITY_MASK"),
-                    type(uint128).max
-                )
-            ),
+            requiredEligibilityMask: REQUIRED_ELIGIBILITY_MASK,
             minLiveSources: uint8(
                 _bounded(
                     "minLiveSources",
@@ -218,6 +233,14 @@ contract FabricaImmutableAggregatorDeployScript is Script {
         if (usdc != SEPOLIA_USDC) revert NonCanonicalUsdc(usdc, SEPOLIA_USDC);
         if (factStore != SEPOLIA_FACT_STORE) revert NonCanonicalFactStore(factStore, SEPOLIA_FACT_STORE);
         _requireBatchCapableStore(factStore);
+    }
+
+    /// @dev The mask is pinned the way the store is: `run` builds it from the constant, and this
+    ///      stops `runWithConfig` from carrying any other value into an immutable contract.
+    function _requireCanonicalEligibilityMask(uint128 mask) internal pure {
+        if (mask != REQUIRED_ELIGIBILITY_MASK) {
+            revert NonCanonicalEligibilityMask(mask, REQUIRED_ELIGIBILITY_MASK);
+        }
     }
 
     /// @notice Prove on chain that the pinned store is a round-3 generation, rather than trusting hex.
