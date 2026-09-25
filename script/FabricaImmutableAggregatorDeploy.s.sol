@@ -68,9 +68,15 @@ contract FabricaImmutableAggregatorDeployScript is Script {
     ///        - proofOfTitleValid    (pair 14, bits 28-29): the pool oracle rule and `isFishyToken`.
     ///        - propertyTaxesCurrent (pair 15, bits 30-31): the tax gate, unknown fails closed.
     ///      Not required: currentOwnersNotInDarklist, since the gate reads the token darklist, not the
-    ///      owner-address darklist. The fishy score threshold has no pair; it is a sum over every
-    ///      check and stays off chain. The mask is a constant, not an environment input, and
-    ///      `runWithConfig` refuses any other value, so the immutable rule is the reviewed one.
+    ///      owner-address darklist.
+    ///      Accepted residual: `isFishyToken`'s score-threshold clause (`score.total` below
+    ///      `FISHY_TOKEN_SCORE_THRESHOLD`) has no pair and no stored value on chain, per Tim's ruling in
+    ///      ENG-4327 comment 0e90c658, item 2: "'Fishy score' is a formula derived from the checks, so
+    ///      no need to store it separately onchain if the checks are onchain." It closes operationally:
+    ///      the Fabrica eligibility writer locks any token the off-chain gate refuses as fishy (the
+    ///      ENG-4326 lever), under the writer-close discipline recorded on ENG-4327.
+    ///      The mask is a constant, not an environment input, and `runWithConfig` refuses any other
+    ///      value, so the immutable rule is the reviewed one.
     uint128 internal constant REQUIRED_ELIGIBILITY_MASK = 0xF3003000;
 
     /* Tim's numbers, 2026-09-03 18:12Z, and the round-1 values ENG-3925 carries forward. These are
@@ -126,6 +132,7 @@ contract FabricaImmutableAggregatorDeployScript is Script {
     }
 
     /// @notice The documented required eligibility mask this script deploys and accepts.
+    /// @return The `REQUIRED_ELIGIBILITY_MASK` constant.
     function requiredEligibilityMask() external pure returns (uint128) {
         return REQUIRED_ELIGIBILITY_MASK;
     }

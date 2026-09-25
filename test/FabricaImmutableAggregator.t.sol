@@ -265,6 +265,23 @@ contract FabricaImmutableAggregatorTest is Test {
         new FabricaImmutableAggregator(config);
     }
 
+    /// @notice The eligibility writer must not be a price writer: a cycle close is per writer, so a
+    ///         shared key would let price-feed closes keep a stale eligibility pass live.
+    function test_constructor_rejectsAnEligibilityWriterThatIsAPriceWriter() public {
+        assertFalse(aggregator.isTrustedWriter(eligibilityWriter), "the accepted fixture keeps them distinct");
+        address[3] memory priceWriters = [prycd, openAvm, regrid];
+        for (uint256 i; i < priceWriters.length; ++i) {
+            FabricaImmutableAggregator.Config memory config = _config();
+            config.eligibilityWriter = priceWriters[i];
+            vm.expectRevert(
+                abi.encodeWithSelector(
+                    FabricaImmutableAggregator.EligibilityWriterIsPriceWriter.selector, priceWriters[i]
+                )
+            );
+            new FabricaImmutableAggregator(config);
+        }
+    }
+
     /// @notice CodeRabbit 4087009495: with one bit of a pair required, a documented non-pass value
     ///         satisfies the mask (`01` fail passes a mask of 1, `10` reserved passes a mask of 2).
     function test_constructor_rejectsPartialEligibilityPairs() public {
@@ -380,32 +397,32 @@ contract FabricaImmutableAggregatorTest is Test {
         _write(store, openAvm, token, LIVE_OPENAVM, CYCLE);
         vm.expectRevert(
             abi.encodeWithSelector(
-                FabricaImmutableAggregator.CheckFailed.selector, aggregator.CHECK_ELIGIBILITY_UNAVAILABLE()
+                FabricaImmutableAggregator.CheckFailed.selector, aggregator.CHECK_ELIGIBILITY_UNATTESTED()
             )
         );
         aggregator.price(address(this), usdc, _singleton(token), _singleton(1), "");
         (bool ok, bytes32 failed) = aggregator.eligibilityReport(usdc, token);
         assertFalse(ok, "missing eligibility fact refuses");
-        assertEq(failed, aggregator.CHECK_ELIGIBILITY_UNAVAILABLE(), "missing fact is unavailable");
+        assertEq(failed, aggregator.CHECK_ELIGIBILITY_UNATTESTED(), "missing fact is unattested");
     }
 
     function test_eligibility_writerLockRefuses() public {
         vm.prank(eligibilityWriter);
         store.setLock(eligibilityWriter, TOKEN_ID, true);
-        _expectCheck(aggregator.CHECK_ELIGIBILITY_UNAVAILABLE());
+        _expectCheck(aggregator.CHECK_ELIGIBILITY_UNATTESTED());
         _priceCall();
     }
 
     function test_eligibility_minValidCycleFloorRefuses() public {
         vm.prank(eligibilityWriter);
         store.setMinValidCycle(eligibilityWriter, CYCLE + 1);
-        _expectCheck(aggregator.CHECK_ELIGIBILITY_UNAVAILABLE());
+        _expectCheck(aggregator.CHECK_ELIGIBILITY_UNATTESTED());
         _priceCall();
     }
 
     function test_eligibility_staleCycleCloseRefuses() public {
         vm.warp(block.timestamp + MAX_SILENCE + 1);
-        _expectCheck(aggregator.CHECK_ELIGIBILITY_UNAVAILABLE());
+        _expectCheck(aggregator.CHECK_ELIGIBILITY_UNATTESTED());
         _priceCall();
     }
 
@@ -419,8 +436,44 @@ contract FabricaImmutableAggregatorTest is Test {
 
         vm.prank(eligibilityWriter);
         store.setMinValidCycle(eligibilityWriter, CYCLE + 2);
-        _expectCheck(aggregator.CHECK_ELIGIBILITY_UNAVAILABLE());
+        _expectCheck(aggregator.CHECK_ELIGIBILITY_UNATTESTED());
         _priceCall();
+    }
+
+    /// @notice The writer's last close names a cycle below its since-raised floor while the token's fact
+    ///         sits at the floor and is itself live: only the close-validity guard can refuse this.
+    /// @dev `closeCycle` checks the floor only when called, and a fact may be written at a cycle above
+    ///      the last close, so this state is reachable (board ENG-4327 round 1, fix #1).
+    function test_eligibility_closeBelowRaisedFloorRefusesWhileTheFactIsLive() public {
+        _writeEligibilityFact(store, TOKEN_ID, ELIGIBILITY_PASS, CYCLE + 1);
+        vm.prank(eligibilityWriter);
+        store.setMinValidCycle(eligibilityWriter, CYCLE + 1);
+        (FabricaFactStore.Fact memory fact, bool live) =
+            store.getLiveFact(eligibilityWriter, TOKEN_ID, aggregator.KIND_ELIGIBILITY());
+        assertTrue(live, "precondition: the fact itself is live");
+        assertEq(fact.cycle, CYCLE + 1, "precondition: the fact sits at the new floor");
+        assertEq(store.lastCycleClose(eligibilityWriter).cycle, CYCLE, "precondition: the last close is cycle 1");
+        assertFalse(store.isCycleValid(eligibilityWriter, CYCLE), "precondition: that close is below the floor");
+        (bool ok, bytes32 failed) = aggregator.eligibilityReport(usdc, TOKEN_ID);
+        assertFalse(ok, "a close below the floor refuses");
+        assertEq(failed, aggregator.CHECK_ELIGIBILITY_UNATTESTED(), "the refusal names the unattested check");
+        _expectCheck(aggregator.CHECK_ELIGIBILITY_UNATTESTED());
+        _priceCall();
+    }
+
+    /// @notice Wrong currency and no eligibility fact: the currency check is reported, as documented.
+    function test_eligibility_currencyIsCheckedBeforeEligibility() public {
+        uint256 token = TOKEN_ID + 100;
+        address wrongCurrency = address(new CurrencyStub());
+        (, bool live) = store.getLiveFact(eligibilityWriter, token, aggregator.KIND_ELIGIBILITY());
+        assertFalse(live, "precondition: no eligibility fact for this token");
+        (bool ok, bytes32 failed) = aggregator.eligibilityReport(wrongCurrency, token);
+        assertFalse(ok, "refused");
+        assertEq(failed, aggregator.CHECK_CURRENCY(), "currency is named before eligibility");
+        vm.expectRevert(
+            abi.encodeWithSelector(FabricaImmutableAggregator.CheckFailed.selector, aggregator.CHECK_CURRENCY())
+        );
+        aggregator.price(address(this), wrongCurrency, _singleton(token), _singleton(1), "");
     }
 
     function test_eligibility_failUnknownAndReservedPairsRefuse() public {
@@ -853,6 +906,13 @@ contract FabricaImmutableAggregatorTest is Test {
     }
 
     function _writeEligibility(FabricaFactStore target, uint256 tokenId, uint128 value, uint64 cycle) internal {
+        _writeEligibilityFact(target, tokenId, value, cycle);
+        vm.prank(eligibilityWriter);
+        target.closeCycle(eligibilityWriter, cycle);
+    }
+
+    /// @dev Writes without closing a cycle, for states where the fact and the last close disagree.
+    function _writeEligibilityFact(FabricaFactStore target, uint256 tokenId, uint128 value, uint64 cycle) internal {
         FabricaFactStore.FactInput memory input = FabricaFactStore.FactInput({
             tokenId: tokenId,
             kind: aggregator.KIND_ELIGIBILITY(),
@@ -864,8 +924,6 @@ contract FabricaImmutableAggregatorTest is Test {
         });
         vm.prank(eligibilityWriter);
         target.writeFact(eligibilityWriter, input);
-        vm.prank(eligibilityWriter);
-        target.closeCycle(eligibilityWriter, cycle);
     }
 
     function _expectMaskRejected(uint128 mask, bytes4 selector) internal {

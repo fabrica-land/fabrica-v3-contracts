@@ -33,7 +33,11 @@ import {IFabricaFactStore} from "./interfaces/IFabricaFactStore.sol";
 ///      * The writer's last cycle close must be within `maxSilence`.
 ///      * Nothing is supplied per read and nothing is computed per quote: `oracleContext` is unused.
 ///      * No root, no proof, no coverage check. A token a writer stops covering is that writer's lock
-///        or revocation to send (fail-open by design this round).
+///        or revocation to send (fail-open by design this round) for the price feeds.
+///      * Eligibility (ENG-4327) is fail-closed: a token is refused unless the separate eligibility
+///        writer holds a live `KIND_ELIGIBILITY` fact for it with every required pair passing, under a
+///        live, valid cycle close of that writer. There is no per-fact age check (ASK-11): the writer's
+///        close states that every fact it covers is current.
 ///
 ///      The read interface stays MetaStreet `IPriceOracle`, so the pool's upstream code is unchanged.
 contract FabricaImmutableAggregator is IPriceOracle {
@@ -82,8 +86,12 @@ contract FabricaImmutableAggregator is IPriceOracle {
     bytes32 public constant CHECK_MIN_SOURCES = keccak256("min_sources");
     /// @notice Check id: dispersion (max/min) exceeded.
     bytes32 public constant CHECK_DISPERSION = keccak256("dispersion");
-    /// @notice Check id: no live, fresh eligibility fact exists for the token.
-    bytes32 public constant CHECK_ELIGIBILITY_UNAVAILABLE = keccak256("eligibility_unavailable");
+    /// @notice Check id: the eligibility writer has not attested this token. Either it has no live,
+    ///         valid cycle close within `maxSilence`, or it holds no live `KIND_ELIGIBILITY` fact for the
+    ///         token (missing, locked, or below its floor).
+    /// @dev Not `eligibility_unavailable`: fabrica-v3-api uses that string for its own "the
+    ///      `eligibilityReport` call failed" reason, which marks the feed stale. This id is immutable.
+    bytes32 public constant CHECK_ELIGIBILITY_UNATTESTED = keccak256("eligibility_unattested");
     /// @notice Check id: the live eligibility fact is missing at least one required pass pair.
     bytes32 public constant CHECK_ELIGIBILITY = keccak256("eligibility");
 
@@ -140,6 +148,10 @@ contract FabricaImmutableAggregator is IPriceOracle {
     error EligibilityMaskPartialPair(uint128 mask);
     /// @notice The required eligibility mask selects a bit at or above `2 * ELIGIBILITY_PAIR_COUNT`.
     error EligibilityMaskBeyondDefinedPairs(uint128 mask);
+    /// @notice The eligibility writer is also a trusted price writer.
+    /// @dev A cycle close is per writer, not per kind, so a shared key would let every price-feed close
+    ///      keep a stale eligibility pass live.
+    error EligibilityWriterIsPriceWriter(address writer);
 
     // -------------------------------------------------------------------------
     // Events
@@ -304,7 +316,8 @@ contract FabricaImmutableAggregator is IPriceOracle {
         return (pass, checkId);
     }
 
-    /// @notice The trusted writer set, in the order it was configured at deploy.
+    /// @notice The trusted price writer set, in the order it was configured at deploy.
+    /// @dev Excludes `eligibilityWriter`, which the constructor requires to be distinct.
     function writers() external view returns (address[] memory set) {
         uint256 n = writerCount;
         set = new address[](n);
@@ -319,7 +332,7 @@ contract FabricaImmutableAggregator is IPriceOracle {
         return _writerAt(index);
     }
 
-    /// @notice Whether `writer` is one of the addresses this aggregator trusts.
+    /// @notice Whether `writer` is one of the price writers this aggregator trusts.
     function isTrustedWriter(address writer) external view returns (bool) {
         if (writer == address(0)) return false;
         uint256 n = writerCount;
@@ -380,14 +393,9 @@ contract FabricaImmutableAggregator is IPriceOracle {
     function _eligibilityFailure(uint256 tokenId) internal view returns (bytes32) {
         IFabricaFactStore store = factStore;
         address writer = eligibilityWriter;
-        IFabricaFactStore.CycleClose memory close = store.lastCycleClose(writer);
-        if (close.closedAt == 0) return CHECK_ELIGIBILITY_UNAVAILABLE;
-        if (block.timestamp > uint256(close.closedAt) + uint256(maxSilence)) {
-            return CHECK_ELIGIBILITY_UNAVAILABLE;
-        }
-        if (!store.isCycleValid(writer, close.cycle)) return CHECK_ELIGIBILITY_UNAVAILABLE;
+        if (!_writerIsLive(store, writer)) return CHECK_ELIGIBILITY_UNATTESTED;
         (IFabricaFactStore.Fact memory fact, bool live) = store.getLiveFact(writer, tokenId, KIND_ELIGIBILITY);
-        if (!live) return CHECK_ELIGIBILITY_UNAVAILABLE;
+        if (!live) return CHECK_ELIGIBILITY_UNATTESTED;
         if ((fact.value & requiredEligibilityMask) != requiredEligibilityMask) return CHECK_ELIGIBILITY;
         return bytes32(0);
     }
@@ -395,16 +403,7 @@ contract FabricaImmutableAggregator is IPriceOracle {
     /// @notice One writer's valuation of one token, after every round-2 filter.
     function _valuationOf(address writer, uint256 tokenId) internal view returns (Valuation memory valuation) {
         IFabricaFactStore store = factStore;
-        IFabricaFactStore.CycleClose memory close = store.lastCycleClose(writer);
-        // A writer that has never closed a cycle has never declared a book, so it is silent rather
-        // than merely quiet. Liveness is never inferred from a fact's `writtenAt`: a fact write does
-        // not close a cycle, and ENG-3924 is explicit that a consumer must not conflate the two.
-        if (close.closedAt == 0) return valuation;
-        if (block.timestamp > uint256(close.closedAt) + uint256(maxSilence)) return valuation;
-        // `closeCycle` refuses a cycle below the writer's floor at the time of the call, but raising
-        // the floor afterwards does not rewrite the recorded close, so a close can name a cycle the
-        // writer has since killed. Per the ENG-3924 handoff, check both.
-        if (!store.isCycleValid(writer, close.cycle)) return valuation;
+        if (!_writerIsLive(store, writer)) return valuation;
         valuation.fresh = true;
         (IFabricaFactStore.Fact memory fact, bool live) = store.getLiveFact(writer, tokenId, KIND_PRICE);
         // `live` folds presence, the writer's lock and the writer's floor. A newer write supersedes
@@ -427,6 +426,21 @@ contract FabricaImmutableAggregator is IPriceOracle {
         valuation.live = true;
         valuation.value = fact.value;
         valuation.writtenAt = fact.writtenAt;
+    }
+
+    /// @notice Whether `writer` has a recent, valid cycle close: the liveness both the eligibility gate
+    ///         and every price feed require.
+    function _writerIsLive(IFabricaFactStore store, address writer) internal view returns (bool) {
+        IFabricaFactStore.CycleClose memory close = store.lastCycleClose(writer);
+        // A writer that has never closed a cycle has never declared a book, so it is silent rather
+        // than merely quiet. Liveness is never inferred from a fact's `writtenAt`: a fact write does
+        // not close a cycle, and ENG-3924 is explicit that a consumer must not conflate the two.
+        if (close.closedAt == 0) return false;
+        if (block.timestamp > uint256(close.closedAt) + uint256(maxSilence)) return false;
+        // `closeCycle` refuses a cycle below the writer's floor at the time of the call, but raising
+        // the floor afterwards does not rewrite the recorded close, so a close can name a cycle the
+        // writer has since killed. Per the ENG-3924 handoff, check both.
+        return store.isCycleValid(writer, close.cycle);
     }
 
     /// @notice Rate-of-change breaker: drop a feed whose jump from its previous valuation is too large.
@@ -524,6 +538,9 @@ contract FabricaImmutableAggregator is IPriceOracle {
         if (n == 0 || n > MAX_TRUSTED_WRITERS) revert InvalidWriterSet();
         for (uint256 i; i < n; ++i) {
             if (config.writers[i] == address(0)) revert ZeroAddress();
+            if (config.writers[i] == config.eligibilityWriter) {
+                revert EligibilityWriterIsPriceWriter(config.writers[i]);
+            }
             for (uint256 j = i + 1; j < n; ++j) {
                 if (config.writers[i] == config.writers[j]) revert DuplicateWriter(config.writers[i]);
             }
