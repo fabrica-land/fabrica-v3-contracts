@@ -9,7 +9,7 @@ import {IFabricaFactStore} from "./interfaces/IFabricaFactStore.sol";
 ///         from ENG-4203 onward bind the round-3 batched store.
 /// @dev Replaces `FabricaOracleAggregator` (round 1, ENG-3519) rather than upgrading it; the round-1
 ///      aggregator stays deployed and serving its own pool. Round-2 proposal Part A item 5, ruled by
-///      Tim on 3 September 2026: the trusted writer set and every threshold are fixed at deploy so
+///      Tim on 3 September 2026: the trusted price writer set and every threshold are fixed at deploy so
 ///      lenders can rely on the rules not moving under their deposits.
 ///
 ///      **There is no owner, no setter, no freeze step and nothing to renounce.** Round 1 shipped an
@@ -19,7 +19,7 @@ import {IFabricaFactStore} from "./interfaces/IFabricaFactStore.sol";
 ///      `immutable` written by the constructor into the deployed bytecode. A rule change is a new
 ///      aggregator and a new pool; that is the only evolution path.
 ///
-///      The trusted writer set is held in `immutable` slots rather than a storage array. Storage
+///      The trusted price writer set is held in `immutable` slots rather than a storage array. Storage
 ///      written only by a constructor would be equally unchangeable, but immutables put the addresses
 ///      in the code itself — a reviewer can read them out of the verified source with no storage
 ///      probe — and they save a cold `SLOAD` per writer inside `price()`, which sits on the pool's
@@ -27,13 +27,17 @@ import {IFabricaFactStore} from "./interfaces/IFabricaFactStore.sol";
 ///
 ///      Round-2 rules (Tim, 3 September 2026 18:47Z and 18:50Z; the earlier Merkle-root and coverage
 ///      paragraphs on ENG-3925 are history):
-///      * Per trusted writer and token, the newest unrevoked valuation is the only one considered.
+///      * Per trusted price writer and token, the newest unrevoked valuation is the only one considered.
 ///      * A lock, a revocation or a newer write invalidates prior state immediately — the store folds
 ///        all three into `getLiveFact`, and nothing here caches.
 ///      * The writer's last cycle close must be within `maxSilence`.
 ///      * Nothing is supplied per read and nothing is computed per quote: `oracleContext` is unused.
 ///      * No root, no proof, no coverage check. A token a writer stops covering is that writer's lock
-///        or revocation to send (fail-open by design this round).
+///        or revocation to send (fail-open by design this round) for the price feeds.
+///      * Eligibility (ENG-4327) is fail-closed: a token is refused unless the separate eligibility
+///        writer holds a live `KIND_ELIGIBILITY` fact for it with every required pair passing, under a
+///        live, valid cycle close of that writer. There is no per-fact age check (ASK-11): the writer's
+///        close states that every fact it covers is current.
 ///
 ///      The read interface stays MetaStreet `IPriceOracle`, so the pool's upstream code is unchanged.
 contract FabricaImmutableAggregator is IPriceOracle {
@@ -47,20 +51,50 @@ contract FabricaImmutableAggregator is IPriceOracle {
     /// @dev Pinned against the live store in the constructor, so a store of the wrong shape — or the
     ///      round-1 store, which has no `KIND_PRICE` at all — cannot be wired in silently.
     bytes32 public constant KIND_PRICE = keccak256("fabrica.fact.price");
+    /// @notice The `kind` under which Fabrica publishes the packed per-token eligibility result.
+    /// @dev The fact store does not interpret kinds, so this contract owns the convention. The packed
+    ///      value uses fixed two-bit pairs for current check-results rows: bits 0-1 allTransfersKycd,
+    ///      2-3 claimMatchesLegalDescription, 4-5 coordinatesValid, 6-7 currentOwnersKycd, 8-9
+    ///      currentOwnersNotInDarklist, 10-11 deedAvailable, 12-13 feesInGoodStanding, 14-15
+    ///      formationDocumentAvailable, 16-17 holdingEntityDeclared, 18-19
+    ///      holdingEntityMatchesOwnerNameAtAssessor, 20-21 legalDescriptionAvailable, 22-23
+    ///      noLiensFound, 24-25 notReportedAsStolen, 26-27 ownerHasVerifiedContact, 28-29
+    ///      proofOfTitleValid, 30-31 propertyTaxesCurrent, 32-33 recoveryStatusNormal, 34-35
+    ///      transferCooldownMet. Each pair is 00 unknown, 01 fail, 11 pass and 10 reserved/fail-closed.
+    ///      Bits at and above `2 * ELIGIBILITY_PAIR_COUNT` belong to no pair and no writer sets them.
+    bytes32 public constant KIND_ELIGIBILITY = keccak256("fabrica.fact.eligibility");
+    /// @notice Number of defined two-bit check-results pairs in the eligibility fact (bits 0-35).
+    /// @dev The constructor refuses a required mask that selects any bit at or above
+    ///      `2 * ELIGIBILITY_PAIR_COUNT`: no writer can set a pair that does not exist, so such a mask
+    ///      would refuse every token for the life of this immutable contract. A future set of pairs
+    ///      ships as a successor contract with a new constant.
+    uint256 public constant ELIGIBILITY_PAIR_COUNT = 18;
+    /// @dev The low bit of every two-bit pair. A mask selects only complete pairs exactly when its
+    ///      low bits and its high bits shifted down by one are the same set.
+    uint128 internal constant _ELIGIBILITY_PAIR_LOW_BITS = 0x55555555555555555555555555555555;
 
-    /// @notice Upper bound on the trusted writer set, fixed by the number of immutable slots below.
+    /// @notice Upper bound on the trusted price writer set, fixed by the number of immutable slots below.
     /// @dev Eight is well above the three oracle sources round 2 trusts (Prycd, OpenAVM, Regrid
     ///      assessor) and keeps `price()`'s two scans bounded by construction.
     uint256 public constant MAX_TRUSTED_WRITERS = 8;
 
     /// @notice Check id: currency is not the configured USDC.
     bytes32 public constant CHECK_CURRENCY = keccak256("currency");
-    /// @notice Check id: fewer than `minLiveSources` trusted writers have a recent, valid cycle close.
+    /// @notice Check id: fewer than `minLiveSources` trusted price writers have a recent, valid cycle close.
     bytes32 public constant CHECK_MAX_SILENCE = keccak256("max_silence");
     /// @notice Check id: fewer than `minLiveSources` usable valuations after every filter.
     bytes32 public constant CHECK_MIN_SOURCES = keccak256("min_sources");
     /// @notice Check id: dispersion (max/min) exceeded.
     bytes32 public constant CHECK_DISPERSION = keccak256("dispersion");
+    /// @notice Check id: the eligibility writer has not attested this token. Either it has no live,
+    ///         valid cycle close within `maxSilence`, or it holds no live `KIND_ELIGIBILITY` fact for the
+    ///         token (missing, locked, or below its floor).
+    /// @dev Not `eligibility_unavailable`: fabrica-v3-api uses that string for its own "the
+    ///      `eligibilityReport` call failed" reason, which the API can also read as a stale feed. This
+    ///      id is immutable.
+    bytes32 public constant CHECK_ELIGIBILITY_UNATTESTED = keccak256("eligibility_unattested");
+    /// @notice Check id: the live eligibility fact is missing at least one required pass pair.
+    bytes32 public constant CHECK_ELIGIBILITY = keccak256("eligibility");
 
     // -------------------------------------------------------------------------
     // Types
@@ -71,6 +105,8 @@ contract FabricaImmutableAggregator is IPriceOracle {
         address factStore;
         address usdc;
         address[] writers;
+        address eligibilityWriter;
+        uint128 requiredEligibilityMask;
         uint8 minLiveSources;
         uint64 maxSilence;
         uint64 cycleCloseInterval;
@@ -81,7 +117,7 @@ contract FabricaImmutableAggregator is IPriceOracle {
         uint128 valueCeilingUsdc6;
     }
 
-    /// @notice One trusted writer's contribution to a token's price, after every round-2 filter.
+    /// @notice One trusted price writer's contribution to a token's price, after every round-2 filter.
     /// @dev `fresh` and `live` are separate answers to separate questions. A writer can be perfectly
     ///      live as a feed (a recent, valid cycle close) and still hold no usable valuation for one
     ///      token — it locked that token, or its value is out of bounds. Keeping them apart is what
@@ -107,6 +143,16 @@ contract FabricaImmutableAggregator is IPriceOracle {
     error InvalidLength();
     error ZeroQuantity(uint256 index);
     error CheckFailed(bytes32 checkId);
+    /// @notice The required eligibility mask selects one bit of a two-bit pair without the other.
+    /// @dev With one bit of a pair required, a documented non-pass value satisfies the mask: `01`
+    ///      (fail) passes a mask of `01`, and `10` (reserved) passes a mask of `10`.
+    error EligibilityMaskPartialPair(uint128 mask);
+    /// @notice The required eligibility mask selects a bit at or above `2 * ELIGIBILITY_PAIR_COUNT`.
+    error EligibilityMaskBeyondDefinedPairs(uint128 mask);
+    /// @notice The eligibility writer is also a trusted price writer.
+    /// @dev A cycle close is per writer, not per kind, so a shared key would let every price-feed close
+    ///      keep a stale eligibility pass live.
+    error EligibilityWriterIsPriceWriter(address writer);
 
     // -------------------------------------------------------------------------
     // Events
@@ -119,7 +165,9 @@ contract FabricaImmutableAggregator is IPriceOracle {
     event AggregatorDeployed(
         address indexed factStore,
         address indexed usdc,
+        address indexed eligibilityWriter,
         address[] writers,
+        uint128 requiredEligibilityMask,
         uint8 minLiveSources,
         uint64 maxSilence,
         uint64 cycleCloseInterval,
@@ -141,8 +189,12 @@ contract FabricaImmutableAggregator is IPriceOracle {
     IFabricaFactStore public immutable factStore;
     /// @notice The only accepted currency (USDC).
     address public immutable usdc;
-    /// @notice Number of trusted writers actually configured.
+    /// @notice Number of trusted price writers actually configured.
     uint8 public immutable writerCount;
+    /// @notice Writer whose live `KIND_ELIGIBILITY` fact gates every token before pricing.
+    address public immutable eligibilityWriter;
+    /// @notice Two-bit pairs that must all be set to pass in the live eligibility fact.
+    uint128 public immutable requiredEligibilityMask;
     /// @notice Valuations required before a token can be priced at all.
     uint8 public immutable minLiveSources;
     /// @notice Longest gap since a writer's last cycle close that still counts as a live feed.
@@ -183,6 +235,8 @@ contract FabricaImmutableAggregator is IPriceOracle {
         factStore = IFabricaFactStore(config.factStore);
         usdc = config.usdc;
         writerCount = uint8(config.writers.length);
+        eligibilityWriter = config.eligibilityWriter;
+        requiredEligibilityMask = config.requiredEligibilityMask;
         minLiveSources = config.minLiveSources;
         maxSilence = config.maxSilence;
         cycleCloseInterval = config.cycleCloseInterval;
@@ -202,7 +256,9 @@ contract FabricaImmutableAggregator is IPriceOracle {
         emit AggregatorDeployed(
             config.factStore,
             config.usdc,
+            config.eligibilityWriter,
             config.writers,
+            config.requiredEligibilityMask,
             config.minLiveSources,
             config.maxSilence,
             config.cycleCloseInterval,
@@ -222,8 +278,8 @@ contract FabricaImmutableAggregator is IPriceOracle {
     /// @dev `oracleContext` is unused and must stay so: Tim ruled proof-at-read out on 3 September
     ///      2026 18:44Z because buy-now-pay-later calldata is fixed days before execution, so nothing
     ///      is supplied per read and nothing is computed per quote. USDC 1e6 per unit of supply.
-    ///      Evaluation order: currency -> maximum silence -> live valuations + breakers -> MIN ->
-    ///      dispersion -> temporal floor.
+    ///      Evaluation order: currency -> eligibility -> maximum silence -> live valuations + breakers
+    ///      -> MIN -> dispersion -> temporal floor.
     function price(
         address, /* collateralToken */
         address currencyToken,
@@ -261,7 +317,8 @@ contract FabricaImmutableAggregator is IPriceOracle {
         return (pass, checkId);
     }
 
-    /// @notice The trusted writer set, in the order it was configured at deploy.
+    /// @notice The trusted price writer set, in the order it was configured at deploy.
+    /// @dev Excludes `eligibilityWriter`, which the constructor requires to be distinct.
     function writers() external view returns (address[] memory set) {
         uint256 n = writerCount;
         set = new address[](n);
@@ -270,13 +327,13 @@ contract FabricaImmutableAggregator is IPriceOracle {
         }
     }
 
-    /// @notice One trusted writer by index.
+    /// @notice One trusted price writer by index.
     function writerAt(uint256 index) external view returns (address) {
         if (index >= writerCount) revert WriterIndexOutOfBounds(index, writerCount);
         return _writerAt(index);
     }
 
-    /// @notice Whether `writer` is one of the addresses this aggregator trusts.
+    /// @notice Whether `writer` is one of the price writers this aggregator trusts.
     function isTrustedWriter(address writer) external view returns (bool) {
         if (writer == address(0)) return false;
         uint256 n = writerCount;
@@ -297,6 +354,10 @@ contract FabricaImmutableAggregator is IPriceOracle {
     {
         if (currencyToken != usdc) {
             return (false, CHECK_CURRENCY, 0);
+        }
+        bytes32 eligibilityFailure = _eligibilityFailure(tokenId);
+        if (eligibilityFailure != bytes32(0)) {
+            return (false, eligibilityFailure, 0);
         }
         uint256 freshCount;
         uint256 liveCount;
@@ -329,19 +390,21 @@ contract FabricaImmutableAggregator is IPriceOracle {
         return (true, bytes32(0), uint256(_applyTemporalFloor(tokenId, currentMin, valuations)));
     }
 
+    /// @notice Fail-closed eligibility gate, checked before any price-source read.
+    function _eligibilityFailure(uint256 tokenId) internal view returns (bytes32) {
+        IFabricaFactStore store = factStore;
+        address writer = eligibilityWriter;
+        if (!_writerIsLive(store, writer)) return CHECK_ELIGIBILITY_UNATTESTED;
+        (IFabricaFactStore.Fact memory fact, bool live) = store.getLiveFact(writer, tokenId, KIND_ELIGIBILITY);
+        if (!live) return CHECK_ELIGIBILITY_UNATTESTED;
+        if ((fact.value & requiredEligibilityMask) != requiredEligibilityMask) return CHECK_ELIGIBILITY;
+        return bytes32(0);
+    }
+
     /// @notice One writer's valuation of one token, after every round-2 filter.
     function _valuationOf(address writer, uint256 tokenId) internal view returns (Valuation memory valuation) {
         IFabricaFactStore store = factStore;
-        IFabricaFactStore.CycleClose memory close = store.lastCycleClose(writer);
-        // A writer that has never closed a cycle has never declared a book, so it is silent rather
-        // than merely quiet. Liveness is never inferred from a fact's `writtenAt`: a fact write does
-        // not close a cycle, and ENG-3924 is explicit that a consumer must not conflate the two.
-        if (close.closedAt == 0) return valuation;
-        if (block.timestamp > uint256(close.closedAt) + uint256(maxSilence)) return valuation;
-        // `closeCycle` refuses a cycle below the writer's floor at the time of the call, but raising
-        // the floor afterwards does not rewrite the recorded close, so a close can name a cycle the
-        // writer has since killed. Per the ENG-3924 handoff, check both.
-        if (!store.isCycleValid(writer, close.cycle)) return valuation;
+        if (!_writerIsLive(store, writer)) return valuation;
         valuation.fresh = true;
         (IFabricaFactStore.Fact memory fact, bool live) = store.getLiveFact(writer, tokenId, KIND_PRICE);
         // `live` folds presence, the writer's lock and the writer's floor. A newer write supersedes
@@ -364,6 +427,21 @@ contract FabricaImmutableAggregator is IPriceOracle {
         valuation.live = true;
         valuation.value = fact.value;
         valuation.writtenAt = fact.writtenAt;
+    }
+
+    /// @notice Whether `writer` has a recent, valid cycle close: the liveness both the eligibility gate
+    ///         and every price feed require.
+    function _writerIsLive(IFabricaFactStore store, address writer) internal view returns (bool) {
+        IFabricaFactStore.CycleClose memory close = store.lastCycleClose(writer);
+        // A writer that has never closed a cycle has never declared a book, so it is silent rather
+        // than merely quiet. Liveness is never inferred from a fact's `writtenAt`: a fact write does
+        // not close a cycle, and ENG-3924 is explicit that a consumer must not conflate the two.
+        if (close.closedAt == 0) return false;
+        if (block.timestamp > uint256(close.closedAt) + uint256(maxSilence)) return false;
+        // `closeCycle` refuses a cycle below the writer's floor at the time of the call, but raising
+        // the floor afterwards does not rewrite the recorded close, so a close can name a cycle the
+        // writer has since killed. Per the ENG-3924 handoff, check both.
+        return store.isCycleValid(writer, close.cycle);
     }
 
     /// @notice Rate-of-change breaker: drop a feed whose jump from its previous valuation is too large.
@@ -448,7 +526,9 @@ contract FabricaImmutableAggregator is IPriceOracle {
     }
 
     function _validateWiring(Config memory config) internal view {
-        if (config.factStore == address(0) || config.usdc == address(0)) revert ZeroAddress();
+        if (config.factStore == address(0) || config.usdc == address(0) || config.eligibilityWriter == address(0)) {
+            revert ZeroAddress();
+        }
         if (config.factStore.code.length == 0 || config.usdc.code.length == 0) revert InvalidConfig();
         bytes32 storeKind = IFabricaFactStore(config.factStore).KIND_PRICE();
         if (storeKind != KIND_PRICE) revert UnexpectedFactStoreKind(KIND_PRICE, storeKind);
@@ -459,6 +539,9 @@ contract FabricaImmutableAggregator is IPriceOracle {
         if (n == 0 || n > MAX_TRUSTED_WRITERS) revert InvalidWriterSet();
         for (uint256 i; i < n; ++i) {
             if (config.writers[i] == address(0)) revert ZeroAddress();
+            if (config.writers[i] == config.eligibilityWriter) {
+                revert EligibilityWriterIsPriceWriter(config.writers[i]);
+            }
             for (uint256 j = i + 1; j < n; ++j) {
                 if (config.writers[i] == config.writers[j]) revert DuplicateWriter(config.writers[i]);
             }
@@ -476,8 +559,20 @@ contract FabricaImmutableAggregator is IPriceOracle {
         // Must permit at least 1.0x, or no two valuations could ever agree closely enough.
         if (config.maxDispersionBps < BPS_DENOMINATOR) revert InvalidConfig();
         if (config.maxFirstPriceUsdc6 == 0 || config.valueCeilingUsdc6 == 0) revert InvalidConfig();
+        _validateEligibilityMask(config.requiredEligibilityMask);
         // Round-1's `_validateKnobs` rule: a first-price cap above the ceiling is unreachable.
         if (config.maxFirstPriceUsdc6 > config.valueCeilingUsdc6) revert InvalidConfig();
+    }
+
+    /// @dev Refuses a mask no pass value can satisfy (a bit beyond the defined pairs) or one a
+    ///      documented non-pass value satisfies (a partial pair). Either mistake would be permanent on
+    ///      this immutable contract, so it has to surface at deploy time.
+    function _validateEligibilityMask(uint128 mask) internal pure {
+        if (mask == 0) revert InvalidConfig();
+        if (mask >> (2 * ELIGIBILITY_PAIR_COUNT) != 0) revert EligibilityMaskBeyondDefinedPairs(mask);
+        if ((mask & _ELIGIBILITY_PAIR_LOW_BITS) != ((mask >> 1) & _ELIGIBILITY_PAIR_LOW_BITS)) {
+            revert EligibilityMaskPartialPair(mask);
+        }
     }
 
     function _configuredWriter(address[] memory set, uint256 index) internal pure returns (address) {
