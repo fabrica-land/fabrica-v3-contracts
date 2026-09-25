@@ -461,7 +461,11 @@ contract FabricaImmutableAggregatorTest is Test {
         _priceCall();
     }
 
-    function test_eligibility_factBelowARaisedFloorRefuses() public {
+    /// @notice A floor raised above both the last close and the fact refuses. Both the close and the
+    ///         fact are invalid here, so this covers the both-invalid case and isolates neither path:
+    ///         `test_eligibility_closeBelowRaisedFloorRefusesWhileTheFactIsLive` isolates the close,
+    ///         and `test_eligibility_factBelowARaisedFloorRefusesWhileTheWriterIsLive` the fact.
+    function test_eligibility_raisedFloorAboveCloseAndFactRefuses() public {
         vm.prank(eligibilityWriter);
         store.setMinValidCycle(eligibilityWriter, CYCLE + 1);
         vm.prank(eligibilityWriter);
@@ -471,6 +475,27 @@ contract FabricaImmutableAggregatorTest is Test {
 
         vm.prank(eligibilityWriter);
         store.setMinValidCycle(eligibilityWriter, CYCLE + 2);
+        _expectCheck(aggregator.CHECK_ELIGIBILITY_UNATTESTED());
+        _priceCall();
+    }
+
+    /// @notice The writer closes a new valid cycle after raising its floor, so it is live, but the
+    ///         token's fact sits below the floor and was never rewritten: only the live-fact check can
+    ///         refuse this (CodeRabbit 4100561726).
+    function test_eligibility_factBelowARaisedFloorRefusesWhileTheWriterIsLive() public {
+        _writeEligibility(store, TOKEN_ID, ELIGIBILITY_PASS, CYCLE + 1);
+        assertEq(_price(), EXPECTED_USABLE, "a pass at cycle 2 prices");
+        vm.prank(eligibilityWriter);
+        store.setMinValidCycle(eligibilityWriter, CYCLE + 2);
+        vm.prank(eligibilityWriter);
+        store.closeCycle(eligibilityWriter, CYCLE + 2);
+        assertEq(store.lastCycleClose(eligibilityWriter).cycle, CYCLE + 2, "precondition: the last close is cycle 3");
+        assertTrue(store.isCycleValid(eligibilityWriter, CYCLE + 2), "precondition: that close is valid");
+        (, bool live) = store.getLiveFact(eligibilityWriter, TOKEN_ID, aggregator.KIND_ELIGIBILITY());
+        assertFalse(live, "precondition: the cycle-2 fact is below the floor");
+        (bool ok, bytes32 failed) = aggregator.eligibilityReport(usdc, TOKEN_ID);
+        assertFalse(ok, "a fact below the floor refuses");
+        assertEq(failed, aggregator.CHECK_ELIGIBILITY_UNATTESTED(), "the refusal names the unattested check");
         _expectCheck(aggregator.CHECK_ELIGIBILITY_UNATTESTED());
         _priceCall();
     }
