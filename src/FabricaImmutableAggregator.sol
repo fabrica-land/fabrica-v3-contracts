@@ -9,7 +9,7 @@ import {IFabricaFactStore} from "./interfaces/IFabricaFactStore.sol";
 ///         from ENG-4203 onward bind the round-3 batched store.
 /// @dev Replaces `FabricaOracleAggregator` (round 1, ENG-3519) rather than upgrading it; the round-1
 ///      aggregator stays deployed and serving its own pool. Round-2 proposal Part A item 5, ruled by
-///      Tim on 3 September 2026: the trusted writer set and every threshold are fixed at deploy so
+///      Tim on 3 September 2026: the trusted price writer set and every threshold are fixed at deploy so
 ///      lenders can rely on the rules not moving under their deposits.
 ///
 ///      **There is no owner, no setter, no freeze step and nothing to renounce.** Round 1 shipped an
@@ -19,7 +19,7 @@ import {IFabricaFactStore} from "./interfaces/IFabricaFactStore.sol";
 ///      `immutable` written by the constructor into the deployed bytecode. A rule change is a new
 ///      aggregator and a new pool; that is the only evolution path.
 ///
-///      The trusted writer set is held in `immutable` slots rather than a storage array. Storage
+///      The trusted price writer set is held in `immutable` slots rather than a storage array. Storage
 ///      written only by a constructor would be equally unchangeable, but immutables put the addresses
 ///      in the code itself — a reviewer can read them out of the verified source with no storage
 ///      probe — and they save a cold `SLOAD` per writer inside `price()`, which sits on the pool's
@@ -27,7 +27,7 @@ import {IFabricaFactStore} from "./interfaces/IFabricaFactStore.sol";
 ///
 ///      Round-2 rules (Tim, 3 September 2026 18:47Z and 18:50Z; the earlier Merkle-root and coverage
 ///      paragraphs on ENG-3925 are history):
-///      * Per trusted writer and token, the newest unrevoked valuation is the only one considered.
+///      * Per trusted price writer and token, the newest unrevoked valuation is the only one considered.
 ///      * A lock, a revocation or a newer write invalidates prior state immediately — the store folds
 ///        all three into `getLiveFact`, and nothing here caches.
 ///      * The writer's last cycle close must be within `maxSilence`.
@@ -73,14 +73,14 @@ contract FabricaImmutableAggregator is IPriceOracle {
     ///      low bits and its high bits shifted down by one are the same set.
     uint128 internal constant _ELIGIBILITY_PAIR_LOW_BITS = 0x55555555555555555555555555555555;
 
-    /// @notice Upper bound on the trusted writer set, fixed by the number of immutable slots below.
+    /// @notice Upper bound on the trusted price writer set, fixed by the number of immutable slots below.
     /// @dev Eight is well above the three oracle sources round 2 trusts (Prycd, OpenAVM, Regrid
     ///      assessor) and keeps `price()`'s two scans bounded by construction.
     uint256 public constant MAX_TRUSTED_WRITERS = 8;
 
     /// @notice Check id: currency is not the configured USDC.
     bytes32 public constant CHECK_CURRENCY = keccak256("currency");
-    /// @notice Check id: fewer than `minLiveSources` trusted writers have a recent, valid cycle close.
+    /// @notice Check id: fewer than `minLiveSources` trusted price writers have a recent, valid cycle close.
     bytes32 public constant CHECK_MAX_SILENCE = keccak256("max_silence");
     /// @notice Check id: fewer than `minLiveSources` usable valuations after every filter.
     bytes32 public constant CHECK_MIN_SOURCES = keccak256("min_sources");
@@ -90,7 +90,8 @@ contract FabricaImmutableAggregator is IPriceOracle {
     ///         valid cycle close within `maxSilence`, or it holds no live `KIND_ELIGIBILITY` fact for the
     ///         token (missing, locked, or below its floor).
     /// @dev Not `eligibility_unavailable`: fabrica-v3-api uses that string for its own "the
-    ///      `eligibilityReport` call failed" reason, which marks the feed stale. This id is immutable.
+    ///      `eligibilityReport` call failed" reason, which the API can also read as a stale feed. This
+    ///      id is immutable.
     bytes32 public constant CHECK_ELIGIBILITY_UNATTESTED = keccak256("eligibility_unattested");
     /// @notice Check id: the live eligibility fact is missing at least one required pass pair.
     bytes32 public constant CHECK_ELIGIBILITY = keccak256("eligibility");
@@ -116,7 +117,7 @@ contract FabricaImmutableAggregator is IPriceOracle {
         uint128 valueCeilingUsdc6;
     }
 
-    /// @notice One trusted writer's contribution to a token's price, after every round-2 filter.
+    /// @notice One trusted price writer's contribution to a token's price, after every round-2 filter.
     /// @dev `fresh` and `live` are separate answers to separate questions. A writer can be perfectly
     ///      live as a feed (a recent, valid cycle close) and still hold no usable valuation for one
     ///      token — it locked that token, or its value is out of bounds. Keeping them apart is what
@@ -188,7 +189,7 @@ contract FabricaImmutableAggregator is IPriceOracle {
     IFabricaFactStore public immutable factStore;
     /// @notice The only accepted currency (USDC).
     address public immutable usdc;
-    /// @notice Number of trusted writers actually configured.
+    /// @notice Number of trusted price writers actually configured.
     uint8 public immutable writerCount;
     /// @notice Writer whose live `KIND_ELIGIBILITY` fact gates every token before pricing.
     address public immutable eligibilityWriter;
@@ -326,7 +327,7 @@ contract FabricaImmutableAggregator is IPriceOracle {
         }
     }
 
-    /// @notice One trusted writer by index.
+    /// @notice One trusted price writer by index.
     function writerAt(uint256 index) external view returns (address) {
         if (index >= writerCount) revert WriterIndexOutOfBounds(index, writerCount);
         return _writerAt(index);

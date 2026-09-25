@@ -155,12 +155,47 @@ contract FabricaImmutableAggregatorTest is Test {
         assertFalse(aggregator.isTrustedWriter(address(0)), "zero address is never trusted");
     }
 
+    /// @notice The renamed eligibility check id is pinned to its literal, not to the contract's own
+    ///         getter: the id is immutable public vocabulary that fabrica-v3-api decodes by
+    ///         `keccak256(name)` (board round 2, Check #7).
+    /// @dev It must never be `eligibility_unavailable` (the API's own "the call failed" reason) or
+    ///      collapse into `eligibility` (the failed-pair reason).
+    function test_checkIds_eligibilityUnattestedIsPinnedAndDistinct() public view {
+        assertEq(
+            aggregator.CHECK_ELIGIBILITY_UNATTESTED(),
+            keccak256("eligibility_unattested"),
+            "CHECK_ELIGIBILITY_UNATTESTED"
+        );
+        assertNotEq(
+            aggregator.CHECK_ELIGIBILITY_UNATTESTED(),
+            keccak256("eligibility_unavailable"),
+            "never the API's could-not-ask reason"
+        );
+        assertNotEq(
+            aggregator.CHECK_ELIGIBILITY_UNATTESTED(),
+            aggregator.CHECK_ELIGIBILITY(),
+            "unattested and failed-pair stay distinguishable"
+        );
+    }
+
+    function test_checkIds_eligibilityIsPinned() public view {
+        assertEq(aggregator.CHECK_ELIGIBILITY(), keccak256("eligibility"), "CHECK_ELIGIBILITY");
+    }
+
+    /// @notice The price-path check ids fabrica-v3-api decodes today (`ORACLE_ELIGIBILITY_CHECK_NAMES`).
+    function test_checkIds_priceChecksArePinned() public view {
+        assertEq(aggregator.CHECK_CURRENCY(), keccak256("currency"), "CHECK_CURRENCY");
+        assertEq(aggregator.CHECK_MAX_SILENCE(), keccak256("max_silence"), "CHECK_MAX_SILENCE");
+        assertEq(aggregator.CHECK_MIN_SOURCES(), keccak256("min_sources"), "CHECK_MIN_SOURCES");
+        assertEq(aggregator.CHECK_DISPERSION(), keccak256("dispersion"), "CHECK_DISPERSION");
+    }
+
     function test_constructor_rejectsWriterIndexOutOfBounds() public {
         vm.expectRevert(abi.encodeWithSelector(FabricaImmutableAggregator.WriterIndexOutOfBounds.selector, 3, 3));
         aggregator.writerAt(3);
     }
 
-    function test_constructor_rejectsZeroFactStoreAndZeroUsdc() public {
+    function test_constructor_rejectsZeroFactStoreUsdcAndEligibilityWriter() public {
         FabricaImmutableAggregator.Config memory config = _config();
         config.factStore = address(0);
         vm.expectRevert(FabricaImmutableAggregator.ZeroAddress.selector);
@@ -238,7 +273,7 @@ contract FabricaImmutableAggregatorTest is Test {
         new FabricaImmutableAggregator(config);
     }
 
-    function test_constructor_rejectsDisabledThresholds() public {
+    function test_constructor_rejectsDisabledThresholdsAndAZeroEligibilityMask() public {
         FabricaImmutableAggregator.Config memory config = _config();
         config.maxSilence = 0;
         vm.expectRevert(FabricaImmutableAggregator.InvalidConfig.selector);
@@ -391,7 +426,7 @@ contract FabricaImmutableAggregatorTest is Test {
        Eligibility
        ===================================================================== */
 
-    function test_eligibility_missingFactRefusesBeforePriceSources() public {
+    function test_eligibility_missingFactRefusesAsUnattested() public {
         uint256 token = TOKEN_ID + 100;
         _write(store, prycd, token, LIVE_PRYCD, CYCLE);
         _write(store, openAvm, token, LIVE_OPENAVM, CYCLE);
@@ -426,7 +461,7 @@ contract FabricaImmutableAggregatorTest is Test {
         _priceCall();
     }
 
-    function test_eligibility_invalidCycleCloseRefuses() public {
+    function test_eligibility_factBelowARaisedFloorRefuses() public {
         vm.prank(eligibilityWriter);
         store.setMinValidCycle(eligibilityWriter, CYCLE + 1);
         vm.prank(eligibilityWriter);

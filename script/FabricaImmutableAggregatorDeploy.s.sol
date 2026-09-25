@@ -69,12 +69,15 @@ contract FabricaImmutableAggregatorDeployScript is Script {
     ///        - propertyTaxesCurrent (pair 15, bits 30-31): the tax gate, unknown fails closed.
     ///      Not required: currentOwnersNotInDarklist, since the gate reads the token darklist, not the
     ///      owner-address darklist.
-    ///      Accepted residual: `isFishyToken`'s score-threshold clause (`score.total` below
-    ///      `FISHY_TOKEN_SCORE_THRESHOLD`) has no pair and no stored value on chain, per Tim's ruling in
-    ///      ENG-4327 comment 0e90c658, item 2: "'Fishy score' is a formula derived from the checks, so
-    ///      no need to store it separately onchain if the checks are onchain." It closes operationally:
-    ///      the Fabrica eligibility writer locks any token the off-chain gate refuses as fishy (the
-    ///      ENG-4326 lever), under the writer-close discipline recorded on ENG-4327.
+    ///      Accepted residual: two `isFishyToken` clauses have no pair and no stored value on chain:
+    ///      the no-score clause (a token with no score row is fishy, `is-fishy-token.ts:67-68`) and the
+    ///      score-threshold clause (`score.total` below `FISHY_TOKEN_SCORE_THRESHOLD`). Per Tim's
+    ///      ruling in ENG-4327 comment 0e90c658, item 2: "'Fishy score' is a formula derived from the
+    ///      checks, so no need to store it separately onchain if the checks are onchain." The closure
+    ///      is a requirement on the keeper-writer PR (ENG-4327 comment f67cf29e, K6), not yet shipped:
+    ///      the dedicated eligibility-only signer (ENG-4327 comment ab1a457c) must lock any token the
+    ///      off-chain gate refuses as fishy (the ENG-4326 lever), under the writer-close discipline
+    ///      recorded on ENG-4327.
     ///      The mask is a constant, not an environment input, and `runWithConfig` refuses any other
     ///      value, so the immutable rule is the reviewed one.
     uint128 internal constant REQUIRED_ELIGIBILITY_MASK = 0xF3003000;
