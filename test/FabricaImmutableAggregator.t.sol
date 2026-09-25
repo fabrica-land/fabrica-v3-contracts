@@ -182,7 +182,8 @@ contract FabricaImmutableAggregatorTest is Test {
         assertEq(aggregator.CHECK_ELIGIBILITY(), keccak256("eligibility"), "CHECK_ELIGIBILITY");
     }
 
-    /// @notice The price-path check ids fabrica-v3-api decodes today (`ORACLE_ELIGIBILITY_CHECK_NAMES`).
+    /// @notice The price-path check ids fabrica-v3-api decodes alongside the eligibility ids above
+    ///         (`ORACLE_ELIGIBILITY_CHECK_NAMES`, api#1927).
     function test_checkIds_priceChecksArePinned() public view {
         assertEq(aggregator.CHECK_CURRENCY(), keccak256("currency"), "CHECK_CURRENCY");
         assertEq(aggregator.CHECK_MAX_SILENCE(), keccak256("max_silence"), "CHECK_MAX_SILENCE");
