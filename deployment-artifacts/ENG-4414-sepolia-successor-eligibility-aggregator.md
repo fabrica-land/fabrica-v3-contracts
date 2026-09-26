@@ -17,15 +17,22 @@ eligibility writer completed its first fill and cycle close before this deploy
 | Block | `11786921` |
 | Gas | `1823302` used at `1101742479` wei effective gas price; `2008809265445658` wei spent |
 | Deployer | Fresh encrypted lane keystore `eng-4414-sepolia-deployer`; nonce `0` before deployment |
-| Funding | [`0xb90a941413321900cd6258430847e66ed7e3469d29be4f01c519f0ae75e4547e`](https://sepolia.etherscan.io/tx/0xb90a941413321900cd6258430847e66ed7e3469d29be4f01c519f0ae75e4547e), block `11786912`, `status=1`, `from=0x152e6102aacf29694f75efbf424f1f017fd3813f`, `to=0xA1bbE76052efe8E32912b203F4195A0A891C10c8`, `value=0.02` SepETH |
+| Funding | [`0xb90a941413321900cd6258430847e66ed7e3469d29be4f01c519f0ae75e4547e`](https://sepolia.etherscan.io/tx/0xb90a941413321900cd6258430847e66ed7e3469d29be4f01c519f0ae75e4547e), block `11786912`, `status=1`, `from=0x152e6102AACf29694f75Efbf424f1f017FD3813F`, `to=0xA1bbE76052efe8E32912b203F4195A0A891C10c8`, `value=0.02` SepETH |
 | Explorer verification | Verify-only retry: `Pass - Verified` on Sepolia Etherscan |
 
 The first broadcast included `--verify`, but Etherscan had not yet indexed the
 contract and returned `Unable to locate ContractCode`. The deployment receipt
 was already successful. `forge verify-contract` was retried without any
-deployment transaction; Etherscan then returned `Pass - Verified`. The verify
-output is preserved locally under `/tmp/eng-4414-work/verify-output.txt`
-(SHA-256 `e7ba128163df665ffe8bf552cd132334c112ac913271388440f8c58f224d80fe`).
+deployment transaction. Etherscan accepted the submission (GUID
+`vpkivsm9qsiajrdticm6fv51vsjvn9gjfltn4lxjrg1iie1e72`), answered `Pending in
+queue` once, then returned `Response: OK` / `Details: Pass - Verified` /
+`Contract successfully verified` (captured 2026-09-26 14:57:56 UTC; the
+16-line, 1880-byte output had SHA-256
+`e7ba128163df665ffe8bf552cd132334c112ac913271388440f8c58f224d80fe` and was
+not kept beyond the deploying lane). The
+[Etherscan code page](https://sepolia.etherscan.io/address/0xe3b103a39060d6dc42ac67efb9172ead2e127ccd#code)
+reads `Source Code Verified` / `Exact Match`, compiler
+`v0.8.35+commit.47b9dedd`, optimization enabled with 1 run, EVM `osaka`.
 
 ## Constructor set and on-chain readback
 

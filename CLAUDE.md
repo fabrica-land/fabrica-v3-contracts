@@ -1,10 +1,13 @@
 # Development Notes
 
 - Never run `forge … --help` or any command that prints environment defaults
-  in a worktree with `.env`: Forge help can print the Etherscan API key. Use
-  documentation, or run help from a directory without `.env` under `env -i`;
-  clearing shell variables alone does not stop Forge from loading the
-  worktree's `.env`.
+  inside a Foundry project or git tree: Forge help can print the Etherscan API
+  key. Forge's `load_dotenv` (`crates/cli/src/utils/mod.rs`) loads the
+  project-root `.env` (the nearest ancestor holding `foundry.toml`, else the
+  git root) as well as the cwd's, so `env -i` and a subdirectory without its
+  own `.env` do not help. Use the Foundry book, or run help under `env -i`
+  from a fresh `mktemp -d` directory with no `foundry.toml` ancestor, no git
+  ancestor and no `.env`.
 - When deploying contracts with `forge script`, always include `--verify` to
   verify the contract on Etherscan/Basescan automatically. If verification
   fails during deployment, follow up with `forge verify-contract` afterward.
