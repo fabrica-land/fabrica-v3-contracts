@@ -1,5 +1,10 @@
 # Development Notes
 
+- Never run `forge … --help` or any command that prints environment defaults
+  in a worktree with `.env`: Forge help can print the Etherscan API key. Use
+  documentation, or run help from a directory without `.env` under `env -i`;
+  clearing shell variables alone does not stop Forge from loading the
+  worktree's `.env`.
 - When deploying contracts with `forge script`, always include `--verify` to
   verify the contract on Etherscan/Basescan automatically. If verification
   fails during deployment, follow up with `forge verify-contract` afterward.
