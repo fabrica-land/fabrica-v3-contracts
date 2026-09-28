@@ -301,6 +301,9 @@ contract FabricaRegionRuleAggregator is IPriceOracle {
     // Construction
     // -------------------------------------------------------------------------
 
+    /// @dev Solc allows an immutable write only directly in the constructor (error 1581), so each
+    ///      group is assigned here from the function that computes it. An eight-wide return does not
+    ///      compile (`Stack too deep` with `via_ir` off).
     constructor(Config memory config) {
         _validate(config);
         factStore = IFabricaFactStore(config.factStore);
@@ -317,41 +320,65 @@ contract FabricaRegionRuleAggregator is IPriceOracle {
         maxFirstPriceUsdc6 = config.maxFirstPriceUsdc6;
         valueCeilingUsdc6 = config.valueCeilingUsdc6;
         jurisdictionWriter = config.jurisdictionWriter;
-        allowedCountryDigest = _nameDigest("country", config.allowedCountry);
-        if (allowedCountryDigest == 0) revert InvalidConfig();
-        uint256 regionCount = config.allowedRegions.length;
-        // `_validateRegions` already rejected a count above `MAX_ALLOWED_REGIONS` (16).
-        allowedRegionCount = uint8(regionCount);
-        uint128[] memory regionDigests = new uint128[](regionCount);
+        allowedCountryDigest = _countryDigest(config.allowedCountry);
+        // `_validateRegions` already rejected a count above `MAX_ALLOWED_REGIONS` (16), so the
+        // narrowing cast cannot truncate.
+        // forge-lint: disable-next-line(unsafe-typecast)
+        allowedRegionCount = uint8(config.allowedRegions.length);
+        uint128[] memory regionDigests = _regionDigests(config.allowedRegions);
+        (_writer0, _writer1, _writer2, _writer3) = _writerSlots(config.writers, 0);
+        (_writer4, _writer5, _writer6, _writer7) = _writerSlots(config.writers, 4);
+        (_region0, _region1, _region2, _region3) = _regionSlots(regionDigests, 0);
+        (_region4, _region5, _region6, _region7) = _regionSlots(regionDigests, 4);
+        (_region8, _region9, _region10, _region11) = _regionSlots(regionDigests, 8);
+        (_region12, _region13, _region14, _region15) = _regionSlots(regionDigests, 12);
+        _emitDeployed(config);
+        _emitRegionRule(config.jurisdictionWriter, config.allowedCountry, config.allowedRegions, regionDigests);
+    }
+
+    function _countryDigest(string memory allowedCountry) internal pure returns (uint128 digest) {
+        digest = _nameDigest("country", allowedCountry);
+        if (digest == 0) revert InvalidConfig();
+    }
+
+    function _regionDigests(string[] memory allowedRegions) internal pure returns (uint128[] memory regionDigests) {
+        uint256 regionCount = allowedRegions.length;
+        regionDigests = new uint128[](regionCount);
         for (uint256 i; i < regionCount; ++i) {
-            uint128 digest = _nameDigest("region", config.allowedRegions[i]);
+            uint128 digest = _nameDigest("region", allowedRegions[i]);
             if (digest == 0) revert InvalidConfig();
             regionDigests[i] = digest;
         }
-        _writer0 = _configuredWriter(config.writers, 0);
-        _writer1 = _configuredWriter(config.writers, 1);
-        _writer2 = _configuredWriter(config.writers, 2);
-        _writer3 = _configuredWriter(config.writers, 3);
-        _writer4 = _configuredWriter(config.writers, 4);
-        _writer5 = _configuredWriter(config.writers, 5);
-        _writer6 = _configuredWriter(config.writers, 6);
-        _writer7 = _configuredWriter(config.writers, 7);
-        _region0 = _configuredRegion(regionDigests, 0);
-        _region1 = _configuredRegion(regionDigests, 1);
-        _region2 = _configuredRegion(regionDigests, 2);
-        _region3 = _configuredRegion(regionDigests, 3);
-        _region4 = _configuredRegion(regionDigests, 4);
-        _region5 = _configuredRegion(regionDigests, 5);
-        _region6 = _configuredRegion(regionDigests, 6);
-        _region7 = _configuredRegion(regionDigests, 7);
-        _region8 = _configuredRegion(regionDigests, 8);
-        _region9 = _configuredRegion(regionDigests, 9);
-        _region10 = _configuredRegion(regionDigests, 10);
-        _region11 = _configuredRegion(regionDigests, 11);
-        _region12 = _configuredRegion(regionDigests, 12);
-        _region13 = _configuredRegion(regionDigests, 13);
-        _region14 = _configuredRegion(regionDigests, 14);
-        _region15 = _configuredRegion(regionDigests, 15);
+    }
+
+    function _writerSlots(address[] memory writers, uint256 offset)
+        internal
+        pure
+        returns (address, address, address, address)
+    {
+        return (
+            _configuredWriter(writers, offset),
+            _configuredWriter(writers, offset + 1),
+            _configuredWriter(writers, offset + 2),
+            _configuredWriter(writers, offset + 3)
+        );
+    }
+
+    function _regionSlots(uint128[] memory regionDigests, uint256 offset)
+        internal
+        pure
+        returns (uint128, uint128, uint128, uint128)
+    {
+        return (
+            _configuredRegion(regionDigests, offset),
+            _configuredRegion(regionDigests, offset + 1),
+            _configuredRegion(regionDigests, offset + 2),
+            _configuredRegion(regionDigests, offset + 3)
+        );
+    }
+
+    /// @dev Split from the constructor so the price-rule arguments are not live across the region emit.
+    function _emitDeployed(Config memory config) internal {
         emit AggregatorDeployed(
             config.factStore,
             config.usdc,
@@ -367,7 +394,6 @@ contract FabricaRegionRuleAggregator is IPriceOracle {
             config.maxFirstPriceUsdc6,
             config.valueCeilingUsdc6
         );
-        _emitRegionRule(config.jurisdictionWriter, config.allowedCountry, config.allowedRegions, regionDigests);
     }
 
     /// @dev Split from the constructor so the region strings are not live across the price-rule emit.

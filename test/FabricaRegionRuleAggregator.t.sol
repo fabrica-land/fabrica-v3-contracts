@@ -112,20 +112,30 @@ contract FabricaRegionRuleAggregatorTest is Test {
         vm.recordLogs();
         new FabricaRegionRuleAggregator(_config());
         Vm.Log[] memory logs = vm.getRecordedLogs();
-        bytes32 topic = keccak256("RegionRuleConfigured(address,string,uint128,string[],uint128[])");
-        bool found;
+        bytes32 regionTopic = keccak256("RegionRuleConfigured(address,string,uint128,string[],uint128[])");
+        bytes32 deployedTopic = keccak256(
+            "AggregatorDeployed(address,address,address,address[],uint128,uint8,uint64,uint64,uint64,uint16,uint16,uint128,uint128)"
+        );
+        bool foundRegion;
+        bool foundDeployed;
         for (uint256 i; i < logs.length; ++i) {
-            if (logs[i].topics[0] != topic) continue;
-            (string memory country, uint128 countryDigest, string memory region, uint128 regionDigest) =
-                _decodeRegionRule(logs[i].data);
-            assertEq(address(uint160(uint256(logs[i].topics[1]))), jurisdictionWriter, "event jurisdictionWriter");
-            assertEq(country, "United States", "event country string");
-            assertEq(countryDigest, US_DIGEST, "event country digest");
-            assertEq(region, "Massachusetts", "event region string");
-            assertEq(regionDigest, MA_DIGEST, "event region digest");
-            found = true;
+            if (logs[i].topics[0] == regionTopic) {
+                (string memory country, uint128 countryDigest, string memory region, uint128 regionDigest) =
+                    _decodeRegionRule(logs[i].data);
+                assertEq(address(uint160(uint256(logs[i].topics[1]))), jurisdictionWriter, "event jurisdictionWriter");
+                assertEq(country, "United States", "event country string");
+                assertEq(countryDigest, US_DIGEST, "event country digest");
+                assertEq(region, "Massachusetts", "event region string");
+                assertEq(regionDigest, MA_DIGEST, "event region digest");
+                foundRegion = true;
+            }
+            if (logs[i].topics[0] == deployedTopic) {
+                _assertDeployed(logs[i]);
+                foundDeployed = true;
+            }
         }
-        assertTrue(found, "AggregatorDeployed carries the names and the digests");
+        assertTrue(foundRegion, "RegionRuleConfigured topic");
+        assertTrue(foundDeployed, "AggregatorDeployed topic");
     }
 
     function test_vector_unitedStatesMassachusettsVacantPack() public view {
@@ -282,6 +292,83 @@ contract FabricaRegionRuleAggregatorTest is Test {
         assertEq(failed, aggregator.CHECK_ELIGIBILITY_REGION(), "disallowed country is eligibility_region");
     }
 
+    /// @notice A disallowed country whose region name is on the allow-list still refuses. Deleting
+    ///         the country compare would price this pack, because the region digest matches.
+    function test_region_disallowedCountryWithAllowedRegionNameRefuses() public {
+        uint128 canada = _digest("country", "Canada");
+        uint128 pack = (canada << 65) | (MA_DIGEST << 2) | 3;
+        assertNotEq(canada, US_DIGEST, "precondition: Canada is not allowed");
+        assertEq((pack >> 2) & ((uint128(1) << 63) - 1), MA_DIGEST, "precondition: the region name is allowed");
+        assertEq(pack & 3, 3, "precondition: vacancy is vacant");
+        _writeJurisdiction(jurisdictionWriter, TOKEN_ID, pack, CYCLE, false);
+        (, bytes32 failed) = aggregator.eligibilityReport(usdc, TOKEN_ID);
+        assertEq(failed, aggregator.CHECK_ELIGIBILITY_REGION(), "disallowed country with an allowed region name");
+    }
+
+    /// @notice Ruling 639155.2: an empty region list still refuses a disallowed country.
+    function test_region_disallowedCountryOnEmptyAllowListRefuses() public {
+        FabricaRegionRuleAggregator countryWide =
+            new FabricaRegionRuleAggregator(_configWith("United States", new string[](0), jurisdictionWriter));
+        uint128 canada = _digest("country", "Canada");
+        uint128 ontario = _digest("region", "Ontario");
+        uint128 pack = (canada << 65) | (ontario << 2) | 3;
+        assertEq(countryWide.allowedRegionCount(), 0, "precondition: empty allow-list");
+        assertNotEq(canada, countryWide.allowedCountryDigest(), "precondition: Canada is not allowed");
+        assertGt(ontario, 0, "precondition: region digest is non-zero");
+        _writeJurisdiction(jurisdictionWriter, TOKEN_ID, pack, CYCLE, false);
+        (, bytes32 failed) = countryWide.eligibilityReport(usdc, TOKEN_ID);
+        assertEq(failed, countryWide.CHECK_ELIGIBILITY_REGION(), "disallowed country on an empty allow-list");
+    }
+
+    /// @notice Non-zero country, region digest 0, vacancy 11, empty allow-list. Removing the
+    ///         region-zero compare fail-opens: the empty list skips the allow-list.
+    function test_region_zeroRegionDigestOnEmptyAllowListIsUnattested() public {
+        FabricaRegionRuleAggregator countryWide =
+            new FabricaRegionRuleAggregator(_configWith("United States", new string[](0), jurisdictionWriter));
+        uint128 pack = (US_DIGEST << 65) | 3;
+        assertEq(countryWide.allowedRegionCount(), 0, "precondition: empty allow-list");
+        assertGt(US_DIGEST, 0, "precondition: country digest is non-zero");
+        assertEq(pack >> 65, US_DIGEST, "precondition: the pack names the allowed country");
+        assertEq((pack >> 2) & ((uint128(1) << 63) - 1), 0, "precondition: region digest is zero");
+        assertEq(pack & 3, 3, "precondition: vacancy 11");
+        _writeJurisdiction(jurisdictionWriter, TOKEN_ID, pack, CYCLE, false);
+        (, bytes32 failed) = countryWide.eligibilityReport(usdc, TOKEN_ID);
+        assertEq(
+            failed,
+            countryWide.CHECK_ELIGIBILITY_REGION_UNATTESTED(),
+            "zero region digest on an empty allow-list is unattested"
+        );
+    }
+
+    /// @notice Region-allow and vacant-land are both false. The allow-list return wins.
+    function test_region_allowListWinsWhenVacantLandAlsoFails() public {
+        uint128 california = _digest("region", "California");
+        uint128 pack = (US_DIGEST << 65) | (california << 2) | 1;
+        assertNotEq(california, MA_DIGEST, "precondition: California is not allowed");
+        assertEq(pack & 3, 1, "precondition: vacancy is not vacant");
+        _writeJurisdiction(jurisdictionWriter, TOKEN_ID, pack, CYCLE, false);
+        (, bytes32 failed) = aggregator.eligibilityReport(usdc, TOKEN_ID);
+        assertEq(failed, aggregator.CHECK_ELIGIBILITY_REGION(), "allow-list is checked before vacant-land");
+    }
+
+    /// @notice Reserved vacancy 10 on a disallowed country is unattested, not a country miss.
+    function test_region_reservedVacancyBeatsDisallowedCountry() public {
+        uint128 canada = _digest("country", "Canada");
+        uint128 ontario = _digest("region", "Ontario");
+        uint128 pack = (canada << 65) | (ontario << 2) | 2;
+        assertNotEq(canada, US_DIGEST, "precondition: Canada is not allowed");
+        assertGt(ontario, 0, "precondition: region digest is non-zero");
+        assertGt(canada, 0, "precondition: country digest is non-zero");
+        assertEq(pack & 3, 2, "precondition: reserved vacancy 10");
+        _writeJurisdiction(jurisdictionWriter, TOKEN_ID, pack, CYCLE, false);
+        (, bytes32 failed) = aggregator.eligibilityReport(usdc, TOKEN_ID);
+        assertEq(
+            failed,
+            aggregator.CHECK_ELIGIBILITY_REGION_UNATTESTED(),
+            "reserved vacancy is checked before the country compare"
+        );
+    }
+
     function test_region_improvedRefusesAsVacantLand() public {
         _writeJurisdiction(jurisdictionWriter, TOKEN_ID, US_MA_IMPROVED, CYCLE, false);
         (bool ok, bytes32 failed) = aggregator.eligibilityReport(usdc, TOKEN_ID);
@@ -329,6 +416,70 @@ contract FabricaRegionRuleAggregatorTest is Test {
         assertEq(failed, aggregator.CHECK_CURRENCY(), "currency is named before the region gate");
         _expect(aggregator.CHECK_CURRENCY());
         aggregator.price(address(this), wrong, _singleton(TOKEN_ID), _singleton(1), "");
+    }
+
+    /// @notice Wrong currency and no eligibility fact. Currency wins; swapping the two checks names
+    ///         ENG-4327 instead.
+    function test_region_currencyRunsBeforeEng4327() public {
+        uint256 token = TOKEN_ID + 3;
+        address wrong = address(new RegionCurrencyStub());
+        (, bool live) = store.getLiveFact(eligibilityWriter, token, aggregator.KIND_ELIGIBILITY());
+        assertFalse(live, "precondition: no eligibility fact");
+        (, bytes32 failed) = aggregator.eligibilityReport(wrong, token);
+        assertEq(failed, aggregator.CHECK_CURRENCY(), "currency is checked before ENG-4327");
+    }
+
+    /// @notice A live eligibility writer whose fact misses the mask. Deleting the mask compare
+    ///         prices the token: jurisdiction and the price feeds already pass.
+    function test_region_eligibilityMaskFailureIsTheWinningRefusal() public {
+        _writeEligibility(TOKEN_ID, 1, CYCLE);
+        (, bool live) = store.getLiveFact(eligibilityWriter, TOKEN_ID, aggregator.KIND_ELIGIBILITY());
+        assertTrue(live, "precondition: the failing fact is live");
+        assertTrue(
+            store.isCycleValid(eligibilityWriter, store.lastCycleClose(eligibilityWriter).cycle),
+            "precondition: the eligibility writer is live"
+        );
+        (, bytes32 failed) = aggregator.eligibilityReport(usdc, TOKEN_ID);
+        assertEq(failed, aggregator.CHECK_ELIGIBILITY(), "ENG-4327 mask failure is the winning refusal");
+    }
+
+    /// @notice The eligibility fact is live and passes the mask, but the writer's recorded close is
+    ///         below its floor. Deleting the liveness compare prices the token.
+    function test_region_eligibilityWriterLivenessIsTheWinningRefusal() public {
+        _writeEligibilityFact(TOKEN_ID, ELIGIBILITY_PASS, CYCLE + 1);
+        vm.prank(eligibilityWriter);
+        store.setMinValidCycle(eligibilityWriter, CYCLE + 1);
+        (, bool factLive) = store.getLiveFact(eligibilityWriter, TOKEN_ID, aggregator.KIND_ELIGIBILITY());
+        assertTrue(factLive, "precondition: the eligibility fact is live");
+        assertFalse(
+            store.isCycleValid(eligibilityWriter, store.lastCycleClose(eligibilityWriter).cycle),
+            "precondition: the recorded close is below the floor"
+        );
+        (, bytes32 failed) = aggregator.eligibilityReport(usdc, TOKEN_ID);
+        assertEq(
+            failed, aggregator.CHECK_ELIGIBILITY_UNATTESTED(), "eligibility-writer liveness is the winning refusal"
+        );
+    }
+
+    function test_allowedRegionDigestAt_revertsOutOfBoundsIncludingEmptyList() public {
+        vm.expectRevert(abi.encodeWithSelector(FabricaRegionRuleAggregator.RegionIndexOutOfBounds.selector, 1, 1));
+        aggregator.allowedRegionDigestAt(1);
+        FabricaRegionRuleAggregator countryWide =
+            new FabricaRegionRuleAggregator(_configWith("United States", new string[](0), jurisdictionWriter));
+        assertEq(countryWide.allowedRegionCount(), 0, "empty allow-list");
+        vm.expectRevert(abi.encodeWithSelector(FabricaRegionRuleAggregator.RegionIndexOutOfBounds.selector, 0, 0));
+        countryWide.allowedRegionDigestAt(0);
+    }
+
+    function test_constructor_twoRegionRoundTrip() public {
+        FabricaRegionRuleAggregator two = new FabricaRegionRuleAggregator(
+            _configWith("United States", _regions("California", "Massachusetts"), jurisdictionWriter)
+        );
+        uint128 california = _digest("region", "California");
+        assertEq(two.allowedRegionCount(), 2, "two configured regions");
+        assertEq(two.allowedRegionDigestAt(0), california, "slot 0 is California");
+        assertEq(two.allowedRegionDigestAt(1), MA_DIGEST, "slot 1 is Massachusetts");
+        assertNotEq(two.allowedRegionDigestAt(0), two.allowedRegionDigestAt(1), "the slots are distinct");
     }
 
     function _config() internal view returns (FabricaRegionRuleAggregator.Config memory) {
@@ -399,6 +550,12 @@ contract FabricaRegionRuleAggregatorTest is Test {
     }
 
     function _writeEligibility(uint256 tokenId, uint128 value, uint64 cycle) internal {
+        _writeEligibilityFact(tokenId, value, cycle);
+        vm.prank(eligibilityWriter);
+        store.closeCycle(eligibilityWriter, cycle);
+    }
+
+    function _writeEligibilityFact(uint256 tokenId, uint128 value, uint64 cycle) internal {
         FabricaFactStore.FactInput memory input = FabricaFactStore.FactInput({
             tokenId: tokenId,
             kind: aggregator.KIND_ELIGIBILITY(),
@@ -410,8 +567,6 @@ contract FabricaRegionRuleAggregatorTest is Test {
         });
         vm.prank(eligibilityWriter);
         store.writeFact(eligibilityWriter, input);
-        vm.prank(eligibilityWriter);
-        store.closeCycle(eligibilityWriter, cycle);
     }
 
     function _writeJurisdiction(address writer, uint256 tokenId, uint128 value, uint64 cycle, bool close) internal {
@@ -462,6 +617,34 @@ contract FabricaRegionRuleAggregatorTest is Test {
     function _singleton(uint256 value) internal pure returns (uint256[] memory arr) {
         arr = new uint256[](1);
         arr[0] = value;
+    }
+
+    function _assertDeployed(Vm.Log memory log) internal view {
+        (
+            address[] memory deployedWriters,
+            uint128 mask,
+            uint8 minLive,
+            uint64 silence,
+            uint64 interval,
+            uint64 seasoning,
+            uint16 jump,
+            uint16 dispersion,
+            uint128 firstPrice,
+            uint128 ceiling
+        ) = abi.decode(log.data, (address[], uint128, uint8, uint64, uint64, uint64, uint16, uint16, uint128, uint128));
+        assertEq(address(uint160(uint256(log.topics[1]))), address(store), "AggregatorDeployed factStore");
+        assertEq(address(uint160(uint256(log.topics[2]))), usdc, "AggregatorDeployed usdc");
+        assertEq(address(uint160(uint256(log.topics[3]))), eligibilityWriter, "AggregatorDeployed eligibilityWriter");
+        assertEq(deployedWriters[0], prycd, "AggregatorDeployed writer 0");
+        assertEq(mask, ELIGIBILITY_PASS, "AggregatorDeployed mask");
+        assertEq(minLive, MIN_LIVE_SOURCES, "AggregatorDeployed minLiveSources");
+        assertEq(silence, MAX_SILENCE, "AggregatorDeployed maxSilence");
+        assertEq(interval, CYCLE_CLOSE_INTERVAL, "AggregatorDeployed cycleCloseInterval");
+        assertEq(seasoning, SEASONING_WINDOW, "AggregatorDeployed seasoningWindow");
+        assertEq(jump, MAX_JUMP_BPS, "AggregatorDeployed maxJumpBps");
+        assertEq(dispersion, MAX_DISPERSION_BPS, "AggregatorDeployed maxDispersionBps");
+        assertEq(firstPrice, MAX_FIRST_PRICE_USDC6, "AggregatorDeployed maxFirstPrice");
+        assertEq(ceiling, VALUE_CEILING_USDC6, "AggregatorDeployed valueCeiling");
     }
 
     function _decodeRegionRule(bytes memory data)
