@@ -49,7 +49,7 @@ order is part of the constructor.
 | `cycleCloseInterval` | `86400` seconds | ENG-4414 artifact |
 | `seasoningWindow` | `86400` seconds | ENG-4414 artifact |
 | `maxJumpBps` | `5000` | ENG-4414 artifact |
-| `maxDispersionBps` | `30000` | ENG-4414 artifact. The script default is `20000`, so `30000` was exported explicitly (`FABRICA_AGGREGATOR_MAX_DISPERSION_BPS`) |
+| `maxDispersionBps` | `30000` | ENG-4414 artifact value. The script default is `30000` (script:54) |
 | `maxFirstPriceUsdc6` | `50000000000000` | ENG-4414 artifact |
 | `valueCeilingUsdc6` | `50000000000000` | ENG-4414 artifact |
 

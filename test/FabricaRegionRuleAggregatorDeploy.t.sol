@@ -206,10 +206,14 @@ contract FabricaRegionRuleAggregatorDeployTest is Test {
         );
         harness.assertIntendedEqualsDeployed(aggregator, mismatched);
     }
+}
 
+/// @dev Grok rv3-4397-pr60 R3-1: this cell needs no fork, so it moved out of
+///      FabricaRegionRuleAggregatorDeployTest (whose setUp skips when SEPOLIA_RPC_URL is unset)
+///      into its own contract with no setUp, so it always runs in CI.
+contract FabricaRegionRuleAggregatorDeployDefaultTest is Test {
     /// @dev Grok rv2-4397-pr60 check #2: pins the maxDispersionBps default to the accepted,
-    ///      on-chain value (30000). Runs with no SEPOLIA_RPC_URL and no other env set, so it
-    ///      always runs in CI, unlike the fork-only cells above.
+    ///      on-chain value (30000).
     function test_defaultMaxDispersionBpsResolvesTo30000WhenEnvUnset() public {
         FabricaRegionRuleAggregatorDeployHarness harness = new FabricaRegionRuleAggregatorDeployHarness();
         assertEq(harness.resolvedMaxDispersionBpsDefault(), 30_000);
