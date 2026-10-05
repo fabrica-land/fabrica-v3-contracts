@@ -213,8 +213,14 @@ contract FabricaRegionRuleAggregatorDeployTest is Test {
 ///      into its own contract with no setUp, so it always runs in CI.
 contract FabricaRegionRuleAggregatorDeployDefaultTest is Test {
     /// @dev Grok rv2-4397-pr60 check #2: pins the maxDispersionBps default to the accepted,
-    ///      on-chain value (30000).
+    ///      on-chain value (30000). CodeRabbit review 5411733862: first proves
+    ///      FABRICA_AGGREGATOR_MAX_DISPERSION_BPS is unset by reading it with a sentinel no real
+    ///      config uses, then asserts the resolved default.
     function test_defaultMaxDispersionBpsResolvesTo30000WhenEnvUnset() public {
+        uint256 sentinel = type(uint256).max;
+        uint256 envValue = vm.envOr("FABRICA_AGGREGATOR_MAX_DISPERSION_BPS", sentinel);
+        assertEq(envValue, sentinel, "FABRICA_AGGREGATOR_MAX_DISPERSION_BPS must be unset for this test");
+
         FabricaRegionRuleAggregatorDeployHarness harness = new FabricaRegionRuleAggregatorDeployHarness();
         assertEq(harness.resolvedMaxDispersionBpsDefault(), 30_000);
     }
