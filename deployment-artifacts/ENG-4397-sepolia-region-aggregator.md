@@ -16,8 +16,8 @@ mainnet transaction was sent.
 | Block | `11846649` |
 | Gas | `2312553` used at `1059911686` wei effective gas price |
 | Deployer | Keystore `eng156-4397-pr8-deployer`, inherited across the lane chain (eng156 → eng157 → eng158); nonce `0` before this deployment |
-| Funding | 0.02 SepoliaETH, dispensed by Brioche via `wallet_dispense` (cited from predecessor eng156's HANDOFF, not independently re-traced on-chain); balance confirmed `0.02` ETH at block `11846623` (this lane's §0 gate) and still sufficient after the ~0.0063 ETH spend |
-| Explorer verification | First attempt via `--verify` on the broadcast: `Unable to locate ContractCode`, retried automatically by the same `forge script` invocation, then `Response: OK` / `Details: Pass - Verified` / `Contract successfully verified` |
+| Funding | 0.02 SepoliaETH, dispensed by Brioche via `wallet_dispense` (cited from predecessor eng156's HANDOFF, not independently re-traced on-chain); balance confirmed `0.02` ETH at block `11846623` (this lane's §0 gate) and still sufficient after the `2451101949194358` wei (`0.002451` ETH) spend, the receipt fee for [`0xd15d9ad598968c2c2859be78d29ccd85968904073061fcb9a96e6098bc803cb3`](https://sepolia.etherscan.io/tx/0xd15d9ad598968c2c2859be78d29ccd85968904073061fcb9a96e6098bc803cb3) |
+| Explorer verification | Submit 1: `Unable to locate ContractCode`; waited 5 s. Submit 2: `Response: OK`, GUID `t9avw586f7yc3znyxwzrcacgnhzsibkubutdbwiiurqf7almq7`; status `NOTOK` "Pending in queue", then `OK` "Pass - Verified" / "Contract successfully verified". [Etherscan](https://sepolia.etherscan.io/address/0xe268c436ffb482c32709ed1e038500429378ca59) |
 
 Predicted address (`cast compute-address`, deployer, nonce `0`), the prior
 dry-run simulation, and the broadcast all agree on
@@ -57,9 +57,11 @@ order is part of the constructor.
 
 A fresh dry run (predecessor eng157, no `--broadcast`) at block `11846578`
 printed `Chain 11155111`, `SIMULATION COMPLETE`, and `Intended and deployed
-parameters agree on every field.` It estimated `3006318` total script gas at
-`2.332906595` gwei (`0.00701345908886721` ETH), under the deployer's `0.02`
-ETH balance. `cast compute-address` for that sender and nonce `0` predicted
+parameters agree on every field.` It estimated `3006318` total script gas
+(the forge SIMULATION estimate, not a broadcast figure; the broadcast
+receipt's actual `gasUsed` was `2312553`) at `2.332906595` gwei
+(`0.00701345908886721` ETH), under the deployer's `0.02` ETH balance.
+`cast compute-address` for that sender and nonce `0` predicted
 the deployed address exactly, matching this broadcast. Gas price was checked
 under the 20-gwei hold threshold immediately before this broadcast
 (`1112188306` wei, ~`1.11` gwei, this lane's §0 gate at block `11846623`).

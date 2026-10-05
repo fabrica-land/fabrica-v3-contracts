@@ -206,6 +206,14 @@ contract FabricaRegionRuleAggregatorDeployTest is Test {
         );
         harness.assertIntendedEqualsDeployed(aggregator, mismatched);
     }
+
+    /// @dev Grok rv2-4397-pr60 check #2: pins the maxDispersionBps default to the accepted,
+    ///      on-chain value (30000). Runs with no SEPOLIA_RPC_URL and no other env set, so it
+    ///      always runs in CI, unlike the fork-only cells above.
+    function test_defaultMaxDispersionBpsResolvesTo30000WhenEnvUnset() public {
+        FabricaRegionRuleAggregatorDeployHarness harness = new FabricaRegionRuleAggregatorDeployHarness();
+        assertEq(harness.resolvedMaxDispersionBpsDefault(), 30_000);
+    }
 }
 
 /// @dev Exposes the script's internal assert so tests can check it against an independently-built
@@ -216,5 +224,11 @@ contract FabricaRegionRuleAggregatorDeployHarness is FabricaRegionRuleAggregator
         FabricaRegionRuleAggregator.Config memory params
     ) external view {
         _assertIntendedEqualsDeployed(aggregator, params);
+    }
+
+    /// @dev Mirrors _config()'s own resolution of maxDispersionBps, so a passing test proves the
+    ///      default env falls back to DEFAULT_MAX_DISPERSION_BPS (ENG-4397 Grok check #2).
+    function resolvedMaxDispersionBpsDefault() external view returns (uint256) {
+        return vm.envOr("FABRICA_AGGREGATOR_MAX_DISPERSION_BPS", uint256(DEFAULT_MAX_DISPERSION_BPS));
     }
 }

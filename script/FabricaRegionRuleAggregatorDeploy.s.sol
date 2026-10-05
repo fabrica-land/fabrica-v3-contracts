@@ -51,7 +51,7 @@ contract FabricaRegionRuleAggregatorDeployScript is Script {
     uint64 internal constant DEFAULT_CYCLE_CLOSE_INTERVAL = 1 days;
     uint64 internal constant DEFAULT_SEASONING_WINDOW = 24 hours;
     uint16 internal constant DEFAULT_MAX_JUMP_BPS = 5000;
-    uint16 internal constant DEFAULT_MAX_DISPERSION_BPS = 20_000;
+    uint16 internal constant DEFAULT_MAX_DISPERSION_BPS = 30_000;
     uint128 internal constant DEFAULT_MAX_FIRST_PRICE_USDC6 = 50_000_000e6;
     uint128 internal constant DEFAULT_VALUE_CEILING_USDC6 = 50_000_000e6;
 
