@@ -29,9 +29,7 @@ contract FabricaRegionRuleAggregatorDeployTest is Test {
     function setUp() public {
         string memory rpc = vm.envOr("SEPOLIA_RPC_URL", string(""));
         vm.skip(bytes(rpc).length == 0);
-        if (bytes(rpc).length != 0) {
-            vm.createSelectFork(rpc, SEPOLIA_FORK_BLOCK);
-        }
+        vm.createSelectFork(rpc, SEPOLIA_FORK_BLOCK);
         script = new FabricaRegionRuleAggregatorDeployScript();
     }
 
@@ -144,5 +142,79 @@ contract FabricaRegionRuleAggregatorDeployTest is Test {
             )
         );
         script.runWithConfig(config);
+    }
+
+    function _configWithRegions(string[] memory regions)
+        internal
+        pure
+        returns (FabricaRegionRuleAggregator.Config memory config)
+    {
+        config = _liveConfig();
+        config.allowedRegions = regions;
+    }
+
+    /// @dev Proof (ii), ENG-4397 F2: the region-digest loop in _assertIntendedEqualsDeployed
+    ///      actually runs on a non-empty allowedRegions list, not just the live (empty) config.
+    function test_runWithConfig_deploysAndMatchesIntended_withRegions() public {
+        string[] memory regions = new string[](1);
+        regions[0] = "Massachusetts";
+        FabricaRegionRuleAggregator.Config memory config = _configWithRegions(regions);
+        FabricaRegionRuleAggregator aggregator = script.runWithConfig(config);
+
+        assertEq(aggregator.allowedRegionCount(), 1);
+        assertEq(
+            aggregator.allowedRegionDigestAt(0),
+            uint128(uint256(keccak256(bytes("fabrica.jurisdiction.region:Massachusetts"))) >> 193)
+        );
+    }
+
+    /// @dev Mutant target (country): deletes the allowedCountryDigest check in
+    ///      _assertIntendedEqualsDeployed and this test fails (no revert) because nothing else
+    ///      compares the deployed country digest against an independently-built params struct.
+    function test_runWithConfig_refusesIntendedCountryMismatch() public {
+        FabricaRegionRuleAggregatorDeployHarness harness = new FabricaRegionRuleAggregatorDeployHarness();
+        FabricaRegionRuleAggregator.Config memory config = _liveConfig();
+        FabricaRegionRuleAggregator aggregator = harness.runWithConfig(config);
+
+        FabricaRegionRuleAggregator.Config memory mismatched = _liveConfig();
+        mismatched.allowedCountry = "Canada";
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                FabricaRegionRuleAggregatorDeployScript.IntendedVsDeployedMismatch.selector, "allowedCountryDigest"
+            )
+        );
+        harness.assertIntendedEqualsDeployed(aggregator, mismatched);
+    }
+
+    /// @dev Mutant target (region): deletes the allowedRegionDigestAt loop in
+    ///      _assertIntendedEqualsDeployed and this test fails (no revert) because nothing else
+    ///      compares a deployed region digest against an independently-built params struct.
+    function test_runWithConfig_refusesIntendedRegionMismatch() public {
+        FabricaRegionRuleAggregatorDeployHarness harness = new FabricaRegionRuleAggregatorDeployHarness();
+        string[] memory regions = new string[](1);
+        regions[0] = "Massachusetts";
+        FabricaRegionRuleAggregator.Config memory config = _configWithRegions(regions);
+        FabricaRegionRuleAggregator aggregator = harness.runWithConfig(config);
+
+        string[] memory mismatchedRegions = new string[](1);
+        mismatchedRegions[0] = "Rhode Island";
+        FabricaRegionRuleAggregator.Config memory mismatched = _configWithRegions(mismatchedRegions);
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                FabricaRegionRuleAggregatorDeployScript.IntendedVsDeployedMismatch.selector, "allowedRegionDigest"
+            )
+        );
+        harness.assertIntendedEqualsDeployed(aggregator, mismatched);
+    }
+}
+
+/// @dev Exposes the script's internal assert so tests can check it against an independently-built
+///      params struct, without changing the script's own public behavior (ENG-4397 F2).
+contract FabricaRegionRuleAggregatorDeployHarness is FabricaRegionRuleAggregatorDeployScript {
+    function assertIntendedEqualsDeployed(
+        FabricaRegionRuleAggregator aggregator,
+        FabricaRegionRuleAggregator.Config memory params
+    ) external view {
+        _assertIntendedEqualsDeployed(aggregator, params);
     }
 }

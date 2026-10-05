@@ -235,8 +235,16 @@ contract FabricaRegionRuleAggregatorDeployScript is Script {
         if (aggregator.jurisdictionWriter() != params.jurisdictionWriter) {
             revert IntendedVsDeployedMismatch("jurisdictionWriter");
         }
+        if (aggregator.allowedCountryDigest() != _jurisdictionDigest("country", params.allowedCountry)) {
+            revert IntendedVsDeployedMismatch("allowedCountryDigest");
+        }
         if (aggregator.allowedRegionCount() != params.allowedRegions.length) {
             revert IntendedVsDeployedMismatch("allowedRegionCount");
+        }
+        for (uint256 i = 0; i < params.allowedRegions.length; i++) {
+            if (aggregator.allowedRegionDigestAt(i) != _jurisdictionDigest("region", params.allowedRegions[i])) {
+                revert IntendedVsDeployedMismatch("allowedRegionDigest");
+            }
         }
         if (aggregator.requiredEligibilityMask() != params.requiredEligibilityMask) {
             revert IntendedVsDeployedMismatch("requiredEligibilityMask");
@@ -259,5 +267,11 @@ contract FabricaRegionRuleAggregatorDeployScript is Script {
         if (aggregator.valueCeilingUsdc6() != params.valueCeilingUsdc6) {
             revert IntendedVsDeployedMismatch("valueCeilingUsdc6");
         }
+    }
+
+    /// @dev Mirrors FabricaRegionRuleAggregator's internal digest encoding (src/FabricaRegionRuleAggregator.sol)
+    ///      so the deploy script can verify stored digests without a getter for the raw preimage.
+    function _jurisdictionDigest(string memory field, string memory name) private pure returns (uint128) {
+        return uint128(uint256(keccak256(bytes(string.concat("fabrica.jurisdiction.", field, ":", name)))) >> 193);
     }
 }
