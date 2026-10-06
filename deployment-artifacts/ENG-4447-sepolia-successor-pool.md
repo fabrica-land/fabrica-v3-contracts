@@ -1,9 +1,8 @@
 # ENG-4447 — Sepolia successor-oracle pool
 
-This record covers a new Sepolia pool for the successor eligibility aggregator.
-The deployment transaction has **not** been broadcast. The address below is
-only the result of a simulation and can change if the factory creates another
-pool first. A separate broadcast approval is required.
+This record covers the new Sepolia pool for the successor eligibility aggregator.
+Baguette authorized one factory transaction after the simulation. The deployed
+address matched the predicted address.
 
 ## Approved parameters
 
@@ -59,11 +58,45 @@ for a conservative funding check. Re-estimate before a live transaction.
 
 ## Broadcast and readback
 
-**PENDING BROADCAST GO.** Before sending, rerun the exact simulation and
-compare the initializer hash. Record the actual address, transaction hash,
-receipt status, gas used, effective gas price, and block here. Read every
-new-pool getter in the table and require each value to match. Confirm factory
-`isPool(newPool) == true`.
+The shared-vault wallet
+`0x8a2f7a392f66c708133600d6f4cffafde300948a` submitted one Sepolia
+transaction to `PoolFactory.createProxied(address,bytes)`. The submitted
+900-byte calldata matched the approved simulation exactly. The pre-broadcast
+simulation and `cast call` both predicted
+`0x7cEcd424e48810034049a25A8320e1B18d980F02`.
+
+| Receipt field | Observed value |
+| --- | --- |
+| Transaction | [`0x95dbfc57…e46b4e6`](https://sepolia.etherscan.io/tx/0x95dbfc57a3deb42f8e7a39a2beb3d405df8e49e9c9ebcf0ce820983a8e46b4e6) |
+| Status | `1` |
+| Block | `11856678` |
+| Sender | `0x8a2f7a392f66c708133600d6f4cffafde300948a` |
+| Factory | `0x110bD40421Bf418A8B0d8AbA6568fB020c42Ee83` |
+| Gas used | `2521388` |
+| Effective gas price | `1099713143` wei |
+| Fee | `2772803522202484` wei (`0.002772803522202484` ETH) |
+| Deployed pool | [`0x7cEcd424…d980F02`](https://sepolia.etherscan.io/address/0x7cEcd424e48810034049a25A8320e1B18d980F02) |
+
+The factory's event names the deployed pool and the pinned beacon. The receipt
+has no top-level `contractAddress` because the factory created the proxy
+internally.
+
+At receipt block `11856678`, public Sepolia RPC getter reads returned every
+value in the approved parameter table:
+
+<!-- markdownlint-disable MD013 -->
+
+| Getter | On-chain result | Match |
+| --- | --- | --- |
+| `collateralToken()` | `0xb52ED2Dc8EBD49877De57De3f454Fd71b75bc1fD` | Yes |
+| `currencyToken()` | `0x1c7D4B196Cb0C7B01d743Fbc6116a902379C7238` | Yes |
+| `priceOracle()` | `0xe268C436ffb482c32709ed1e038500429378cA59` | Yes |
+| `durations()` | `62208000, 31104000, 23328000, 15552000, 10368000, 7776000, 5184000, 2592000` | Yes |
+| `rates()` | `1585489599, 2219685438, 3170979198, 4122272957, 4756468797, 5390664637, 6341958396, 7927447995` | Yes |
+| `admin()` | `0x110bD40421Bf418A8B0d8AbA6568fB020c42Ee83` | Yes |
+| Factory `isPool(newPool)` | `true` | Yes |
+
+<!-- markdownlint-enable MD013 -->
 
 The old pool keeps its existing LP position. Brioche accepted its residual
 Sepolia exposure. Cell 3 removes it from the API and Soil rosters without
