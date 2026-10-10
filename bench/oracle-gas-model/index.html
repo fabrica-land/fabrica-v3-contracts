@@ -97,6 +97,7 @@ footer{border-top:1px solid var(--line);padding:18px 20px 40px;color:var(--muted
     <label for="d-layer">Oracle contract</label>
     <select id="d-layer">
       <option value="bespoke">Bespoke — the custom fact store</option>
+      <option value="shipped">Bespoke — shipped (the round-3 store's receipts)</option>
       <option value="eas">EAS — Ethereum Attestation Service</option>
     </select>
     <div class="hint" id="layer-hint"></div>
@@ -2915,10 +2916,10 @@ const DATA = {
   }
  ],
  "meta": {
-  "commit": "4b23bbd68d089edb5a29212e2545aedc71bbc03c",
-  "commitShort": "4b23bbd",
+  "commit": "046c5b53147be9ffc19448232d8ab32aa0d98e24",
+  "commitShort": "046c5b5",
   "historyDepth": 48,
-  "inputDigest": "f04916775cfe2898",
+  "inputDigest": "5fd5f70530f0aa87",
   "reportHeader": "# ENG-3913 \u2014 per-scenario gas bench, literal output\n#\n# repo:    fabrica-v3-contracts\n# base:    origin/main @ 4b9201d17d78c7296545a6bd5ef6ac8da1d5a86e\n# branch:  tozzetto/eng-3913-oracle-gas-model\n# command: forge test --match-path test/Eng3913OracleGasBench.t.sol -vv\n# forge:   forge Version: 1.7.1 (Commit SHA: 4072e48705af9d93e3c0f6e29e93b5e9a40caed8)\n# profile: optimizer=true, optimizer_runs=1, via_ir=false (foundry.toml [profile.default])\n# knobs:   FabricaAttributeOracle.defaultKnobs() \u2014 the config\n#          script/FabricaAttributeOracleDeploy.s.sol deploys with.\n#\n# \u26a0 RUN THIS WITHOUT --gas-report.\n#   Foundry's gas-report instrumentation inflates the gasleft() deltas these benches\n#   read, and the codeless-control subtraction absorbs most but not all of it. The CSV\n#   rows here are valid ONLY from a plain -vv run. Under --gas-report the steady-state\n#   writePrice row reads 72,268 instead of 73,812."
  },
  "read": {
@@ -4739,7 +4740,8 @@ function attrCostForMonth(writesBefore, writesThis) {
    that renders the total renders the exclusion with it. That is the page's standing rule --
    nothing here is estimated -- applied to a layer that is only partly measured. */
 function writeProfile(armKey) {
-  if (S.layer !== "eas") {
+  // ENG-4344: three layers, each tested by name. A non-EAS value is no longer read as bespoke.
+  if (S.layer === "bespoke") {
     const c = priceRegimes(false);
     return {
       layer: "bespoke", arm: null, armLabel: "the custom fact store",
@@ -4760,6 +4762,46 @@ function writeProfile(armKey) {
       attrTxnsFor: writes => writes,
       registration: true,
       excluded: [],
+    };
+  }
+  if (S.layer === "shipped") {
+    /* ENG-4344. The round-3 store AS SHIPPED: price writes and cycle closes from its Sepolia
+       receipts (SHIPPED, ENG-4342), not the Foundry prototype rows. A shipped write is one
+       transaction carrying a batch of facts, so the batch dial applies to the price term: per
+       fact = floor of (the transaction's true fixed term + its true marginal x batch) / batch,
+       the receipts' own decomposition (SHIPPED_CMP), floored as the EAS arm floors its per fact.
+       This makes the bespoke and EAS price terms like for like. */
+    const perFact = Math.floor(
+      (SHIPPED_CMP.trueFixed + SHIPPED_CMP.trueMarginal * S.batch) / S.batch);
+    // No shipped receipt exists for an attribute write or for the urgent single write, so each
+    // is named here and left out -- never estimated, never silently zeroed.
+    const excluded = [];
+    if (S.attrs > 0) excluded.push(`attribute writes: no shipped receipt of an attribute write,
+      so this term is excluded rather than estimated`);
+    if (S.urgent > 0) excluded.push(`the urgent write: no shipped receipt of an urgent write, so
+      the urgent class is excluded rather than estimated`);
+    return {
+      layer: "shipped", arm: null, armLabel: "the custom fact store, as shipped",
+      // Every shipped write is a FIRST write (NO_REPEATS). A row's later writes are charged at
+      // this first-write figure: an UPPER BOUND, not a forecast. There is no ring to walk, so the
+      // cost is flat in the write count.
+      priceCum: n => perFact * n,
+      priceEach: perFact,
+      priceTxnsFor: writes => Math.ceil(writes / S.batch),
+      priceBatchesFor: writes => Math.ceil(writes / S.batch),
+      addendCount: 1,
+      closeTxnsEach: 1,
+      urgentPerWrite: () => 0,
+      urgentExcluded: S.urgent > 0,
+      closeRepeat: SHIPPED.closes.repeatGas,
+      closeFirst: SHIPPED.closes.firstGas,
+      attrCum: null,
+      attrEach: null,
+      attrTxnsFor: () => 0,
+      // Round 3 has no per-token registration gate.
+      registration: false,
+      excluded,
+      regimeNote: "first-write regime; no repeat-write cost measured",
     };
   }
   const arm = BATCH.eas.arms.find(a => a.key === (armKey || EAS_HEADLINE_ARM));
@@ -5628,6 +5670,8 @@ function renderShipped() {
 }
 
 function renderReadSide() {
+  // "bespoke" and "shipped" are the same store family: the dial picks the WRITE rows only, and a
+  // read sends no transaction, so there is no shipped read receipt. Both render the store's rows.
   const isEas = S.layer === "eas";
   const arms = READ.arms;
   const {easArms, cheapest, dearest} = READ_CMP;
@@ -5843,6 +5887,8 @@ function renderReadSide() {
 function render() {
   const m = model();
   const isEas = S.layer === "eas";
+  // ENG-4344. The bespoke option as shipped: batched price writes from the round-3 receipts.
+  const isShipped = S.layer === "shipped";
   // Every EAS arm figure below is computed per arm so the headline can name both without
   // re-running the page: arm 2 is quoted, arm 1 travels on every card.
   const easArmTotals = isEas
@@ -5904,14 +5950,27 @@ function render() {
      round-1 contract, but it was invisible on the page, and an invisible modelling choice is how
      a reader ends up comparing an UNBATCHED bespoke figure against a BATCHED EAS one and calling
      it like for like. Said out loud, on the panel, next to the number it applies to. */
-  document.getElementById("batching-caveat").innerHTML = isEas ? "" : `
+  document.getElementById("batching-caveat").innerHTML = isEas ? "" : isShipped ? `
+    <div class="note warn"><p><strong>These figures are the shipped store's, BATCHED at the
+    dial: ${m.P.regimeNote}.</strong> The price writes ship ${fmt(S.batch)} facts to a
+    transaction — ${fmt(m.priceTxns, 0)} price transactions for ${fmt(m.priceWrites, 0)} facts at
+    the current dials — at <span class="num">${fmt(m.P.priceEach)}</span> gas per fact:
+    ⌊(${fmt(SHIPPED_CMP.trueFixed)} fixed + ${fmt(SHIPPED_CMP.trueMarginal, 0)} marginal ×
+    ${fmt(S.batch)}) / ${fmt(S.batch)}⌋, the receipts' decomposition in <em>Shipped</em>. Every
+    shipped write is a first write, so a row's later writes are charged at the first-write
+    figure: an <strong>upper bound</strong>, not a forecast. The cycle close is the shipped close
+    receipt. This is like for like with the EAS arm, which is batched at the dial too.</p>
+    ${m.P.excluded.length ? `<p><strong>${fmt(m.P.excluded.length)} excluded</strong> on these
+    dials, rather than estimated:</p><ul class="small">${m.P.excluded.map(x =>
+      `<li>${x}</li>`).join("")}</ul>` : ""}</div>` : `
     <div class="note warn"><p><strong>These bespoke figures are UNBATCHED.</strong> This panel
     sends one <code>writePrice</code> transaction per row — ${fmt(m.priceTxns, 0)} price
     transactions for ${fmt(m.priceWrites, 0)} facts at the current dials — because it models the
     round-1 contract, where that is what the keeper did. <strong>The batch-size dial does not
     apply to this term</strong>; on this panel it drives registration only, which is why moving it
     barely moves the total. The EAS arm, by contrast, IS batched here, so comparing the two arms
-    on this panel alone is not like for like.</p>
+    on this panel alone is not like for like. <strong>Bespoke — shipped</strong> on the
+    Oracle-contract dial is the like-for-like option: its price writes are batched at the dial.</p>
     <p class="small">The shipped batching — ${fmt(SHIPPED_CMP.headline.facts)} facts in one
     <code>writeFacts</code> transaction at
     <span class="num">${fmt(SHIPPED_CMP.measuredFloor)}</span> gas per fact — is priced in the
@@ -5958,7 +6017,7 @@ function render() {
     ? ` · partial (${fmt(x.P.excluded.length)} excluded)` : "";
   const partial = partialFor(m);
   cards.push(["Gas per month", cardVal(fmt(m.totalGas)),
-              withAlt(`${fmt(m.txnTotal, 0)} transaction${m.txnTotal === 1 ? "" : "s"}${isEas
+              withAlt(`${fmt(m.txnTotal, 0)} transaction${m.txnTotal === 1 ? "" : "s"}${isEas || isShipped
                 ? `, carrying ${fmt(m.priceWrites, 0)} facts` : ""}${partial}`,
                       x => fmt(x.totalGas))]);
   cards.push(["ETH per month", cardVal(eth(m.toEth(m.totalGas))),
@@ -5971,6 +6030,7 @@ function render() {
               withAlt(`${fmt(S.tokens)} tokens`, x => usd(x.toUsd(x.totalGas / S.tokens)))]);
   cards.push(["USD per token per year", cardVal(usd(m.toUsd(m.yearGas) / S.tokens)),
               withAlt(isEas ? `months ${S.month}–${S.month + 11}, flat: EAS has no history ring`
+                    : isShipped ? `months ${S.month}–${S.month + 11}, flat: ${m.P.regimeNote}`
                             : `months ${S.month}–${S.month + 11}, each in its own regime`,
                       x => usd(x.toUsd(x.yearGas) / S.tokens))]);
   renderReadSide();
@@ -5989,6 +6049,7 @@ function render() {
   const eqPerRow = isEas
     ? (noTotal ? `batch ${fmt(S.batch)}: no measured EAS row`.padEnd(42)
                : `flat, no ring, batch ${fmt(S.batch)}`.padEnd(42))
+    : isShipped ? `flat, first-write regime, batch ${fmt(S.batch)}`.padEnd(42)
     : `regime-weighted for month ${S.month}${S.month < 10 ? " " : ""}              `;
   // An excluded term prints as an exclusion, never as a zero: a zero in a gas column reads as a
   // measurement of nothing rather than as the absence of a measurement.
@@ -5997,9 +6058,11 @@ function render() {
     : m.bootstrapGas ? `${fmt(m.bootstrapCount, 0)} writers, first close, one-time`
     : "not counted this month";
   const eqAttributes = m.P.attrCum === null
-    ? (S.attrs > 0 ? "not measured on EAS, excluded".padEnd(31) : "none on this layer".padEnd(31))
+    ? (S.attrs > 0 ? (isShipped ? "no shipped receipt, excluded" : "not measured on EAS, excluded").padEnd(31)
+                   : "none on this layer".padEnd(31))
     : `${fmt(m.attrWrites, 0)} writes                       `;
-  const eqRegistration = !m.P.registration ? "none on EAS (no per-token gate)"
+  const eqRegistration = !m.P.registration
+    ? (isShipped ? "none in round 3 (no per-token gate)" : "none on EAS (no per-token gate)")
     : m.regGas ? `${fmt(m.regTxns)} tx x ${fmt(S.batch)}/tx, one-time`
     : "not counted this month";
   document.getElementById("headline-eq").textContent =
@@ -6035,7 +6098,7 @@ total                                                    = ${noTotal ? "— not 
     : parts.map(p => `<span><i style="background:${p[2]}"></i>${p[0]} — ${(100 * p[1] / tot).toFixed(1)}%</span>`).join("");
 
   document.getElementById("breakdown").innerHTML = `
-    <thead><tr><th>Component</th><th class="n">${isEas ? "Writes" : "Transactions"}</th>
+    <thead><tr><th>Component</th><th class="n">${isEas || isShipped ? "Writes" : "Transactions"}</th>
       <th class="n">Gas each</th>
       <th class="n">Gas total</th><th class="n">USD</th><th class="n">Share</th></tr></thead>
     <tbody>
@@ -6043,7 +6106,10 @@ total                                                    = ${noTotal ? "— not 
           ? ` <span class="src">${noTotalWhy} — excluded</span>`
           : isEas ? ` <span class="src">facts, batched ${fmt(S.batch)} at a time — they ship in
               ${fmt(m.priceTxns, 0)} transactions (${fmt(m.priceBatches, 0)} batches ×
-              ${m.P.addendCount} writes each); the gas beside them is per fact</span>` : ""}</td>
+              ${m.P.addendCount} writes each); the gas beside them is per fact</span>`
+          : isShipped ? ` <span class="src">facts, batched ${fmt(S.batch)} at a time — they ship in
+              ${fmt(m.priceTxns, 0)} transactions; the gas beside them is per fact,
+              ${m.P.regimeNote}</span>` : ""}</td>
         <td class="n">${fmt(m.priceWrites, 0)}</td>
         <td class="n">${noTotal ? "—" : m.writesPerRowPerMonth > 0 ? fmt(m.perRow / m.writesPerRowPerMonth, 0) : "—"}</td>
         <td class="n">${noTotal ? "—" : fmt(m.priceGas)}</td>
@@ -6055,13 +6121,13 @@ total                                                    = ${noTotal ? "— not 
         <td class="n">${fmt(m.hbGas)}</td><td class="n">${usd(m.toUsd(m.hbGas))}</td>
         <td class="n">${share(m.hbGas)}</td></tr>
       <tr><td>Attribute writes${m.P.attrCum === null && S.attrs > 0
-          ? " <span class=\"src\">not measured on EAS — excluded</span>" : ""}</td>
+          ? ` <span class="src">${isShipped ? "no shipped receipt" : "not measured on EAS"} — excluded</span>` : ""}</td>
         <td class="n">${m.P.attrCum === null ? "—" : fmt(m.attrWrites, 0)}</td>
         <td class="n">${m.P.attrEach && S.attrs ? fmt(m.P.attrEach) : "—"}</td>
         <td class="n">${fmt(m.attrGas)}</td><td class="n">${usd(m.toUsd(m.attrGas))}</td>
         <td class="n">${share(m.attrGas)}</td></tr>
       <tr><td>Registration <span class="src">${m.P.registration ? "round 1 only"
-          : "no per-token gate on EAS"}</span></td>
+          : isShipped ? "no per-token gate in round 3" : "no per-token gate on EAS"}</span></td>
         <td class="n">${m.regTxns ? fmt(m.regTxns) : "—"}</td>
         <td class="n">${m.regGas ? fmt(m.perItemReg, 0) + " /token" : "—"}</td>
         <td class="n">${fmt(m.regGas)}</td><td class="n">${usd(m.toUsd(m.regGas))}</td>
@@ -6130,9 +6196,10 @@ total                                                    = ${noTotal ? "— not 
       ${CHAIN.gasAnchors.map(a => `<tr>
         <td>${a.label}<div class="src">block ${fmt(a.block)}, ${a.timeUtc}</div></td>
         <td class="n">${gwei(a.baseFeeGwei)} gwei</td>
-        <td class="n">${usd(atGas(a.baseFeeGwei, S.tip * S.urgentMult, m.urgentGas))}</td>
+        <td class="n">${m.P.urgentExcluded ? "excluded"
+          : usd(atGas(a.baseFeeGwei, S.tip * S.urgentMult, m.urgentGas))}</td>
         <td class="n">${usd(atGas(a.baseFeeGwei, S.tip, m.deferrableGas))}</td>
-        <td class="n">${usd(atGas(a.baseFeeGwei, S.tip * S.urgentMult, m.urgentGas)
+        <td class="n">${m.P.urgentExcluded ? "—" : usd(atGas(a.baseFeeGwei, S.tip * S.urgentMult, m.urgentGas)
                           + atGas(a.baseFeeGwei, S.tip, m.deferrableGas))}</td></tr>`).join("")}
     </tbody>`;
 
@@ -6144,12 +6211,15 @@ total                                                    = ${noTotal ? "— not 
     fraction of a percent of a month; rendering its cost here would present it as a month's
     exposure to a gas spike. Move the batch dial to a measured size
     (${BATCH.sizes.join(" / ")}) to price the congestion question.</p></div>` : `
-    <div class="note"><p><strong>Holding the urgent class to its bound at the worst moment of
+    <div class="note">${m.P.urgentExcluded ? `<p><strong>The urgent class is excluded on this
+    dial, not estimated:</strong> no shipped receipt exists for an urgent write, so the urgent
+    column and the total beside it print no figure. The deferrable class is the shipped
+    receipts'.</p>` : `<p><strong>Holding the urgent class to its bound at the worst moment of
     the trailing year</strong> (${gwei(peak.baseFeeGwei)} gwei, ${peak.timeUtc}) costs
     <strong>${usd(atGas(peak.baseFeeGwei, S.tip * S.urgentMult, m.urgentGas))}</strong> for
     ${fmt(m.urgentCount, 1)} urgent writes. At the historical peak
     (${gwei(hist.baseFeeGwei)} gwei, ${hist.timeUtc}) the same writes cost
-    <strong>${usd(atGas(hist.baseFeeGwei, S.tip * S.urgentMult, m.urgentGas))}</strong>.</p>
+    <strong>${usd(atGas(hist.baseFeeGwei, S.tip * S.urgentMult, m.urgentGas))}</strong>.</p>`}
     <p><strong>The longest deferral the max-silence dial permits is
     ${fmt(m.hardBoundDays, 2)} days</strong> — that is the hard bound, the point at which the
     aggregator's freshness gate trips and every pool trusting the feed stops lending. A writer
@@ -6236,6 +6306,36 @@ total                                                    = ${noTotal ? "— not 
       “first” is the regime because a batch writes each row once, to a fresh row.`;
     srcLine = `<code>${single.source}</code> for the single write; <code>writePriceBatch</code> rows
       from <code>${BATCH.source.file}</code> @ <code>${srcCommit}</code> (PR #${BATCH.source.pr})${provTag}`;
+  } else if (arm === "shipped") {
+    // ENG-4344. The shipped store's batch cost at the dial sizes, from the receipts' fit (the
+    // same per-fact figure the running cost charges), beside the one batch that shipped.
+    const {trueFixed, trueMarginal, headline, measuredFloor} = SHIPPED_CMP;
+    const fitAt = n => ({whole: trueFixed + trueMarginal * n,
+                         per: Math.floor((trueFixed + trueMarginal * n) / n)});
+    const single = fitAt(1).per;
+    const rows = [1, 10, 100, 1000].map(n => ({label: `fit at n=${fmt(n)}`, ...fitAt(n),
+                                              dialSize: n}))
+      .concat([{label: `receipt ${txLink(headline.hash)}, n=${fmt(headline.facts)} (shipped)`,
+                whole: headline.gasUsed, per: measuredFloor, dialSize: null}]);
+    writeHtml = `<div class="scroll"><table>
+      <thead><tr><th>Write</th><th class="n">Per-fact gas</th><th class="n">vs n=1</th>
+        <th class="n">Whole tx</th><th class="n">Share of a block</th></tr></thead>
+      <tbody>${rows.map(r => {
+        const active = r.dialSize !== null && r.dialSize === S.batch;
+        return `<tr${active ? ' style="background:var(--accent-soft)"' : ""}>
+          <td>${r.label}${dialMark(active)}</td><td class="n"><strong>${fmt(r.per)}</strong></td>
+          <td class="n">${vsCell(r.per, single)}</td>
+          <td class="n">${fmt(r.whole, 0)}</td>${shareCell(r.whole)}</tr>`;
+      }).join("")}</tbody></table></div>`;
+    worth = `A shipped batch pays <span class="num">${fmt(trueFixed)}</span> gas once per
+      transaction and <span class="num">${fmt(trueMarginal, 0)}</span> per fact — the receipts'
+      decomposition in <em>Shipped</em>. Per fact is ⌊(fixed + marginal × n) / n⌋, the figure the
+      running cost charges at the dial. Only the last row is a receipt; the others are the fit at
+      n. A whole transaction past the block limit (red) cannot be sent as one transaction, and the
+      running cost on this option does not split it. Every
+      shipped write is a first write: ${m.P.regimeNote}.`;
+    srcLine = `receipts of <code>${SHIPPED.storeSource}</code> (ENG-4342); fit from
+      <code>shipped-writes.json</code>`;
   } else {
     writeHtml = BATCH.eas.arms.map(a => {
       const [a1, a2] = a.addends, single = Math.floor((O[a1]["1"].total + O[a2]["1"].total) / 1);
@@ -6316,8 +6416,8 @@ total                                                    = ${noTotal ? "— not 
 
   /* Registration — bespoke, round-1 only; unchanged from ENG-3913. Hidden on the EAS arm, which
      has no per-token registration gate (round 2 deletes it, ENG-3924). */
-  document.getElementById("batch-reg-h").hidden = isEas;
-  document.getElementById("batch").innerHTML = isEas ? "" : `
+  document.getElementById("batch-reg-h").hidden = isEas || isShipped;
+  document.getElementById("batch").innerHTML = isEas || isShipped ? "" : `
     <thead><tr><th>Batch size</th><th class="n">Gas per transaction</th><th class="n">Gas per token</th>
       <th class="n">vs one-by-one</th><th class="n">Share of a block</th></tr></thead>
     <tbody>${[1, 10, 100, 1000].map(n => {
@@ -6329,7 +6429,12 @@ total                                                    = ${noTotal ? "— not 
     }).join("")}</tbody>`;
 
   const b1000 = G("registerBatch:" + REG_BATCH_MAX);
-  document.getElementById("batch-notes").innerHTML = isEas ? `
+  document.getElementById("batch-notes").innerHTML = isShipped ? `
+    <div class="note"><p>The round-3 store as shipped has <strong>no per-token
+    registration</strong>: round 2 deleted the registry gate
+    (<a href="https://linear.app/fabrica/issue/ENG-3924">ENG-3924</a>), so the shipped option
+    carries no registration term. Switch to the prototype bespoke option to see the round-1
+    registration figures.</p></div>` : isEas ? `
     <div class="note"><p>The EAS arm has <strong>no per-token registration</strong>: there is no
     owner and no registry gate to batch through. Round 2 deletes registration on the custom store
     too (<a href="https://linear.app/fabrica/issue/ENG-3924">ENG-3924</a>). The measured EAS
@@ -6808,7 +6913,10 @@ function sync() {
   const rn = n => n < 1 ? "write 1" : n < 2 ? "write 2"
     : n < HISTORY_DEPTH ? `writes 3–${HISTORY_DEPTH}` : `write ${HISTORY_DEPTH + 1}+`;
   const monthsToWrap = w > 0 ? Math.max(1, Math.ceil(HISTORY_DEPTH / w)) : null;
-  document.getElementById("regime-hint").innerHTML = w <= 0
+  document.getElementById("regime-hint").innerHTML = S.layer === "shipped"
+    ? `Bespoke — shipped does not walk the ring: every write is charged at the shipped
+       first-write figure (first-write regime; no repeat-write cost measured).`
+    : w <= 0
     ? `No writes are sent at 0% movers, so no row ever advances through the ring.`
     : `Writes ${fmt(before + 1, 1)}–${fmt(after, 1)} of each row's life, i.e. ${rn(before)} → ${rn(after - 0.001)}.
        The ring is ${HISTORY_DEPTH} deep, so a row reaches its cheapest state on write ${HISTORY_DEPTH + 1} —
@@ -6834,6 +6942,12 @@ function sync() {
        <em>Read side</em>, the write side in <em>Batching</em>. Running cost is quoted for
        ${BATCH.eas.arms.find(a => a.key === EAS_HEADLINE_ARM).label}, with the other arm on every
        card, and excludes the terms EAS has no measured row for.`
+    : S.layer === "shipped"
+    ? `The round-3 fact store as shipped: price writes and cycle closes from its Sepolia receipts
+       (ENG-4342), with the price writes batched at the batch dial.
+       <strong>First-write regime; no repeat-write cost measured</strong> — a row's later writes
+       are charged at the first-write figure, an upper bound and not a forecast. Attribute writes
+       and the urgent write have no shipped receipt and are excluded, not estimated.`
     : `The custom fact store as deployed for round 1, measured on <code>main</code>.`;
   const RW = SHIPPED.rewrite;
   document.getElementById("d-rewrite").value = S.rewriteRate;
@@ -6871,7 +6985,17 @@ function sync() {
      <strong>On EAS, batching does not merely converge past ${fmt(BATCH.sizes[BATCH.sizes.length - 1])};
      it reverses.</strong> Per-item attest cost measured at ${fmt(per(100))} at 100,
      ${fmt(per(200))} at 200 and ${fmt(per(BD.firstOver))} at ${fmt(BD.firstOver)} — larger batches
-     cost slightly more per fact, not less. The effect is measured; its cause is not claimed here.`;
+     cost slightly more per fact, not less. The effect is measured; its cause is not claimed here.
+     ${S.layer === "bespoke"
+       ? `<strong>On this option the batch dial does not apply to the price writes:</strong> the
+          running cost sends one <code>writePrice</code> per row. <strong>Bespoke — shipped</strong>
+          is the like-for-like option.`
+       : S.layer === "shipped"
+       ? `<strong>On this option the batch dial applies to the price writes:</strong>
+          ⌊(${fmt(SHIPPED_CMP.trueFixed)} + ${fmt(SHIPPED_CMP.trueMarginal, 0)} × ${fmt(S.batch)})
+          / ${fmt(S.batch)}⌋ = ${fmt(writeProfile().priceEach)} gas per fact, from the shipped
+          receipts.`
+       : ""}`;
   })();
   document.getElementById("reg-hint").innerHTML =
     `A one-time cost at launch, counted in month 1 only. Round 2 deletes the per-token gate
