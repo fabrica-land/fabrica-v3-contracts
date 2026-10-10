@@ -2916,10 +2916,10 @@ const DATA = {
   }
  ],
  "meta": {
-  "commit": "046c5b53147be9ffc19448232d8ab32aa0d98e24",
-  "commitShort": "046c5b5",
+  "commit": "83f8599bf3b135e51624d8f8070b18deb15f8af9",
+  "commitShort": "83f8599",
   "historyDepth": 48,
-  "inputDigest": "5fd5f70530f0aa87",
+  "inputDigest": "b74efe1516144d41",
   "reportHeader": "# ENG-3913 \u2014 per-scenario gas bench, literal output\n#\n# repo:    fabrica-v3-contracts\n# base:    origin/main @ 4b9201d17d78c7296545a6bd5ef6ac8da1d5a86e\n# branch:  tozzetto/eng-3913-oracle-gas-model\n# command: forge test --match-path test/Eng3913OracleGasBench.t.sol -vv\n# forge:   forge Version: 1.7.1 (Commit SHA: 4072e48705af9d93e3c0f6e29e93b5e9a40caed8)\n# profile: optimizer=true, optimizer_runs=1, via_ir=false (foundry.toml [profile.default])\n# knobs:   FabricaAttributeOracle.defaultKnobs() \u2014 the config\n#          script/FabricaAttributeOracleDeploy.s.sol deploys with.\n#\n# \u26a0 RUN THIS WITHOUT --gas-report.\n#   Foundry's gas-report instrumentation inflates the gasleft() deltas these benches\n#   read, and the codeless-control subtraction absorbs most but not all of it. The CSV\n#   rows here are valid ONLY from a plain -vv run. Under --gas-report the steady-state\n#   writePrice row reads 72,268 instead of 73,812."
  },
  "read": {
@@ -4931,9 +4931,12 @@ function model(armKey) {
   // On the deployed round-1 contract every writePrice also refreshes the freshness clock, so a writer
   // that writes at least once per window needs no bare heartbeat at all.
   const coveredByWrites = S.cadence <= hbInterval;
+  // The round-3 store as shipped closes one cycle per writer per day (its receipts: one cycle per
+  // day), so a price write never stands in for a close there, whatever the policy control says.
+  const hbPolicy = S.layer === "shipped" ? "round2" : S.hbPolicy;
   let hbCount;
-  if (S.hbPolicy === "round2") hbCount = S.sources * MONTH_DAYS;      // one close per writer per day
-  else if (S.hbPolicy === "everyCycle") hbCount = S.sources * hbPerWriterPerMonth;
+  if (hbPolicy === "round2") hbCount = S.sources * MONTH_DAYS;      // one close per writer per day
+  else if (hbPolicy === "everyCycle") hbCount = S.sources * hbPerWriterPerMonth;
   else hbCount = coveredByWrites ? 0 : S.sources * (hbPerWriterPerMonth - MONTH_DAYS / S.cadence);
   hbCount = Math.max(0, hbCount);
   // The first close under a writer bootstraps two cold storage words and costs more. It is
@@ -6168,7 +6171,7 @@ total                                                    = ${noTotal ? "— not 
   document.getElementById("crossover").innerHTML = `
     <div class="note ${co !== null && co > S.tokens ? "warn" : "ok"}"><p><strong>At what token count
     does the cycle close stop being the dominant cost?</strong> ${coBody}</p>
-    ${m.coveredByWrites && S.hbPolicy === "whenSilent" ? `<p class="small">With this cadence
+    ${m.coveredByWrites && S.hbPolicy === "whenSilent" && !isShipped ? `<p class="small">With this cadence
     (${S.cadence} day) inside the cycle-close window (${fmt(m.hbInterval, 2)} days),
     ${isEas ? `the EAS arms need <strong>no bare closes at all</strong> either, for a different
     reason: an attestation carries its own publication time, so a read can take freshness from the
@@ -6893,7 +6896,10 @@ function sync() {
   document.getElementById("d-eth").value = S.eth;
   document.getElementById("d-maxsilence").value = S.maxSilence;
   document.getElementById("d-margin").value = S.margin;
-  document.getElementById("d-hbpolicy").value = S.hbPolicy;
+  // The shipped layer always takes the round-2 close (see model()). Show that, and keep the
+  // reader's choice in S for the other layers.
+  document.getElementById("d-hbpolicy").value = S.layer === "shipped" ? "round2" : S.hbPolicy;
+  document.getElementById("d-hbpolicy").disabled = S.layer === "shipped";
   document.getElementById("d-attrs").value = S.attrs;
   document.getElementById("d-moved").value = S.moved;
   document.getElementById("d-urgent").value = S.urgent;
@@ -6925,8 +6931,11 @@ function sync() {
   document.getElementById("hb-hint").textContent =
     `Cycle close every ${fmt(S.maxSilence * (1 - S.margin / 100), 2)} days — ${S.maxSilence} days ` +
     `of tolerated silence less ${S.margin}%. The gate itself trips at ${S.maxSilence} days.`;
-  document.getElementById("hbpolicy-hint").innerHTML =
-    S.hbPolicy === "whenSilent"
+  document.getElementById("hbpolicy-hint").innerHTML = S.layer === "shipped"
+    ? `Fixed at round 2 for <em>Bespoke — shipped</em>: the round-3 store closes one cycle per
+       writer per day (its receipts: one cycle per day), so a price write never stands in for a
+       close. The other layers use the policy selected here.`
+    : S.hbPolicy === "whenSilent"
       ? `Round 1, as deployed: <code>_writePrice</code> calls <code>_touchHeartbeat</code>, so a
          price write already refreshes the clock and a bare close is only needed when the window
          would otherwise lapse.`
