@@ -10,6 +10,40 @@ The old pool's live getters supplied the collection, currency, durations, and
 rates. The API staging roster supplied the successor aggregator address.
 The design of record is ENG-4447 comment `affb6726`.
 
+### Design of record (quoted)
+
+Source: ENG-4447 comment `affb6726` by Baguette, 2026-10-06T15:00:13Z,
+<https://linear.app/fabrica/issue/ENG-4447#comment-affb6726>.
+The comment records the chosen path and its Brioche reference, not a
+comparison of alternative designs.
+
+Path choice:
+
+> Path = new pool via the factory (Brioche 670487).
+
+Parameter source:
+
+> The old pool's live getters supplied every field except oracle. API
+> `origin/main` supplied the oracle. Require exact post-deploy getter
+> readback.
+
+Residual exposure of the old pool:
+
+> The old pool holds **40.000336 test USDC** (`USDC.balanceOf(oldPool)`).
+> Leave its LP position because the share owner is unknown; remove it from
+> both rosters. Direct callers can still borrow against its old oracle. To
+> claim system-wide fail-closed enforcement, its LP owner must redeem and
+> verify zero borrowable liquidity, or Baguette must accept that residual
+> Sepolia exposure.
+
+Open decision, the last line of the comment:
+
+> Open decision (Brioche's, not the lane's or mine): the old pool's
+> 40.000336 test USDC stays borrowable against the old oracle by direct
+> callers until its LP owner redeems.
+
+### Intended values
+
 <!-- markdownlint-disable MD013 -->
 
 | Field | Intended value |
