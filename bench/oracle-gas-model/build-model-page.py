@@ -816,6 +816,17 @@ def parse_shipped(path):
         sys.exit("%s: the headline transaction carries %d facts but the largest keeper batch in "
                  "the window carries %d; the summary card must quote the largest shipped batch"
                  % (path, headline["facts"], max(t["facts"] for t in keeper_writes)))
+    # ENG-4344: "Bespoke — shipped" prices a batch of n as trueFixed + trueMarginal * n, where
+    # the page builds both terms from this fit and the headline's calldata split. At n = the
+    # headline's facts that must BE the headline receipt. The chain of checks above implies it
+    # only while the headline is one of the fitted rows; this states it whatever the fit is from.
+    cd = headline["calldata"]
+    true_whole = (const["txBase"] + cd["headGas"] + fit["fixedExecGas"]
+                  + fit["marginalExecGas"] * headline["facts"] + cd["bodyGas"])
+    if true_whole != headline["gasUsed"]:
+        sys.exit("%s: the shipped running-cost fit gives %d gas at n=%d but the headline receipt "
+                 "%s used %d; the bespoke-shipped option would price a batch the chain did not"
+                 % (path, true_whole, headline["facts"], headline["hash"], headline["gasUsed"]))
 
     # Re-derive the projection from the baseline transaction exactly as ENG-4204 derived it, and
     # refuse to carry a quoted figure this repo cannot reproduce.
