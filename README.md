@@ -1,48 +1,50 @@
-## Foundry
+# Foundry
 
-**Foundry is a blazing fast, portable and modular toolkit for Ethereum application development written in Rust.**
+**Foundry is a portable, modular toolkit for Ethereum application development
+written in Rust.**
 
 Foundry consists of:
 
--   **Forge**: Ethereum testing framework (like Truffle, Hardhat and DappTools).
--   **Cast**: Swiss army knife for interacting with EVM smart contracts, sending transactions and getting chain data.
--   **Anvil**: Local Ethereum node, akin to Ganache, Hardhat Network.
--   **Chisel**: Fast, utilitarian, and verbose solidity REPL.
+- **Forge**: Ethereum testing framework (like Truffle, Hardhat and DappTools).
+- **Cast**: Tool for interacting with EVM contracts, sending transactions, and
+  getting chain data.
+- **Anvil**: Local Ethereum node, akin to Ganache or Hardhat Network.
+- **Chisel**: Solidity REPL.
 
 ## Documentation
 
-https://book.getfoundry.sh/
+[Foundry book](https://book.getfoundry.sh/)
 
 ## Usage
 
 ### Build
 
 ```shell
-$ forge build
+forge build
 ```
 
 ### Test
 
 ```shell
-$ forge test
+forge test
 ```
 
 ### Format
 
 ```shell
-$ forge fmt
+forge fmt
 ```
 
 ### Gas Snapshots
 
 ```shell
-$ forge snapshot
+forge snapshot
 ```
 
 ### Anvil
 
 ```shell
-$ anvil
+anvil
 ```
 
 ### Deploy
@@ -62,19 +64,11 @@ forge script script/FabricaMarketplaceZone.s.sol \
   "$ORACLE_SIGNER_ADDRESS"
 ```
 
-### Cast
-
-```shell
-cast --help
-```
-
 ### Help
 
-```shell
-$ forge --help
-$ anvil --help
-$ cast --help
-```
+Read the [Foundry book](https://book.getfoundry.sh/) for command help. Do not run
+Foundry `--help` commands inside this repository. See `CLAUDE.md` for the safe
+help procedure.
 
 ### Deploying
 
