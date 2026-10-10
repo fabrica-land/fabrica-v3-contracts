@@ -2,6 +2,7 @@
 pragma solidity ^0.8.28;
 
 import {Script, console} from "forge-std/Script.sol";
+import {ERC1967Utils} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Utils.sol";
 
 interface IEng4447PoolFactory {
     function createProxied(address beacon, bytes calldata params) external returns (address);
@@ -47,6 +48,8 @@ contract Eng4447CreateSuccessorPoolScript is Script {
         pool = IEng4447PoolFactory(FACTORY).createProxied(BEACON, params);
         vm.stopBroadcast();
         require(IEng4447PoolFactory(FACTORY).isPool(pool), "ENG-4447: pool not registered");
+        address beaconFromSlot = address(uint160(uint256(vm.load(pool, ERC1967Utils.BEACON_SLOT))));
+        require(beaconFromSlot == BEACON, "ENG-4447: beacon mismatch");
         _assertPool(IEng4447Pool(pool), FACTORY, SUCCESSOR, expectedDurations, expectedRates);
         console.log("ENG-4447 simulated pool", pool);
     }

@@ -117,6 +117,32 @@ value in the approved parameter table:
 
 <!-- markdownlint-enable MD013 -->
 
+**Eligibility enforcement (D5).** The getter reads confirm the configured
+oracle address. They do not show that the pool rejects an ineligible token. A
+direct borrow call to the new pool records that check:
+
+- token ID: `2217377156204378591`
+- Sepolia block: `11866397`
+- result: reverted with `CheckFailed eligibility_vacant_land`
+- evidence: Vacherin `680572` cells 1 and 2 MEET. Vacherin `685099` confirms
+  "Cells 1, 2 stay met".
+
+This artifact cites that evidence. It does not re-run the borrow.
+
 The old pool keeps its existing LP position. Brioche accepted its residual
 Sepolia exposure. Cell 3 removes it from the API and Soil rosters without
 redeeming the position.
+
+## Roster activation (D4a)
+
+The new pool `0x7cEcd424e48810034049a25A8320e1B18d980F02` is in both staging
+rosters:
+
+- API staging roster: merged PR api#2014
+  (`4d6cdb6a26e180667522563796d3a503e7541f03`) adds it. Evidence: Vacherin
+  `687847` API A1 MEETS.
+- Soil staging roster: merged PR soil#1452
+  (`0eed4b957325d80180f7e88add65c475f71be6c9`) adds it. Evidence: Vacherin
+  `680572` soil cells 1 and 2.
+
+This artifact cites those PRs and verdicts. It does not re-run them.
