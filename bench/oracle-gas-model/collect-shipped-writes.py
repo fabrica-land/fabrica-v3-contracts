@@ -376,7 +376,8 @@ def etherscan_cross_check(api_key, from_block, to_block):
                 "more than %d transactions: txlist refuses page x offset above %d"
                 % (ETHERSCAN_MAX_WINDOW, ETHERSCAN_MAX_WINDOW))}
         if page > 1:
-            time.sleep(0.25)  # Etherscan's rate limit; one fixed pause per page, not a poll.
+            # Etherscan's rate limit; one fixed pause per page, not a poll.
+            time.sleep(0.25)
         url = "https://api.etherscan.io/v2/api?" + urllib.parse.urlencode({
             "chainid": CHAIN_ID, "module": "account", "action": "txlist", "address": STORE,
             "startblock": from_block, "endblock": to_block, "sort": "asc",
