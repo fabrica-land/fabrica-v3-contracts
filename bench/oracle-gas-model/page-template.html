@@ -124,6 +124,7 @@ footer{border-top:1px solid var(--line);padding:18px 20px 40px;color:var(--muted
     <div class="seg" id="d-cadence-seg" role="group" aria-label="Write cadence presets">
       <button data-v="0.25">6 h</button><button data-v="0.5">12 h</button>
       <button data-v="1">1 day</button><button data-v="3">3 days</button>
+      <button data-v="30.436875">monthly</button>
     </div>
     <input type="number" id="d-cadence" min="0.01" step="0.01" style="margin-top:6px">
     <div class="hint" id="cadence-hint"></div>
@@ -181,6 +182,7 @@ footer{border-top:1px solid var(--line);padding:18px 20px 40px;color:var(--muted
       <option value="whenSilent">Round 1 — a price write covers the window</option>
       <option value="everyCycle">Round 1 — explicit close every window</option>
       <option value="round2">Round 2 — daily cycle close</option>
+      <option value="closeEvery">Round 3 — close every interval; a write does not close</option>
     </select>
     <div class="hint" id="hbpolicy-hint"></div>
   </div>
@@ -222,9 +224,9 @@ footer{border-top:1px solid var(--line);padding:18px 20px 40px;color:var(--muted
   </div>
 
   <div class="dial">
-    <label for="d-defer">Deferral threshold, gwei</label>
+    <label for="d-defer">Gas-price ceiling, gwei</label>
     <input type="number" id="d-defer" min="0" step="0.01">
-    <div class="hint">Deferrable work waits for the base fee to fall below this.</div>
+    <div class="hint" id="defer-hint"></div>
   </div>
 
   <div class="dial">
@@ -250,6 +252,9 @@ footer{border-top:1px solid var(--line);padding:18px 20px 40px;color:var(--muted
     <div class="eq" id="scale-eq"></div>
     <div id="scale-inputs"></div>
     <div id="scale-notes"></div>
+    <h3>Heartbeat — keeping an unchanged price live</h3>
+    <div class="scroll"><table id="scale-hb"></table></div>
+    <div id="scale-hb-notes"></div>
   </div>
 
   <div class="panel">
@@ -263,6 +268,8 @@ footer{border-top:1px solid var(--line);padding:18px 20px 40px;color:var(--muted
     <div id="shipped-writes-notes"></div>
     <h3>Reconciliation — measured against the projection</h3>
     <div id="shipped-recon"></div>
+    <h3>Two cost periods and repeat writes</h3>
+    <div id="shipped-periods"></div>
     <h3>Cycle closes and locks</h3>
     <div class="scroll"><table id="shipped-other"></table></div>
     <div id="shipped-provenance"></div>
@@ -278,6 +285,9 @@ footer{border-top:1px solid var(--line);padding:18px 20px 40px;color:var(--muted
       modelled, which is why none of it appears in the self-check below: there is no model here to
       check.</p>
     <div id="read-verdict"></div>
+    <h3>Cost tolerance — each EAS arm, the read and the write apart</h3>
+    <div class="scroll"><table id="read-tolerance"></table></div>
+    <div id="read-tolerance-notes"></div>
     <div class="cards" id="read-headline"></div>
     <div class="scroll" style="margin-top:12px"><table id="read-arms"></table></div>
     <div id="read-arms-notes"></div>
@@ -425,6 +435,32 @@ const DEFAULTS = {
 };
 let S = Object.assign({}, DEFAULTS);
 
+/* ENG-4344 deliverable 7: does the daily base-fee series reach a gas-price ceiling inside the
+   slack a piece of deferrable work has? `share` is the fraction of sampled days at or under the
+   ceiling; `longestAbove` the longest run of consecutive sampled days above it. A close that falls
+   due just after a day at or under it can wait that run plus one day, so `worstWaitDays` is the
+   run plus one, or 0 when no sampled day was above. The samples are one block a day: a dip inside
+   a day is invisible, so the test errs toward pricing at the gas dial, never toward a cheaper fee
+   the data does not show. */
+const DAILY_FEES = CHAIN.dailyYear.series.map(p => p.baseFeeGwei);
+function ceilingReach(ceiling, slackDays) {
+  let atOrBelow = 0, run = 0, longestAbove = 0;
+  for (const fee of DAILY_FEES) {
+    if (fee <= ceiling) { atOrBelow++; run = 0; }
+    else longestAbove = Math.max(longestAbove, ++run);
+  }
+  const neverReached = atOrBelow === 0;
+  const worstWaitDays = longestAbove === 0 ? 0 : longestAbove + 1;
+  return {ceiling, slackDays, share: atOrBelow / DAILY_FEES.length, longestAbove, worstWaitDays,
+          neverReached, reached: !neverReached && worstWaitDays <= slackDays};
+}
+const ceilingHint = c => `Deferrable work is priced at this ceiling only when the last
+  ${DAILY_FEES.length} daily base fees reached it inside the ${fmt(c.slackDays, 2)}-day deferral
+  bound. ${(100 * c.share).toFixed(1)}% of days were at or under it; the longest run above it was
+  ${c.longestAbove} day${c.longestAbove === 1 ? "" : "s"}. ${c.neverReached ? "<strong>Never reached:</strong> priced at the gas dial."
+    : c.reached ? "Reached in time." : `<strong>Not reached in time</strong> (worst wait
+      ${c.worstWaitDays} days): priced at the gas dial.`}`;
+
 /* ---------- the model ----------
    A price row is one (oracle source, token, price) slot. Its gas depends on how many
    times that row has been written, because the fact store pushes the previous value into
@@ -502,10 +538,10 @@ function writeProfile(armKey) {
     if (S.urgent > 0) excluded.push(`the urgent write: no shipped receipt of an urgent write, so
       the urgent class is excluded rather than estimated`);
     return {
-      layer: "shipped", arm: null, armLabel: "the custom fact store, as shipped",
-      // Every shipped write is a FIRST write (NO_REPEATS). A row's later writes are charged at
-      // this first-write figure: an UPPER BOUND, not a forecast. There is no ring to walk, so the
-      // cost is flat in the write count.
+      layer: "shipped", arm: null, armLabel: "the custom fact store, as shipped (ENG-4342 cost period)",
+      // A row's later writes are charged at this first-write figure: an UPPER BOUND, since every
+      // measured repeat costs less (SHIPPED_NOW). The figure is the ENG-4342 cost period's. There
+      // is no ring to walk, so the cost is flat in the write count.
       priceCum: n => perFact * n,
       priceEach: perFact,
       priceTxnsFor: writes => Math.ceil(writes / S.batch),
@@ -522,7 +558,7 @@ function writeProfile(armKey) {
       // Round 3 has no per-token registration gate.
       registration: false,
       excluded,
-      regimeNote: "first-write regime; no repeat-write cost measured",
+      regimeNote: SHIPPED_NOW.regimeNote,
     };
   }
   const arm = BATCH.eas.arms.find(a => a.key === (armKey || EAS_HEADLINE_ARM));
@@ -654,10 +690,12 @@ function model(armKey) {
   const coveredByWrites = S.cadence <= hbInterval;
   // The round-3 store as shipped closes one cycle per writer per day (its receipts: one cycle per
   // day), so a price write never stands in for a close there, whatever the policy control says.
-  const hbPolicy = S.layer === "shipped" ? "round2" : S.hbPolicy;
+  // The round-3 policy (ENG-4344) keeps that rule and only lengthens the interval: a writer closes
+  // every hbInterval, write or no write (src/FabricaImmutableAggregator.sol:434-444).
+  const hbPolicy = S.layer === "shipped" && S.hbPolicy !== "closeEvery" ? "round2" : S.hbPolicy;
   let hbCount;
   if (hbPolicy === "round2") hbCount = S.sources * MONTH_DAYS;      // one close per writer per day
-  else if (hbPolicy === "everyCycle") hbCount = S.sources * hbPerWriterPerMonth;
+  else if (hbPolicy === "everyCycle" || hbPolicy === "closeEvery") hbCount = S.sources * hbPerWriterPerMonth;
   else hbCount = coveredByWrites ? 0 : S.sources * (hbPerWriterPerMonth - MONTH_DAYS / S.cadence);
   hbCount = Math.max(0, hbCount);
   // The first close under a writer bootstraps two cold storage words and costs more. It is
@@ -704,7 +742,11 @@ function model(armKey) {
   const urgentPrice = (S.gas + S.tip * S.urgentMult) * 1e-9;
   const urgentUsd = urgentGas * urgentPrice * S.eth;
   const deferrableGas = priceGas + hbGas + attrGas;
-  const deferredPrice = (Math.min(S.defer, S.gas) + S.tip) * 1e-9;
+  // ENG-4344 deliverable 7: the threshold is a gas-price ceiling. Deferrable work is priced at it
+  // only when the daily series reached it inside the operating deferral bound -- hbInterval, which
+  // is maxSilence less the margin (longestDeferralDays below) -- and at the gas dial otherwise.
+  const ceil = ceilingReach(S.defer, hbInterval);
+  const deferredPrice = ((ceil.reached ? Math.min(S.defer, S.gas) : S.gas) + S.tip) * 1e-9;
   const deferrableAtNow = deferrableGas * price * S.eth;
   const deferrableDeferred = deferrableGas * deferredPrice * S.eth;
   const saving = deferrableAtNow - deferrableDeferred;
@@ -756,7 +798,7 @@ function model(armKey) {
           urgentCount, urgentGas, urgentUsd, urgentPerWrite, deferrableGas, deferrableAtNow,
           deferrableDeferred, saving, crossoverTokens, price, urgentPrice, yearGas,
           longestDeferralDays, windowShare, windowGas, windowAtPeak, windowDeferred, windowSaving,
-          hardBoundDays, hardShare, hardGas, hardSaving};
+          hardBoundDays, hardShare, hardGas, hardSaving, ceil};
 }
 
 function batchPerItem(n) { return G("registerBatch:" + n) / n; }
@@ -768,7 +810,8 @@ function batchPerItem(n) { return G("registerBatch:" + n) / n; }
      per hop    = floor(depth delta / (depth steps x oracle sources))   -- the walk is per source
      fork vs tx = (chain - fork) / fork, to 1dp
      growth     = floor(delta / steps) over the measured row depths
-   Pass marks A and B are pre-registered inputs, carried through the build as constants. */
+   The cost tolerance and pass mark B are inputs carried through the build as constants. Only B
+   was pre-registered; the tolerance was set after the arms were measured (ENG-4344). */
 const srcCommitShort = () => READ.source.commit.slice(0, 10);
 const ratio = (gas, denom) => gas / denom;
 const ratioCell = (gas, denom) => ratio(gas, denom).toFixed(2) + "×";
@@ -776,7 +819,8 @@ const perHop = (depths, lo, hi) =>
   Math.floor((depths[String(hi)] - depths[String(lo)]) / ((hi - lo) * READ.sources));
 const pctDiff = (from, to) => (to - from) / from * 100;
 const pctCell = v => (v < 0 ? "−" : "+") + Math.abs(v).toFixed(1) + "%";
-const markA = gas => ratio(gas, READ.fork.arm3["0"]) > READ.marks.aCeiling ? "FAIL" : "pass";
+const withinTolerance = (gas, denom) => ratio(gas, denom) > READ.marks.tolerance ? "FAIL" : "pass";
+const markTol = gas => withinTolerance(gas, READ.fork.arm3["0"]);
 const markB = gas => gas > READ.marks.bAbsolute ? "FAIL" : "pass";
 const verdictCell = v => v === "FAIL"
   ? `<strong style="color:var(--bad)">FAIL</strong>` : `<span style="color:var(--ok)">pass</span>`;
@@ -811,7 +855,10 @@ const READ_CMP = (() => {
     worstAgreeing: Math.max(...agreeing.map(x => Math.abs(x.pct))),
     likeForLike: pctDiff(READ.growth.closeRow[String(probedCloseDepth)],
                          READ.sepolia.probes[outlier.arm.key].gas),
-    aSummary: tally(easArms.map(a => markA(READ.fork[a.key]["0"])), "EAS", "FAIL", "pass"),
+    tally,
+    tolSummary: tally(easArms.map(a => markTol(READ.fork[a.key]["0"])), "EAS", "FAIL", "pass"),
+    tolCalSummary: tally(easArms.map(a => withinTolerance(READ.fork[a.key]["0"], READ.fork.cal["0"])),
+                         "EAS", "FAIL", "pass"),
     bSummary: tally(READ.arms.map(a => markB(READ.fork[a.key]["0"])), "measured", "FAIL", "pass"),
   };
 })();
@@ -886,8 +933,23 @@ const SHIPPED_CMP = (() => {
   // How many DISTINCT senders the independent fit spans. It is two, not one, and that matters:
   // the same fixed term falling out of two unrelated senders with a different fact shape is a
   // stronger claim than one, and the page should make the claim its data actually supports.
-  const independentSenders =
-    new Set(SHIPPED.writes.filter(w => !w.keeperSigner).map(w => w.from)).size;
+  // ENG-4344: the senders are read from the fit's own rows. "Every non-keeper writer" was the
+  // ENG-4203 set only while no other sender wrote; an unconfigured sender now does, and its
+  // writes are listed apart and in no fit.
+  const eng4203From = new Set(SHIPPED.independentFit.rows.map(r => byHash[r.hash].from));
+  const isEng4203 = w => !w.keeperSigner && eng4203From.has(w.from);
+  const independentSenders = eng4203From.size;
+  const eng4203Writes = SHIPPED.writes.filter(isEng4203);
+  const strangerWrites = SHIPPED.writes.filter(w => !w.keeperSigner && !eng4203From.has(w.from));
+  // A group is ENG-4203's when every sender in it is. The rest hold the unconfigured sender, and
+  // some also hold keeper transactions (keeperPass needs every sender to be the keeper's).
+  const eng4203Passes = otherPasses.filter(
+    p => Object.keys(p.signers).every(s => eng4203From.has(s)));
+  const strangerPasses = otherPasses.filter(p => !eng4203Passes.includes(p));
+  const mixedPasses = strangerPasses.filter(
+    p => Object.values(p.signers).some(s => s.keeperSigner));
+  const strangerFrom = [...new Set(strangerWrites.map(w => w.from))];
+  const strangerKinds = [...new Set(strangerWrites.flatMap(w => w.kinds))];
   // Which of the configured price writers actually wrote price facts in this window, in the
   // order they first did. The summary card charges all three; saying which ones the chain shows
   // is the difference between a named assumption and a quiet one.
@@ -899,7 +961,8 @@ const SHIPPED_CMP = (() => {
   const silentPriceSigners = SHIPPED.keeperConfig.priceWriters.filter(
     p => !pricingSigners.includes(p));
   return {
-    pricingSigners, silentPriceSigners, independentSenders,
+    pricingSigners, silentPriceSigners, independentSenders, isEng4203, eng4203Writes,
+    strangerWrites, eng4203Passes, strangerPasses, mixedPasses, strangerFrom, strangerKinds,
     headline, baseline, P, F, K, measuredExact, measuredFloor, quotedExact, atShippedExact,
     trueFixed, trueMarginal, baselineMarginal, terms, termSum, difference, unexplained,
     keeperPasses, otherPasses, keeperWrites, ceiling, atCeiling,
@@ -912,7 +975,42 @@ const SHIPPED_CMP = (() => {
   };
 })();
 
-/* The summary card's two arms, and the arithmetic that takes a book size to a month of gas.
+/* ENG-4344: the current cost period, from block SHIPPED.current.fromBlock, which the summary card
+   prices. SHIPPED_CMP stays on the ENG-4342 period, so its reconciliation still reproduces. */
+const SHIPPED_NOW = (() => {
+  const C = SHIPPED.current, R = SHIPPED.repeat, K = SHIPPED.gasConstants, F = C.fit;
+  const byHash = Object.fromEntries(SHIPPED.writes.map(w => [w.hash, w]));
+  const headline = byHash[C.headlineTx], first = byHash[R.firstTx], repeat = byHash[R.repeatTx];
+  const atN = (fit, n) => fit.fixedExecGas + fit.marginalExecGas * n;
+  const top = R.groups.find(g => g.facts === repeat.facts), p = R.price[0];
+  const x = v => `×${v.toFixed(2)}`;
+  const repeatLo = top.execGas[0] / top.firstFitExecGas;
+  const repeatHi = top.execGas[top.execGas.length - 1] / top.firstFitExecGas;
+  const priceRatio = p.repeatExecGas / p.repeatWrites / p.firstFactExecGas;
+  return {headline, F, first, repeat, top, atN, price: p,
+    measuredFloor: Math.floor(headline.gasUsed / headline.facts),
+    trueFixed: K.txBase + headline.calldata.headGas + F.fixedExecGas,
+    trueMarginal: F.marginalExecGas + headline.calldata.bodyGas / headline.facts,
+    // the cost change at n
+    costFactor: atN(F, top.facts) / atN(SHIPPED.fit, top.facts),
+    // eng581's x3.5
+    crossRatio: repeat.execGas / first.execGas,
+    crossCost: atN(F, top.facts) / first.execGas,
+    crossRepeat: repeat.execGas / atN(F, top.facts),
+    // fabrica vs price fit, old period
+    kindGap: first.execGas / atN(SHIPPED.fit, first.facts),
+    repeatLo, repeatHi, priceRatio,
+    regimeNote: `rewrites are charged at the first-write figure, an upper bound: measured repeats ` +
+      `cost ${x(priceRatio)} of it (price kind, n=1) and ${x(repeatLo)}–${x(repeatHi)} ` +
+      `(${R.signer} kind, n=${top.facts})`};
+})();
+
+/* rv156 hit 1: the cost period each scale arm is priced in, split at SHIPPED.current.fromBlock. */
+const COST_PERIOD_LABEL = {current: "current cost period", eng4342: "ENG-4342 cost period"};
+// The lookup write each EAS arm closes through (BATCH.eas.arms[].closeLeg), by name.
+const CLOSE_LEG = {index: "Indexer", point: "pointer"};
+
+/* The summary card's arms, and the arithmetic that takes a book size to a month of gas.
    Everything here is composed from measured rows by the formula the card prints. */
 const SCALE_ARMS = (() => {
   const SC = SHIPPED.scale;
@@ -923,20 +1021,60 @@ const SCALE_ARMS = (() => {
   // nobody has measured. Past 100 the measured per-item attest cost RISES, so 100 is if
   // anything the kindest size to EAS available.
   const easBatch = BATCH.sizes[BATCH.sizes.length - 1];
-  const easPerFact = Math.floor(
-    (BATCH.ops[easArm.addends[0]][String(easBatch)].total
-     + BATCH.ops[easArm.addends[1]][String(easBatch)].total) / easBatch);
+  // ENG-4344 deliverable 6: every EAS arm, not only the headline one, is priced the same way, so
+  // the heartbeat and the cost tolerance can set each beside the shipped store. A close is the
+  // second attestation plus the arm's own lookup leg (BATCH.eas.arms[].closeLeg, build-checked).
+  const C = BATCH.eas.close;
+  // Brioche 699880 Flag 1: the Foundry rows run on the old gas schedule. In the current period an
+  // item also pays the per-slot rise once for each new storage slot it creates
+  // (SHIPPED.current.eas, measured on EAS's own code and build-checked against the store's fits).
+  const EAS_NOW = SHIPPED.current.eas;
+  const easRowNow = op => BATCH.ops[op][String(easBatch)].total
+                          + easBatch * EAS_NOW.newSlots[op] * EAS_NOW.slotRise;
+  // rv156 hit 1: the close rows are old-period too, so in the current period a close row also
+  // pays the rise once per new slot it creates (SHIPPED.current.eas.closeNewSlots, build-checked
+  // per row). Each EAS arm is priced in both periods and carries the period of the bespoke arm it
+  // is set beside: beside the current bespoke arm it is current, beside the ENG-4342 arm ENG-4342.
+  const EAS_PRICING = {
+    current: {row: easRowNow, close: r => C[r] + EAS_NOW.closeNewSlots[r] * EAS_NOW.slotRise},
+    eng4342: {row: op => BATCH.ops[op][String(easBatch)].total, close: r => C[r]},
+  };
+  const easScaleArm = (a, key, period) => {
+    const priced = Object.fromEntries(Object.entries(EAS_PRICING).map(([p, f]) => [p, {
+      perFact: Math.floor((f.row(a.addends[0]) + f.row(a.addends[1])) / easBatch),
+      closeRepeat: f.close("attestSecond") + f.close(a.closeLeg + "Repeat"),
+      closeFirst: f.close("attestFirst") + f.close(a.closeLeg + "First"),
+    }]));
+    return {
+      key, kind: "modelled", period, armKey: a.key,
+      label: `${a.label} — MODELLED, never shipped, ${COST_PERIOD_LABEL[period]}`,
+      short: `${a.label} — <em>modelled</em>, ${COST_PERIOD_LABEL[period]}`,
+      ...priced[period], priced,
+      perFactNow: priced.current.perFact, perFactOld: priced.eng4342.perFact,
+      batch: easBatch, txPerBatch: a.addends.length, closeTxns: 2,
+    };
+  };
+  // ENG-4344: the headline arm is the current cost period (SHIPPED_NOW). The ENG-4342 period
+  // stays as arms[2], beside an EAS arm on the same old gas schedule (arms[3]), so its figures
+  // reproduce. No first close is measured in the current period, so both bespoke arms take the
+  // old one.
   const arms = [
-    {key: "shipped", kind: "shipped", label: "Bespoke fact store — SHIPPED",
+    {key: "shipped", kind: "shipped", period: "current",
+     label: "Bespoke fact store — SHIPPED, current cost period",
+     short: "<strong>Bespoke — shipped</strong>, current cost period",
+     perFact: SHIPPED_NOW.measuredFloor,
+     closeRepeat: SHIPPED.current.closes.repeatGas, closeFirst: SHIPPED.closes.firstGas,
+     batch: SHIPPED_NOW.headline.facts, txPerBatch: 1, closeTxns: 1},
+    easScaleArm(easArm, "eas", "current"),
+    {key: "shipped-4342", kind: "shipped", period: "eng4342",
+     label: "Bespoke fact store — SHIPPED, ENG-4342 cost period",
+     short: "<strong>Bespoke — shipped</strong>, ENG-4342 cost period",
      perFact: SHIPPED_CMP.measuredFloor,
      closeRepeat: SHIPPED.closes.repeatGas, closeFirst: SHIPPED.closes.firstGas,
      batch: SHIPPED_CMP.headline.facts, txPerBatch: 1, closeTxns: 1},
-    {key: "eas", kind: "modelled", label: `${easArm.label} — MODELLED, never shipped`,
-     perFact: easPerFact,
-     closeRepeat: BATCH.eas.close.attestSecond + BATCH.eas.close.pointRepeat,
-     closeFirst: BATCH.eas.close.attestFirst + BATCH.eas.close.pointFirst,
-     batch: easBatch, txPerBatch: easArm.addends.length, closeTxns: 2},
+    easScaleArm(easArm, "eas-4342", "eng4342"),
   ];
+  const easArms = BATCH.eas.arms.map(a => a === easArm ? arms[1] : easScaleArm(a, a.key, "current"));
   /* ENG-4342, after Tim (2026-09-21 13:33Z): "Repeat writes are skipped, bud."
      The keeper writes a price fact on a FIRST write, or when the value has moved at least
      `materialChangeBps` against the value read back from the store. So a month has two
@@ -975,14 +1113,50 @@ const SCALE_ARMS = (() => {
             + closes * arm.closeTxns,
     };
   };
-  return {arms, easArm, easBatch, cyclesPerMonth, sources: SC.priceSources, tokens: SC.tokens,
-          firstFill, steady};
+  /* ENG-4344 deliverable 6: the heartbeat. With no price moving, the only work that keeps a writer
+     live is its cycle close: it is live while block.timestamp <= closedAt + maxSilence, and a fact
+     write does not close a cycle (src/FabricaImmutableAggregator.sol:434-444). So keeping an
+     unchanged price live costs one repeat close per writer per interval, an interval past
+     maxSilence is dark whatever it spends, and the book size does not enter: no fact is written. */
+  const heartbeat = (arm, intervalDays, maxSilenceDays) => {
+    if (intervalDays > maxSilenceDays) return {dark: true, closes: null, gas: null, slack: null};
+    const closes = SC.priceSources * MONTH_DAYS / intervalDays;
+    return {dark: false, closes, gas: closes * arm.closeRepeat, slack: maxSilenceDays - intervalDays};
+  };
+  return {arms, easArm, easArms, easBatch, cyclesPerMonth, sources: SC.priceSources,
+          tokens: SC.tokens, firstFill, steady, heartbeat};
+})();
+
+/* ENG-4344 deliverable 5: each EAS arm against the cost tolerance, the read and the write apart.
+   The read is the arm's depth-0 fork read over arm 3's; the write is its batched per-fact write at
+   the largest measured batch, priced in the current cost period, over the shipped store's
+   per-fact floor in that period, which the card prices (Brioche 699880 Flag 1). The Foundry row
+   over the current floor mixed periods (mixedRatio, withdrawn); the ENG-4342 floor stays as history. */
+const TOLERANCE_CMP = (() => {
+  const floor = SHIPPED.current.measuredFloor, history = SHIPPED_CMP.measuredFloor;
+  const storeRead = READ.fork.arm3["0"];
+  const rows = SCALE_ARMS.easArms.map(arm => {
+    const readGas = READ.fork[arm.armKey]["0"];
+    return {arm, readArm: READ.arms.find(a => a.key === arm.armKey), readGas,
+            readRatio: ratio(readGas, storeRead), readVerdict: markTol(readGas),
+            writeRatio: ratio(arm.perFactNow, floor), writeVerdict: withinTolerance(arm.perFactNow, floor),
+            mixedRatio: ratio(arm.perFactOld, floor), historyRatio: ratio(arm.perFactOld, history)};
+  });
+  const writeRatios = rows.map(r => r.writeRatio);
+  return {
+    rows, floor, history,
+    readOnly: READ_CMP.easArms.filter(a => !rows.some(r => r.arm.armKey === a.key)),
+    writeSummary: READ_CMP.tally(rows.map(r => r.writeVerdict), "batched EAS", "FAIL", "pass"),
+    writeLo: Math.min(...writeRatios), writeHi: Math.max(...writeRatios),
+    allPass: rows.every(r => r.writeVerdict === "pass")
+             && READ_CMP.easArms.every(a => markTol(READ.fork[a.key]["0"]) === "pass"),
+  };
 })();
 
 function renderScale() {
   const {arms, easArm, cyclesPerMonth, sources, tokens} = SCALE_ARMS;
   const anchors = SHIPPED_CMP.pinnedAnchors;
-  const H = SHIPPED_CMP.headline, RW = SHIPPED.rewrite;
+  const H = SHIPPED_NOW.headline, H0 = SHIPPED_CMP.headline, RW = SHIPPED.rewrite;
   const rate = S.rewriteRate / 100;
   const usdAt = (baseFeeGwei, gas) => gas * (baseFeeGwei + S.tip) * 1e-9 * S.eth;
   const measured = S.rewriteRate === 0;
@@ -992,7 +1166,7 @@ function renderScale() {
     <p class="small">What the fact layer costs at ${tokens.map(t => fmt(t)).join(" / ")} tokens, at
     the cadence and batch size the keeper is <strong>actually running</strong> on Sepolia, priced
     at mainnet gas. The bespoke arm's gas per fact is a chain read; the EAS arm beside it is a
-    Foundry measurement of a path that has never been broadcast.</p>
+    Foundry measurement of a path that has never been broadcast, priced in the same cost period.</p>
     <div class="note bad"><p><strong>A month has two shapes, and averaging them is how this card
     was wrong.</strong> The keeper does not write every token every cycle. It writes a price fact
     on a <em>first</em> write, or when the value has moved at least
@@ -1005,11 +1179,21 @@ function renderScale() {
     ‘we are done writing’ flag… so that if a valuation does not change by a certain percentage,
     we skip the write.” Until this card was rebuilt it charged one write per token per cycle —
     that is the <strong>100%</strong> column, and it is an upper bound, not a forecast.</p></div>
-    <div class="note"><p><strong>Gas is the same on either chain; the price is not.</strong> The
-    per-fact figure is measured on Sepolia, where ETH has no market value, so the ETH actually
-    spent there is not a cost. What transfers is the <em>gas</em>. Every USD figure below is that
-    measured gas priced at a mainnet base-fee anchor, the priority-fee dial and the ETH-price
-    dial — never at a Sepolia gas price.</p></div>`;
+    <div class="note warn"><p><strong>The store's gas cost changed on Sepolia at block
+    ${fmt(SHIPPED.current.fromBlock)}, and this card prices the period after it.</strong> The
+    bespoke headline arm is the current cost period: ${fmt(SHIPPED_NOW.measuredFloor)} gas per fact
+    at batch ${fmt(H.facts)}; its execution gas at n=${SHIPPED_NOW.top.facts} is
+    ${SHIPPED_NOW.costFactor.toFixed(2)}× the ENG-4342 period's. The EAS arm beside it is priced in
+    the same period: each Foundry row and each close row, plus
+    ${fmt(SHIPPED.current.eas.slotRise)} gas for every new storage slot it creates. The third arm
+    keeps the ENG-4342 period (${fmt(H0.facts)} facts at ${fmt(SHIPPED_CMP.measuredFloor)}), and the
+    fourth sets EAS beside it on the gas schedule its Foundry rows ran on, so those figures
+    reproduce. No arm is set beside an arm of the other period. Cause: ${SHIPPED.current.cause}
+    If mainnet never sees the change, the ENG-4342 arm is the mainnet figure.</p>
+    <p class="small"><strong>Only gas transfers between chains, not its price.</strong> Sepolia ETH
+    has no market value, so the ETH spent there is not a cost. Every USD figure below is measured
+    gas priced at a mainnet base-fee anchor, the priority-fee dial and the ETH-price dial — never
+    at a Sepolia gas price.</p></div>`;
 
   const head = lead => `<thead><tr><th>Book</th><th>Arm</th><th class="n">${lead}</th>
     <th class="n">Transactions</th><th class="n">Gas</th>
@@ -1020,7 +1204,7 @@ function renderScale() {
     const shipped = arm.kind === "shipped";
     return `<tr${shipped ? ' style="background:var(--accent-soft)"' : ""}>
       ${i === 0 ? `<td rowspan="${arms.length}"><strong>${fmt(t)}</strong> tokens</td>` : ""}
-      <td>${shipped ? "<strong>Bespoke — shipped</strong>" : `${easArm.label} — <em>modelled</em>`}
+      <td>${arm.short}
         <div class="src">${fmt(arm.perFact)} gas/fact at batch ${fmt(arm.batch)}</div></td>
       <td class="n">${fmt(p.facts, 0)}</td><td class="n">${fmt(p.txns, 0)}</td>
       <td class="n">${fmt(p.gas, 0)}</td>
@@ -1043,16 +1227,20 @@ function renderScale() {
     `rewrite rate          = ${S.rewriteRate}%` +
       (measured && NO_REPEATS ? "   (measured: no repeat write in " + RW.cyclesObserved + " observed cycles)"
                 : S.rewriteRate === 100 ? "   (upper bound, not a forecast)" : "   (your assumption)") + `\n` +
-    `bespoke, shipped      = ${fmt(SHIPPED_CMP.measuredFloor)} gas/fact, ` +
-      `${fmt(SHIPPED.closes.firstGas)} first close, ${fmt(SHIPPED.closes.repeatGas)} repeat close\n` +
-    `EAS, modelled         = ${fmt(arms[1].perFact)} gas/fact, ` +
-      `${fmt(arms[1].closeFirst)} first close, ${fmt(arms[1].closeRepeat)} repeat close`;
+    `bespoke, shipped now  = ${fmt(arms[0].perFact)} gas/fact, ` +
+      `${fmt(arms[0].closeFirst)} first close (ENG-4342), ${fmt(arms[0].closeRepeat)} repeat close\n` +
+    `EAS, modelled now     = ${fmt(arms[1].perFact)} gas/fact, ` +
+      `${fmt(arms[1].closeFirst)} first close, ${fmt(arms[1].closeRepeat)} repeat close\n` +
+    `bespoke, ENG-4342     = ${fmt(arms[2].perFact)} gas/fact, ` +
+      `${fmt(arms[2].closeFirst)} first close, ${fmt(arms[2].closeRepeat)} repeat close\n` +
+    `EAS, ENG-4342         = ${fmt(arms[3].perFact)} gas/fact, ` +
+      `${fmt(arms[3].closeFirst)} first close, ${fmt(arms[3].closeRepeat)} repeat close`;
 
   document.getElementById("scale-notes").innerHTML = `
     ${measured && NO_REPEATS ? `<div class="note ok"><p><strong>At the measured rewrite rate the steady-state
     cost does not depend on the size of the book at all.</strong> With no row moving past the
     threshold, the only writes are the cycle closes: ${sources} writers × ${cyclesPerMonth} cycles ×
-    ${fmt(SHIPPED.closes.repeatGas)} gas = <span class="num">${fmt(shippedSteady(tokens[0]).gas, 0)}</span>
+    ${fmt(arms[0].closeRepeat)} gas = <span class="num">${fmt(shippedSteady(tokens[0]).gas, 0)}</span>
     gas a month, <strong>${usd(usdAt(anchors[0].baseFeeGwei, shippedSteady(tokens[0]).gas))}</strong>
     at the <em>${anchors[0].label}</em> anchor, whether the book is ${fmt(tokens[0])} tokens or
     ${fmt(tokens[2])}. The cost of scale sits almost entirely in the one-time first fill, and after
@@ -1107,18 +1295,31 @@ function renderScale() {
     <div class="scroll"><table>
       <thead><tr><th>Input</th><th class="n">Value</th><th>Where it comes from</th></tr></thead>
       <tbody>
-      <tr><td>Gas per fact, bespoke</td><td class="n">${fmt(SHIPPED_CMP.measuredFloor)}</td>
+      <tr><td>Gas per fact, bespoke — current cost period</td>
+        <td class="n">${fmt(SHIPPED_NOW.measuredFloor)}</td>
         <td class="small">CHAIN READ. ${txLink(H.hash)}, block ${fmt(H.block)}, ${H.timeUtc}:
         ${fmt(H.facts)} facts, ${fmt(H.gasUsed)} gas,
-        <code>floor(${fmt(H.gasUsed)} ÷ ${H.facts})</code>. The largest batch the keeper has
-        sent.</td></tr>
+        <code>floor(${fmt(H.gasUsed)} ÷ ${H.facts})</code>. The first of the largest price batches
+        since block ${fmt(SHIPPED.current.fromBlock)}.</td></tr>
+      <tr><td>Gas per fact, bespoke — ENG-4342 cost period</td>
+        <td class="n">${fmt(SHIPPED_CMP.measuredFloor)}</td>
+        <td class="small">CHAIN READ. ${txLink(H0.hash)}, block ${fmt(H0.block)}, ${H0.timeUtc}:
+        ${fmt(H0.facts)} facts, ${fmt(H0.gasUsed)} gas,
+        <code>floor(${fmt(H0.gasUsed)} ÷ ${H0.facts})</code>. The ENG-4342 headline, kept so its
+        figures still reproduce: the third arm above, set beside the fourth (EAS, same period).</td></tr>
       <tr><td>Cycle close, bespoke — first / repeat</td>
-        <td class="n">${fmt(SHIPPED.closes.firstGas)} / ${fmt(SHIPPED.closes.repeatGas)}</td>
-        <td class="small">CHAIN READ, two regimes.
+        <td class="n">${fmt(arms[0].closeFirst)} / ${fmt(arms[0].closeRepeat)}</td>
+        <td class="small">CHAIN READ.
         ${fmt(SHIPPED.closes.groups.find(g => g.gasUsed === SHIPPED.closes.firstGas).count)}
-        first closes (one per writer, cold words) and
-        ${fmt(SHIPPED.closes.groups.find(g => g.gasUsed === SHIPPED.closes.repeatGas).count)}
-        repeats. First fill is charged the first, steady state the repeat.</td></tr>
+        first closes (one per writer, cold words), all before block
+        ${fmt(SHIPPED.current.fromBlock)}. No first close is measured in the current period, so
+        the first fill takes the ${fmt(SHIPPED.closes.firstGas)}. The current period's repeats are
+        ${SHIPPED.current.closes.groups.map(g => `${fmt(g.count)} at ${fmt(g.gasUsed)}`).join(" and ")},
+        one zero calldata byte apart (the build checks one execution figure), and the card charges
+        the dearer. Before the split:
+        ${fmt(SHIPPED.closes.groups.find(g => g.gasUsed === SHIPPED.closes.repeatGas).count)} at
+        ${fmt(SHIPPED.closes.repeatGas)}. First fill is charged the first, steady state the
+        repeat.</td></tr>
       <tr><td>Rewrite rate</td><td class="n">${S.rewriteRate}%</td>
         <td class="small">THE DIAL. Measured position: <strong>${NO_REPEATS
           ? "no repeat write"
@@ -1134,11 +1335,19 @@ function renderScale() {
         <td class="small">MODELLED. Foundry rows at batch ${fmt(SCALE_ARMS.easBatch)}:
         <code>${BATCH.opLabels[easArm.addends[0]]}</code> +
         <code>${BATCH.opLabels[easArm.addends[1]]}</code>, from
-        <code>${BATCH.source.file}</code> @ <code>${srcCommitShort()}</code>.</td></tr>
+        <code>${BATCH.source.file}</code> @ <code>${srcCommitShort()}</code>, each item plus
+        ${easArm.addends.map(op => SHIPPED.current.eas.newSlots[op]).join(" + ")} new slots ×
+        ${fmt(SHIPPED.current.eas.slotRise)} gas, the current period's rise per new slot. The rows
+        as measured give ${fmt(arms[3].perFact)}: the fourth arm, ENG-4342 period.</td></tr>
       <tr><td>Cycle close, EAS — first / repeat</td>
         <td class="n">${fmt(arms[1].closeFirst)} / ${fmt(arms[1].closeRepeat)}</td>
-        <td class="small">MODELLED. attest + pointer write in each regime
-        (<a href="https://linear.app/fabrica/issue/ENG-3964">ENG-3964</a>).</td></tr>
+        <td class="small">MODELLED. attest + ${CLOSE_LEG[easArm.closeLeg] ?? easArm.closeLeg} write in each regime
+        (<a href="https://linear.app/fabrica/issue/ENG-3964">ENG-3964</a>), each row plus its new
+        slots × ${fmt(SHIPPED.current.eas.slotRise)} gas: the attestation
+        ${SHIPPED.current.eas.closeNewSlots.attestFirst}, the ${CLOSE_LEG[easArm.closeLeg] ?? easArm.closeLeg} write
+        ${SHIPPED.current.eas.closeNewSlots[easArm.closeLeg + "First"]} first and
+        ${SHIPPED.current.eas.closeNewSlots[easArm.closeLeg + "Repeat"]} repeat. The rows as
+        measured give ${fmt(arms[3].closeFirst)} / ${fmt(arms[3].closeRepeat)}: the fourth arm.</td></tr>
       <tr><td>Oracle price sources</td><td class="n">${sources}</td>
         <td class="small">NAMED ASSUMPTION. The aggregator's trusted set holds three price writers
         and the card charges all three. In this window only
@@ -1172,6 +1381,53 @@ function renderScale() {
       </tbody></table></div>`;
 }
 
+/* ENG-4344 deliverable 6: the monthly cost of keeping an unchanged price live, per arm, at each
+   close interval up to and past maxSilence. Each row is priced at the gas dial, or at the ceiling
+   when the daily series reached it inside that row's slack (ceilingReach). */
+function renderHeartbeat() {
+  const {heartbeat, arms, easArms, sources} = SCALE_ARMS, SC = SHIPPED.scale;
+  const ms = S.maxSilence, safe = ms * (1 - S.margin / 100);
+  const hbArms = [arms[0], ...easArms];
+  const days = [...new Set([...SC.heartbeatIntervalsDays, safe, ms, ms + 1])].sort((x, y) => x - y);
+  const name = a => a.short;
+  const rowFor = d => {
+    const live = heartbeat(arms[0], d, ms);
+    if (live.dark) return `<tr><td class="n">${fmt(d, 2)}</td><td colspan="${hbArms.length + 3}">
+      <strong style="color:var(--bad)">dark</strong> — past maxSilence: the writer stops being live
+      whatever it spends</td></tr>`;
+    const reach = ceilingReach(S.defer, live.slack);
+    const fee = reach.reached ? Math.min(S.defer, S.gas) : S.gas;
+    const flag = S.defer < S.gas && !reach.reached;
+    return `<tr${d === safe ? ' style="background:var(--accent-soft)"' : ""}>
+      <td class="n">${fmt(d, 2)}</td><td class="n">${fmt(live.slack, 2)}</td>
+      <td class="n">${fmt(live.closes, 1)}</td>
+      <td class="small">${S.gas <= S.defer ? "gas already at or under it" : reach.reached
+        ? `reached: ${gwei(S.defer)} gwei` : `<strong style="color:var(--bad)">ceiling not reached</strong>`}</td>
+      ${hbArms.map(a => { const g = heartbeat(a, d, ms).gas;
+        return `<td class="n">${fmt(g)}<div class="src">${usd(g * (fee + S.tip) * 1e-9 * S.eth)}${flag ? " at the gas dial" : ""}</div></td>`; }).join("")}</tr>`;
+  };
+  document.getElementById("scale-hb").innerHTML = `<thead><tr><th class="n">Close every, days</th>
+    <th class="n">Slack, days</th><th class="n">Closes / month</th><th>Ceiling inside the slack</th>
+    ${hbArms.map(a => `<th class="n">${name(a)}<div class="src">${fmt(a.closeRepeat)} gas/close,
+      ${a.closeTxns} txn</div></th>`).join("")}</tr></thead><tbody>${days.map(rowFor).join("")}</tbody>`;
+  const best = days.filter(d => !heartbeat(arms[0], d, ms).dark && heartbeat(arms[0], d, ms).slack > 0).pop();
+  document.getElementById("scale-hb-notes").innerHTML = `<p class="small">A writer stays live while
+    <code>block.timestamp &lt;= closedAt + maxSilence</code>, and a fact write does not close a cycle
+    (<code>src/FabricaImmutableAggregator.sol:434-444</code>). So with no price moving, the cycle
+    close is the whole cost of keeping a price live for 30 days and more: ${sources} writers, one
+    repeat close each per interval, every month. The book size does not enter — no fact is written —
+    so the figure is the same at ${fmt(SC.heartbeatTokens)} tokens as at any other.
+    ${best === undefined ? `<strong>No listed interval leaves slack under maxSilence ${ms} days.</strong>`
+      : `The cheapest listed interval that leaves room for a failed close is <strong>${fmt(best, 2)}
+      days</strong>${best === safe ? `, maxSilence less the ${S.margin}% margin (highlighted)` : ""}.`}
+    At ${fmt(ms, 2)} days the slack is 0: one late close and the writer goes dark. The 1-day row is the
+    steady-state close term above at rewrite rate 0. The store's close gas is its receipts' repeat
+    close in the current cost period (${fmt(arms[0].closeRepeat)} gas; ${fmt(SHIPPED.closes.repeatGas)} before
+    block ${fmt(SHIPPED.current.fromBlock)}); an EAS close is the second attestation plus the arm's lookup leg, two transactions, from
+    Foundry, priced in the same period: each row plus ${fmt(SHIPPED.current.eas.slotRise)} gas per
+    new slot it creates.</p>`;
+}
+
 function renderShipped() {
   const C = SHIPPED_CMP, K = SHIPPED.gasConstants;
   const win = SHIPPED.window, cross = SHIPPED.etherscanCrossCheck;
@@ -1186,12 +1442,13 @@ function renderShipped() {
     the pinned block this collection ends at.</p>
     <div class="note ok"><p><strong>The transaction set is complete and nothing reverted.</strong>
     ${fmt(SHIPPED.passes.reduce((a, p) => a + p.transactions, 0))} transactions were found by
-    replaying the store's logs, and cross-checked against Etherscan's account list, which
-    includes failures that emit no log and so cannot appear in a log replay:
+    replaying the store's logs, and cross-checked against Etherscan's account list, fetched in
+    ${fmt(cross.pages)} pages of up to 1,000 rows, which includes failures that emit no log and so cannot appear in a log replay:
     ${fmt(cross.transactions)} there, <strong>${cross.failed.length} failed</strong>.
     ${cross.explanation}</p></div>`;
 
   const ceiling = C.ceiling;
+  const days = ps => [...new Set(ps.map(p => p.startTimeUtc.slice(0, 10)))].join(", ");
   document.getElementById("shipped-passes").innerHTML = `
     <thead><tr><th>Pass (UTC)</th><th class="n">Cycle</th><th class="n">Txs</th>
       <th class="n">Ceiling</th><th class="n">Batches</th><th class="n">Facts</th>
@@ -1223,14 +1480,20 @@ function renderShipped() {
     what the keeper's funding actually consumes — not because it is money. Mainnet costs are in
     the summary card at the top, which prices the measured GAS instead.</p>
     ${C.otherPasses.length ? `<p class="small"><strong>Excluded from the keeper rows:</strong>
-    ${fmt(C.otherPasses.length)} earlier group(s) on ${C.otherPasses.map(p => p.startTimeUtc.slice(0, 10))
-      .filter((v, i, a) => a.indexOf(v) === i).join(", ")} were the
+    ${fmt(C.eng4203Passes.length)} earlier group(s) on ${days(C.eng4203Passes)} were the
     <a href="https://linear.app/fabrica/issue/ENG-4203">ENG-4203</a> deployment verification,
     written by ${fmt(C.independentSenders)} disposable
     writer${C.independentSenders === 1 ? "" : "s"} in their own namespace rather than by a
     configured oracle signer.
     They are not keeper traffic and are never counted as shipped passes — but they ARE in the
-    table below, because they independently pin the fixed term of the reconciliation.</p>` : ""}</div>`;
+    table below, because they independently pin the fixed term of the reconciliation.${C.strangerPasses.length ? ` A further
+    ${fmt(C.strangerPasses.length)} group(s), from ${C.strangerPasses[0].startTimeUtc.slice(0, 10)}
+    to ${C.strangerPasses[C.strangerPasses.length - 1].startTimeUtc.slice(0, 10)}, carry writes
+    from ${C.strangerFrom.map(f => `<code>${f.slice(0, 10)}…</code>`).join(", ")}, not a
+    configured signer: ${fmt(C.strangerWrites.length)} write transactions of kind
+    ${C.strangerKinds.map(k => `<code>${k.slice(0, 10)}…</code>`).join(", ")}, in the table below
+    and in no fit.${C.mixedPasses.length ? ` ${fmt(C.mixedPasses.length)} of those groups also
+    hold keeper transactions, which the pass table above omits.` : ""}` : ""}</p>` : ""}</div>`;
 
   document.getElementById("shipped-writes").innerHTML = `
     <thead><tr><th>Transaction</th><th>Writer</th><th class="n">Block</th><th class="n">Facts</th>
@@ -1244,14 +1507,18 @@ function renderShipped() {
       {title: `ENG-4203 deployment verification — ${fmt(SHIPPED_CMP.independentSenders)} `
               + `disposable writer${SHIPPED_CMP.independentSenders === 1 ? "" : "s"}, `
               + "not keeper traffic",
-       rows: SHIPPED.writes.filter(w => !w.keeperSigner)},
-    ].map(group => `<tr><td colspan="11" style="background:var(--bg);font-weight:600">
+       rows: SHIPPED_CMP.eng4203Writes},
+      {title: `Not a configured signer — ${fmt(SHIPPED_CMP.strangerWrites.length)} transactions, `
+              + "in no fit",
+       rows: SHIPPED_CMP.strangerWrites},
+    ].filter(group => group.rows.length).map(group => `<tr><td colspan="11" style="background:var(--bg);font-weight:600">
       ${group.title}</td></tr>` + group.rows.map(w => `<tr${w.hash === SHIPPED.headlineTx
         ? ' style="background:var(--accent-soft)"' : ""}>
       <td>${txLink(w.hash)}<div class="src">${w.timeUtc.replace("T", " ").replace("Z", "")} ·
         <code>${w.op}</code></div></td>
       <td>${w.signer ? `<strong>${w.signer}</strong>`
-        : `<span class="src">ENG-4203 verification</span>`}</td>
+        : SHIPPED_CMP.isEng4203(w) ? `<span class="src">ENG-4203 verification</span>`
+        : `<code>${w.from.slice(0, 10)}…</code>`}</td>
       <td class="n">${fmt(w.block)}</td><td class="n"><strong>${w.facts}</strong></td>
       <td class="n">${fmt(w.gasUsed)}</td><td class="n">${fmt(w.gasPerFact)}</td>
       <td class="n">${fmt(w.calldata.gas)}</td><td class="n">${fmt(w.execGas)}</td>
@@ -1266,7 +1533,8 @@ function renderShipped() {
     is computed from each transaction's own bytes under EIP-2028 (${K.calldataZeroByte} per zero
     byte, ${K.calldataNonZeroByte} per non-zero); execution gas is
     <code>gasUsed − ${fmt(K.txBase)} − calldata</code>. Across every first-write
-    <code>writeFacts</code> batch the keeper has sent, execution is
+    <code>writeFacts</code> batch of the price kind the keeper sent in the ENG-4342 cost period,
+    to block ${fmt(SHIPPED.current.lastOldBlock)}, execution is
     <strong>exactly <code>${fmt(C.F.fixedExecGas)} + ${fmt(C.F.marginalExecGas)} × n</code></strong>:</p>
     <div class="scroll"><table>
       <thead><tr><th>Transaction</th><th class="n">Facts</th><th class="n">Execution gas</th>
@@ -1289,14 +1557,15 @@ function renderShipped() {
     remaining ${fmt(C.F.marginalExecGas - SHIPPED.independentFit.marginalExecGas - 20000)} gas is
     opcode-path difference and is not separately measured here.</p></div>`;
 
-  const T = C.terms;
+  const T = C.terms, SUP = SHIPPED.superseded;
   document.getElementById("shipped-recon").innerHTML = `
     <p class="small">Before the first scheduled pass ran,
     <a href="https://github.com/fabrica-land/fabrica-v3-api/pull/1903">fabrica-v3-api#1903</a>
     projected <span class="num">${fmt(C.P.quotedPerFact)}</span> gas per fact at batch
     ${C.P.quotedN} (${SHIPPED.projection.source}). The pass wrote
     ${C.headline.facts} facts at <span class="num">${fmt(C.measuredFloor)}</span>. Here is the
-    whole of that difference, by term.</p>
+    whole of that difference, by term. All of it is in the ENG-4342 cost period, before block
+    ${fmt(SHIPPED.current.fromBlock)}.</p>
     <div class="scroll"><table>
       <thead><tr><th>Term</th><th class="n">Gas / fact</th></tr></thead>
       <tbody>
@@ -1343,17 +1612,35 @@ function renderShipped() {
     ${(100 * Math.abs(C.measuredExact - C.atShippedExact) / C.atShippedExact).toFixed(2)}%.</p>
     <p class="small">EIP-7623 does not bind on any of these transactions: the floor for the
     shipped batch is ${fmt(C.headline.calldata.eip7623FloorGas)} gas against
-    ${fmt(C.headline.gasUsed)} actually used.</p></div>`;
+    ${fmt(C.headline.gasUsed)} actually used.</p></div>
+    <div class="scroll"><table>
+      <thead><tr><th>History row (Brioche 700002)</th><th class="n">$ / token / yr</th></tr></thead>
+      <tbody><tr><td><strong>superseded: the shipped keeper closes daily (contracts#62)</strong> —
+        ENG-4342 cost period. ${SUP.tokens} tokens, ${SUP.sources} sources, each written every
+        ${SUP.cadenceDays} days at ${fmt(SUP.perFact)} gas per fact. A source closes only when it
+        is silent (<code>whenSilent</code>, maxSilence ${DEFAULTS.maxSilence} days less
+        ${DEFAULTS.margin}% = ${fmt(SUP.windowDays, 2)} days): ${fmt(SUP.closesPerMonth, 4)} closes
+        a month at ${fmt(SHIPPED.closes.repeatGas)} gas, and each source's first close once at
+        ${fmt(SHIPPED.closes.firstGas)}. That is ${fmt(SUP.yearGas, 0)} gas a year at pinned fees,
+        not today's: gas ${gwei(SUP.baseFeeGwei)} gwei + tip ${gwei(SUP.tipGwei)} gwei, ETH
+        ${usd(SUP.ethUsd)}. A chain-data refresh and the fee dials do not move this row.
+        <div class="src">ENG-4342 quoted this figure. The shipped keeper closes every source every
+        day (contracts#62). The shipped layer and the headline charge that daily close, so the same
+        scenario costs more there.</div></td>
+        <td class="n">$${SUP.usdPerTokenYear.toFixed(2)}</td></tr></tbody></table></div>`;
 
-  const closeRows = SHIPPED.closes.groups.map(g => ({
+  const closeRows = [...SHIPPED.closes.groups.map(g => ({
     what: g.gasUsed === SHIPPED.closes.firstGas
       ? "<code>closeCycle</code> — a writer's first close on this store"
-      : "<code>closeCycle</code> — every later close", ...g}));
-  const lockRows = SHIPPED.locks.groups.map(g => ({what: "<code>setLock</code> — urgent class", ...g}));
+      : "<code>closeCycle</code> — every later close", era: "ENG-4342 cost period", ...g})),
+    ...SHIPPED.current.closes.groups.map(g => ({
+      what: "<code>closeCycle</code> — every later close", era: "current cost period", ...g}))];
+  const lockRows = SHIPPED.locks.groups.map(g => ({what: "<code>setLock</code> — urgent class",
+    era: g.current ? "current cost period" : "ENG-4342 cost period", ...g}));
   document.getElementById("shipped-other").innerHTML = `
     <thead><tr><th>Call</th><th class="n">Gas used</th><th class="n">Transactions</th>
       <th>Example</th></tr></thead>
-    <tbody>${[...closeRows, ...lockRows].map(r => `<tr><td>${r.what}</td>
+    <tbody>${[...closeRows, ...lockRows].map(r => `<tr><td>${r.what}<div class="src">${r.era}</div></td>
       <td class="n">${fmt(r.gasUsed)}</td><td class="n">${fmt(r.count)}</td>
       <td>${txLink(r.exampleHash)}</td></tr>`).join("")}</tbody>`;
 
@@ -1363,20 +1650,20 @@ function renderShipped() {
       if (!g.length) return "No keeper <code>setLock</code> transactions in this window.";
       if (g.length === 1) return `Every keeper <code>setLock</code> in this window cost the same
         ${fmt(g[0].gasUsed)} gas — the call writes one word and its calldata is a fixed shape.`;
-      // From the EXTREMA, not from the ends of the list: `group()` orders by transaction count,
-      // not by gas, so the first and last entries are the most and least frequent figures and
-      // need not be the dearest and cheapest. With the two groups this window happens to have
-      // the two readings coincide, which is exactly why it needed stating rather than testing
-      // against tidy data. (CodeRabbit, PR #55.)
-      const gases = g.map(x => x.gasUsed);
-      const spread = Math.max(...gases) - Math.min(...gases);
-      return `${fmt(g.length)} distinct <code>setLock</code> figures, spanning ${fmt(spread)}
-        gas, is calldata and nothing else: ${K.calldataNonZeroByte} − ${K.calldataZeroByte} =
-        ${K.calldataNonZeroByte - K.calldataZeroByte} gas is exactly one byte of the
-        <code>tokenId</code> word that happens to be zero, so the spread counts zero bytes and
-        nothing about the call.`;
+      // Per cost period, from the EXTREMA, not from the ends of the list: `group()` orders by
+      // transaction count, not by gas (CodeRabbit, PR #55). The dearest call sets a fresh word,
+      // and the cost change moved it, so one spread across both periods would mix two schedules.
+      const top = cur => Math.max(...g.filter(x => !!x.current === cur).map(x => x.gasUsed));
+      const both = g.some(x => x.current) && g.some(x => !x.current);
+      return `${fmt(g.length)} distinct <code>setLock</code> figures.${both ? ` The dearest in
+        each period sets a fresh word, and it moved with the cost change: ${fmt(top(false))} →
+        ${fmt(top(true))} gas, +${fmt(top(true) - top(false))}.` : ""} Figures
+        ${K.calldataNonZeroByte - K.calldataZeroByte} gas apart differ by one zero byte of the
+        <code>tokenId</code> word (${K.calldataNonZeroByte} − ${K.calldataZeroByte}). The page
+        does not decode the other gaps.`;
     })()} Cycle closes have two regimes because a writer's first close on a store allocates cold
-    words and every later one overwrites them.</p></div>
+    words and every later one overwrites them. The repeat close also moved with the cost change:
+    ${fmt(SHIPPED.closes.repeatGas)} → ${fmt(SHIPPED.current.closes.repeatGas)} gas.</p></div>
     <div class="note"><p><strong>How to re-read any of this.</strong> Every row above comes from
     <code>shipped-writes.json</code>, produced by</p>
     <div class="eq">${SHIPPED.collection.command}</div>
@@ -1391,6 +1678,118 @@ function renderShipped() {
     ${SHIPPED.keeperConfig.source}, and the trusted price set
     (${SHIPPED.keeperConfig.priceWriters.join(", ")}) with them. Only the transaction ceiling is
     corroborated by the chain, by the passes that stop on it exactly.</p></div>`;
+}
+
+/* ENG-4344 deliverable 3: the two cost periods and the measured repeat writes. Every repeat
+   figure carries its kind and n; the ×3.5 is factored into the cost change and the repeat. */
+function renderPeriods() {
+  const N = SHIPPED_NOW, R = SHIPPED.repeat, C = SHIPPED.current, P = N.price;
+  const x = v => `×${v.toFixed(2)}`, kind = k => `<code>${k.slice(0, 10)}…</code>`;
+  const fit = f => `<code>${fmt(f.fixedExecGas)} + ${fmt(f.marginalExecGas)} × n</code>`;
+  const span = (a, f = fmt) => a.length > 1 ? `${f(a[0])}–${f(a[a.length - 1])}` : f(a[0]);
+  const rows = [`<tr><td><strong>${P.signer}</strong>, price kind ${kind(SHIPPED.priceKind)},
+      ENG-4342 period<div class="src">${txLink(P.hash)} ${P.timeUtc}: ${P.repeatWrites} repeat
+      inside a ${P.facts}-fact batch with ${P.firstWrites} first writes. Its share is the execution
+      less the fit of those ${P.firstWrites}, set against the fit's marginal fact.</div></td>
+      <td class="n">1</td><td class="n">1</td><td class="n">${fmt(P.repeatExecGas)}</td>
+      <td class="n">${fmt(P.firstFactExecGas)}</td><td class="n">${x(N.priceRatio)}</td></tr>`,
+    ...R.groups.map(g => `<tr><td><strong>${R.signer}</strong> kind ${kind(R.kind)}, current
+      period<div class="src">${txLink(g.min)}${g.max !== g.min ? ` to ${txLink(g.max)}` : ""}</div></td>
+      <td class="n">${g.facts}</td><td class="n">${fmt(g.count)}</td>
+      <td class="n">${span(g.execGas)}</td><td class="n">${fmt(g.firstFitExecGas)}</td>
+      <td class="n">${span(g.execGas.map(v => v / g.firstFitExecGas), x)}</td></tr>`)];
+  const F = N.first, Q = N.repeat;
+  document.getElementById("shipped-periods").innerHTML = `
+    <div class="note warn"><p><strong>Two cost periods, each with its own fit.</strong> Price-kind
+    first writes cost ${fit(SHIPPED.fit)} execution gas to block ${fmt(C.lastOldBlock)}
+    (${SHIPPED.fit.rows.length} batches) and ${fit(C.fit)} from block ${fmt(C.fromBlock)},
+    ${C.fromTime} (${C.fit.rows.length} batches). At n=${N.top.facts} that is
+    ${x(N.costFactor)}. The summary card prices the current period. Cause: ${C.cause}</p></div>
+    <div class="scroll"><table>
+      <thead><tr><th>Repeat batch</th><th class="n">n</th><th class="n">Batches</th>
+        <th class="n">Repeat execution gas</th><th class="n">First-write fit at n</th>
+        <th class="n">Repeat ÷ first</th></tr></thead>
+      <tbody>${rows.join("")}</tbody></table></div>
+    <div class="note"><p><strong>Within one period a repeat costs less than a first write:</strong>
+    ${x(N.repeatLo)}–${x(N.repeatHi)} at n=${N.top.facts} (${R.signer} kind, midpoint
+    ${x((N.repeatLo + N.repeatHi) / 2)}), and ${x(N.priceRatio)} for the one price-kind repeat
+    (n=1, ENG-4342 period). The ${R.signer} kind has no first write in the current period, so the
+    price-kind fit stands in for it: in the ENG-4342 period the ${R.signer} first write sat
+    ${((1 - N.kindGap) * 100).toFixed(2)}% below that fit, at the same
+    ${fmt(F.calldata.bytes / F.facts)} calldata bytes per fact. Kinds: price
+    ${kind(SHIPPED.priceKind)}, ${R.signer} ${kind(R.kind)}.</p>
+    <p><strong>The ×${N.crossRatio.toFixed(1)} is the cost change, not the repeat.</strong>
+    ${txLink(F.hash)} (${F.timeUtc.slice(0, 10)}, n=${F.facts}, first, ${fmt(F.gasUsed)} gas,
+    ${fmt(F.execGas)} execution) and ${txLink(Q.hash)} (${Q.timeUtc.slice(0, 10)}, n=${Q.facts},
+    repeat, ${fmt(Q.gasUsed)} gas, ${fmt(Q.execGas)} execution) carry equal calldata,
+    ${fmt(F.calldata.bytes)} bytes. Execution is ${x(N.crossRatio)} (gas used
+    ${x(Q.gasUsed / F.gasUsed)}), and it factors as ${x(N.crossCost)} for the cost change times
+    ${x(N.crossRepeat)} for the repeat.</p>
+    <p><strong>Why a repeat costs less.</strong> ${R.storageReason}</p></div>`;
+}
+
+/* ENG-4344 deliverable 5: the cost-tolerance table. Each EAS arm is set against the tolerance
+   twice, the read and the write apart; every verdict comes from TOLERANCE_CMP. */
+function renderTolerance() {
+  const T = TOLERANCE_CMP, tol = READ.marks.tolerance, storeRead = READ.fork.arm3["0"];
+  const cells = (gas, r, v) => `<td class="n">${fmt(gas)}</td><td class="n">${r.toFixed(2)}×</td>
+    <td class="n">${verdictCell(v)}</td>`;
+  document.getElementById("read-tolerance").innerHTML = `
+    <thead><tr><th>EAS arm</th><th class="n">Read gas, depth 0</th><th class="n">× arm 3</th>
+      <th class="n">Read ≤ ${tol}×</th>
+      <th class="n">Write gas / fact<div class="src">batch ${fmt(SCALE_ARMS.easBatch)}, Foundry,
+        priced in the current period</div></th>
+      <th class="n">× shipped store<div class="src">${fmt(T.floor)} gas/fact, batch
+        ${fmt(SHIPPED_NOW.headline.facts)}, receipt, current period</div></th>
+      <th class="n">Write ≤ ${tol}×<div class="src">base moved by ${SHIPPED.current.causeName}</div></th></tr></thead>
+    <tbody>${T.rows.map(r => `<tr><td>${r.readArm.label}</td>
+      ${cells(r.readGas, r.readRatio, r.readVerdict)}
+      ${cells(r.arm.perFactNow, r.writeRatio, r.writeVerdict)}</tr>`).join("")}
+    ${T.readOnly.map(a => `<tr><td>${a.label}</td>
+      ${cells(READ.fork[a.key]["0"], ratio(READ.fork[a.key]["0"], storeRead), markTol(READ.fork[a.key]["0"]))}
+      <td class="n" colspan="3">no batched write row</td></tr>`).join("")}</tbody>`;
+  document.getElementById("read-tolerance-notes").innerHTML = toleranceNotes(T, tol, storeRead);
+}
+
+/* Brioche 699922: the card states the current-period verdict plainly (rule 1), withdraws the
+   mixed-period figures (rule 2), names the cause (rule 3) and states the fork facts (rule 4). */
+function toleranceNotes(T, tol, storeRead) {
+  const E = SHIPPED.current.eas, pre = E.twins.pre, post = E.twins.post;
+  const fails = T.rows.filter(r => r.writeVerdict === "FAIL").length;
+  const who = fails === 2 && T.rows.length === 2 ? "both EAS write arms exceed"
+    : `${fails} of ${T.rows.length} EAS write arms exceed`;
+  const ratios = key => T.rows.map(r => `${r[key].toFixed(2)}×`).join(" and ");
+  const twin = t => `${txLink(t.hash)} (block ${fmt(t.block)}, ${fmt(t.gasUsed)} gas,
+    ${t.dataWordsPerItem} data words per item)`;
+  return `
+    <p><strong>Current period: ${who} ${tol}× the shipped store
+    (${ratios("writeRatio")}).</strong> The ${ratios("mixedRatio")} shown before set the Foundry
+    rows, which run on the old gas schedule, against the current floor. They mixed periods and are
+    withdrawn.</p>
+    <p class="small"><strong>How the EAS arms are priced in the current period.</strong> Each
+    addend is its Foundry row at batch ${fmt(SCALE_ARMS.easBatch)}, plus ${fmt(E.slotRise)} gas per
+    item for each new storage slot the item creates: ${Object.entries(E.newSlots).map(([op, n]) =>
+      `<code>${op}</code> ${n}`).join(", ")}. The ${fmt(E.slotRise)} is measured on EAS's own code:
+    one third-party attester's <code>multiAttest</code> of ${pre.items} on the same EAS contract and
+    schema, before the change, ${twin(pre)}, and after it, ${twin(post)}. A new slot cost
+    ${fmt(E.oldSlotGas)} gas before the change. The build requires the rise to agree to 1% with the
+    store's own two fits, which put it at ${fmt(E.fitSlotRise)} gas per new slot.</p>
+    <p class="small">The tolerance is <strong>${tol}×</strong>: ${READ.marks.toleranceSource}, set on
+    ${READ.marks.toleranceSetOn}, after the arms were measured. A cell fails when the EAS figure is
+    more than ${tol} times the store figure beside it. The read is the depth-0 fork read over
+    arm 3's ${fmt(storeRead)} gas. The write is the arm's batched per-fact write — its two
+    transactions at batch ${fmt(SCALE_ARMS.easBatch)}, the largest measured batch and the kindest
+    to EAS — over the shipped store's ${fmt(T.floor)} gas per fact from receipt
+    ${txLink(SHIPPED.current.headlineTx)}, the floor of the current cost period, which the card
+    prices. The cost changed at block ${fmt(SHIPPED.current.fromBlock)}. Cause:
+    ${SHIPPED.current.cause} Fork: ${E.fork} No EAS batch has shipped, so its side is a priced
+    Foundry row; the store's side is a chain receipt. ${T.readOnly.map(a => a.short).join(", ")}
+    has a read row only: no batched write was measured for it. The shipped figure falls as its
+    batch grows, so a larger shipped batch would raise every write ratio, not lower it.</p>
+    <p class="small"><strong>History, ENG-4342 cost period.</strong> Against that period's
+    ${fmt(T.history)} gas per fact from receipt ${txLink(SHIPPED.headlineTx)}, the gas schedule the
+    Foundry rows run on, the write ratios were ${T.rows.map(r =>
+      `${r.readArm.short} ${r.historyRatio.toFixed(2)}×`).join(", ")}.</p>`;
 }
 
 function renderReadSide() {
@@ -1419,21 +1818,21 @@ function renderReadSide() {
      `against ${fmt(storeGas)}, at the same walk depth`],
     ["× the calibration arm", `${Math.min(...easCalRatios).toFixed(2)}× – ${Math.max(...easCalRatios).toFixed(2)}×`,
      `against ${fmt(calGas)} — everything but the fact layer held constant`],
-    [`Pass mark A — within ${READ.marks.aCeiling}×`, READ_CMP.aSummary,
-     `pre-registered ${READ.marks.preRegisteredOn}, before any arm was measured`],
+    [`Cost tolerance — within ${READ.marks.tolerance}×`, READ_CMP.tolSummary,
+     `on the read; set ${READ.marks.toleranceSetOn}, after every arm was measured`],
     [`Pass mark B — ≤ ${fmt(READ.marks.bAbsolute)}`, READ_CMP.bSummary,
      READ_CMP.bSummary.startsWith("pass on every")
        ? "passes everywhere, and therefore separates nothing"
-       : "unlike A, it does separate them"],
+       : "so it separates the arms"],
     ["Arm 1 after a year of daily closes", `+${fmt(yearOfDailyCloses)}`,
      `${fmt(perClose)} gas per past cycle close × 365, on every read of every token`],
   ] : [
     ["price(), 3 sources, depth 0", fmt(storeGas),
      `arm 3, ownerless custom store · ${fmt(READ.sepolia.probes.arm3.gas)} on real Sepolia`],
-    ["× the ownerless custom store", "1.00×", "it is the denominator of pass mark A"],
+    ["× the ownerless custom store", "1.00×", "it is the denominator of the cost tolerance"],
     ["The deployed aggregator today", fmt(READ.deployed.depths["0"]),
      `live round-1 fact store ${READ.deployed.factStore.slice(0, 10)}…`],
-    [`Pass mark A — within ${READ.marks.aCeiling}×`, "reference",
+    [`Cost tolerance — within ${READ.marks.tolerance}×`, "reference",
      "the custom store is what the EAS arms are measured against"],
     [`Pass mark B — ≤ ${fmt(READ.marks.bAbsolute)}`, markB(storeGas),
      `${fmt(storeGas)} at the operating point`],
@@ -1444,25 +1843,30 @@ function renderReadSide() {
     `<div class="card"><div class="k">${k}</div><div class="v">${v}</div><div class="s">${s}</div></div>`).join("");
 
   document.getElementById("read-verdict").innerHTML = `
-    <div class="note ${isEas ? "bad" : "ok"}"><p><strong>Pass mark A — the go/no-go —
-    ${READ_CMP.aSummary.replace("FAIL on", "fails on").replace("pass on", "passes on")}, at
-    ${Math.min(...easRatios).toFixed(2)}× to ${Math.max(...easRatios).toFixed(2)}×
-    against a ${READ.marks.aCeiling}× ceiling.</strong> The mark was registered on
-    <a href="https://linear.app/fabrica/issue/ENG-3922">ENG-3922</a> on
+    <div class="note ${isEas && !TOLERANCE_CMP.allPass ? "bad" : "ok"}"><p><strong>Cost tolerance
+    (${READ.marks.tolerance}× the custom store): on the read it
+    ${READ_CMP.tolSummary.replace("FAIL on", "fails on").replace("pass on", "passes on")}, at
+    ${Math.min(...easRatios).toFixed(2)}× to ${Math.max(...easRatios).toFixed(2)}×; on the write it
+    ${TOLERANCE_CMP.writeSummary.replace("FAIL on", "fails on").replace("pass on", "passes on")}, at
+    ${TOLERANCE_CMP.writeLo.toFixed(2)}× to ${TOLERANCE_CMP.writeHi.toFixed(2)}×.</strong> The
+    tolerance was set on ${READ.marks.toleranceSetOn} (${READ.marks.toleranceSource}),
+    <em>after every arm was measured</em>. It replaces the relative mark
+    <a href="https://linear.app/fabrica/issue/ENG-3922">ENG-3922</a> registered before measurement,
+    so it is labelled a tolerance, not a pre-registered mark; the registered figure is in this
+    page's git history. Pass mark B (≤ ${fmt(READ.marks.bAbsolute)} gas) was registered on
     ${READ.marks.preRegisteredOn}, <em>before any arm was built or measured</em>, on Fede's bias
     concern, and was never moved; publication of the comparison was directed by Tim on
-    ${READ.marks.publicationDirected}. Pass mark B
-    (≤ ${fmt(READ.marks.bAbsolute)} gas) ${READ_CMP.bSummary.startsWith("pass on every")
+    ${READ.marks.publicationDirected}. It ${READ_CMP.bSummary.startsWith("pass on every")
       ? `passes on every measured arm including the dearest (${fmt(worst)}), so it discriminates
          nothing — which is a fact about the bar, not about the arms`
-      : `${READ_CMP.bSummary.replace("FAIL on", "is failed by").replace("pass on", "is passed by")},
-         so unlike A it does separate them`}.</p>
+      : `is ${READ_CMP.bSummary.replace("FAIL on", "failed on").replace("pass on", "passed on")},
+         so it does separate them`}.</p>
     <p class="small">The margin is narrower than it was. Review found the EAS arms re-resolving and
     re-reading the same head attestation three times per oracle source where the store arms read a
     packed struct twice — a real bias <em>against</em> EAS in every figure published before
     4 September. The figures here are post-correction: removing it took the EAS arms down 18–22%
-    against 6–8% for the store arms, and narrowed the margin by about a quarter without changing
-    the verdict.</p></div>`;
+    against 6–8% for the store arms. The relative mark of that time was not the tolerance used
+    here.</p></div>`;
 
   /* per-arm table */
   const armRow = a => {
@@ -1474,13 +1878,13 @@ function renderReadSide() {
       <td class="n">${probe ? pctCell(pctDiff(gas, probe.gas)) : "—"}</td>
       <td class="n">${ratioCell(gas, storeGas)}</td>
       <td class="n">${ratioCell(gas, calGas)}</td>
-      <td class="n">${a.reference ? "—" : verdictCell(markA(gas))}</td>
+      <td class="n">${a.reference ? "—" : verdictCell(markTol(gas))}</td>
       <td class="n">${verdictCell(markB(gas))}</td></tr>`;
   };
   document.getElementById("read-arms").innerHTML = `
     <thead><tr><th>Arm</th><th class="n">price(), fork</th><th class="n">price(), real Sepolia tx</th>
       <th class="n">fork vs chain</th><th class="n">× arm 3</th><th class="n">× calibration</th>
-      <th class="n">A ≤ ${READ.marks.aCeiling}×</th>
+      <th class="n">tolerance ≤ ${READ.marks.tolerance}×</th>
       <th class="n">B ≤ ${fmt(READ.marks.bAbsolute)}</th></tr></thead>
     <tbody>${arms.map(armRow).join("")}
       <tr><td>the deployed <code>FabricaOracleAggregator</code>, for reference
@@ -1510,13 +1914,18 @@ function renderReadSide() {
     (${fmt(closeRow[String(probedCloseDepth)])}) against Sepolia at cycle-close depth
     ${probedCloseDepth} (${fmt(READ.sepolia.probes[outlier.arm.key].gas)}) is
     ${pctCell(likeForLike)}, in line with every other arm.</p>
-    <p class="small"><strong>Which denominator, and why two.</strong> Pass mark A is measured
+    <p class="small"><strong>Which denominator, and why two.</strong> The cost tolerance is measured
     against the ownerless custom store. The calibration arm — the deployed round-1 store read
     through the same harness — is shown beside it because it is the only row that holds
     <em>everything but the fact layer</em> constant. It costs ${fmt(calGas)},
     ${fmt(READ.deployed.depths["0"] - calGas)} gas <em>less</em> than the deployed aggregator's
     ${fmt(READ.deployed.depths["0"])}, so it is the <em>harder</em> of the two denominators for the
-    EAS arms: dividing by a smaller number makes the ratios larger. A fails against either.</p>
+    EAS arms: dividing by a smaller number makes the ratios larger. Against it the read tolerance
+    ${READ_CMP.tolCalSummary === READ_CMP.tolSummary
+      ? `gives the same verdict: it ${READ_CMP.tolCalSummary.replace("FAIL on", "fails on")
+                                       .replace("pass on", "passes on")}`
+      : `gives a different verdict: ${READ_CMP.tolCalSummary} rather than ${READ_CMP.tolSummary}`},
+    at ${Math.min(...easCalRatios).toFixed(2)}× to ${Math.max(...easCalRatios).toFixed(2)}×.</p>
     <p class="small">Sepolia probe transactions:
     ${forkVsChain.map(x => `${x.arm.label} <code>${READ.sepolia.probes[x.arm.key].tx}</code>`).join("; ")}.</p></div>`;
 
@@ -1680,10 +2089,11 @@ function render() {
     transaction — ${fmt(m.priceTxns, 0)} price transactions for ${fmt(m.priceWrites, 0)} facts at
     the current dials — at <span class="num">${fmt(m.P.priceEach)}</span> gas per fact:
     ⌊(${fmt(SHIPPED_CMP.trueFixed)} fixed + ${fmt(SHIPPED_CMP.trueMarginal, 0)} marginal ×
-    ${fmt(S.batch)}) / ${fmt(S.batch)}⌋, the receipts' decomposition in <em>Shipped</em>. Every
-    shipped write is a first write, so a row's later writes are charged at the first-write
-    figure: an <strong>upper bound</strong>, not a forecast. The cycle close is the shipped close
-    receipt. This is like for like with the EAS arm, which is batched at the dial too.</p>
+    ${fmt(S.batch)}) / ${fmt(S.batch)}⌋, the receipts' decomposition in <em>Shipped</em>. The fit
+    is the ENG-4342 cost period's, to block ${fmt(SHIPPED.current.lastOldBlock)}, the gas schedule
+    the EAS Foundry rows run on. The current period charges ${SHIPPED_NOW.costFactor.toFixed(2)}×
+    its execution at n=${SHIPPED_NOW.top.facts} (<em>Shipped</em>). The cycle close is that
+    period's close receipt. This is like for like with the EAS arm, which is batched at the dial too.</p>
     ${m.P.excluded.length ? `<p><strong>${fmt(m.P.excluded.length)} excluded</strong> on these
     dials, rather than estimated:</p><ul class="small">${m.P.excluded.map(x =>
       `<li>${x}</li>`).join("")}</ul>` : ""}</div>` : `
@@ -1758,12 +2168,16 @@ function render() {
                             : `months ${S.month}–${S.month + 11}, each in its own regime`,
                       x => usd(x.toUsd(x.yearGas) / S.tokens))]);
   renderReadSide();
+  renderTolerance();
+  document.getElementById("defer-hint").innerHTML = ceilingHint(m.ceil);
   /* ENG-4342. The shipped panel is dial-independent — it renders what the chain recorded — but it
      is drawn here rather than once at load so that the two panels stay in one render pass and a
      future dial that does touch them cannot go stale. The summary card reads the ETH-price and
      priority-fee dials and must re-render. */
   renderScale();
+  renderHeartbeat();
   renderShipped();
+  renderPeriods();
   document.getElementById("headline").innerHTML = cards.map(([k, v, s]) =>
     `<div class="card"><div class="k">${k}</div><div class="v">${v}</div><div class="s">${s}</div></div>`).join("");
 
@@ -1773,7 +2187,7 @@ function render() {
   const eqPerRow = isEas
     ? (noTotal ? `batch ${fmt(S.batch)}: no measured EAS row`.padEnd(42)
                : `flat, no ring, batch ${fmt(S.batch)}`.padEnd(42))
-    : isShipped ? `flat, first-write regime, batch ${fmt(S.batch)}`.padEnd(42)
+    : isShipped ? `flat, first-write gas, batch ${fmt(S.batch)}`.padEnd(42)
     : `regime-weighted for month ${S.month}${S.month < 10 ? " " : ""}              `;
   // An excluded term prints as an exclusion, never as a zero: a zero in a gas column reads as a
   // measurement of nothing rather than as the absence of a measurement.
@@ -1951,13 +2365,16 @@ total                                                    = ${noTotal ? "— not 
     less a ${S.margin}% safety margin, because arriving exactly at the gate leaves no room for a
     failed transaction. <em>That clock, not the gas price, is what bounds the saving.</em></p>
     <p><strong>Deferring the price class and the cycle close for that full window</strong>, from
-    ${gwei(S.gas)} gwei until the base fee falls below ${gwei(S.defer)} gwei, holds back
+    ${gwei(S.gas)} gwei until the base fee falls below the ${gwei(S.defer)} gwei ceiling, holds back
     ${fmt(m.windowGas)} gas — the ${(100 * m.windowShare).toFixed(1)}% of the month's deferrable
     work that fits inside ${fmt(m.longestDeferralDays, 2)} days — and saves
     <strong>${usd(m.windowSaving)}</strong>, taking that window's cost from
     ${usd(m.windowAtPeak)} to ${usd(m.windowDeferred)}.
-    ${S.gas <= S.defer ? "<em>Gas is already below your threshold, so there is nothing to defer right now.</em>"
-      : ""}</p>
+    ${S.gas <= S.defer ? "<em>Gas is already below your ceiling, so there is nothing to defer right now.</em>"
+      : !m.ceil.reached ? `<strong>The daily series ${m.ceil.neverReached ? "never reached this ceiling"
+        : `stayed above this ceiling for up to ${m.ceil.worstWaitDays} days`}, longer than the
+        ${fmt(m.ceil.slackDays, 2)}-day bound, so the window is priced at the gas dial and saves
+        nothing.</strong> Daily samples can miss a dip inside a day.` : ""}</p>
     <p>Deferring to the <strong>hard bound</strong> of ${fmt(m.hardBoundDays, 2)} days instead
     holds back ${fmt(m.hardGas)} gas and saves <strong>${usd(m.hardSaving)}</strong> — the extra
     ${usd(m.hardSaving - m.windowSaving)} is what the safety margin costs, and it is the price of
@@ -2056,8 +2473,8 @@ total                                                    = ${noTotal ? "— not 
       decomposition in <em>Shipped</em>. Per fact is ⌊(fixed + marginal × n) / n⌋, the figure the
       running cost charges at the dial. Only the last row is a receipt; the others are the fit at
       n. A whole transaction past the block limit (red) cannot be sent as one transaction, and the
-      running cost on this option does not split it. Every
-      shipped write is a first write: ${m.P.regimeNote}.`;
+      running cost on this option does not split it. Shipped
+      price ${m.P.regimeNote}.`;
     srcLine = `receipts of <code>${SHIPPED.storeSource}</code> (ENG-4342); fit from
       <code>shipped-writes.json</code>`;
   } else {
@@ -2116,18 +2533,23 @@ total                                                    = ${noTotal ? "— not 
     <em>Shipped</em> above, as real Sepolia transactions of
     <a href="${SEPOLIA_ADDRESS}${SHIPPED.store}"><code>${SHIPPED.store.slice(0, 10)}…</code></a>.
     The shipped batch costs <span class="num">${fmt(SHIPPED_CMP.measuredFloor)}</span> gas per
-    fact at n=${SHIPPED_CMP.headline.facts}; this arm's modelled figure at the nearest measured
-    size (${fmt(SCALE_ARMS.easBatch)}) is
-    <span class="num">${fmt(SCALE_ARMS.arms[1].perFact)}</span>, which is
-    ${(SCALE_ARMS.arms[1].perFact / SHIPPED_CMP.measuredFloor).toFixed(2)}× it. Comparing them is
+    fact at n=${SHIPPED_CMP.headline.facts} in the ENG-4342 cost period, the gas schedule the
+    Foundry rows run on (${fmt(SHIPPED_NOW.measuredFloor)} at n=${SHIPPED_NOW.headline.facts} since
+    block ${fmt(SHIPPED.current.fromBlock)}); this arm's modelled figure at the nearest measured
+    size (${fmt(SCALE_ARMS.easBatch)}) on that schedule is
+    <span class="num">${fmt(SCALE_ARMS.arms[3].perFact)}</span>, which is
+    ${(SCALE_ARMS.arms[3].perFact / SHIPPED_CMP.measuredFloor).toFixed(2)}× it (current period:
+    ${fmt(SCALE_ARMS.arms[1].perFact)}, ${(SCALE_ARMS.arms[1].perFact
+      / SHIPPED_NOW.measuredFloor).toFixed(2)}× the ${fmt(SHIPPED_NOW.measuredFloor)}). Comparing them is
     comparing a measurement with a projection, and the page says so every time it does.</p></div>`
     : `<div class="note ok"><p><strong>This arm has shipped.</strong> The Foundry rows above are
     corroborated by real transactions: see <em>Shipped</em> above, where
     ${fmt(SHIPPED_CMP.keeperWrites.length)} batched <code>writeFacts</code> transactions of
     <a href="${SEPOLIA_ADDRESS}${SHIPPED.store}"><code>${SHIPPED.store.slice(0, 10)}…</code></a>
-    carry ${fmt(SHIPPED_CMP.totalFactsShipped)} facts, the largest
-    ${SHIPPED_CMP.headline.facts} in one transaction at
-    <span class="num">${fmt(SHIPPED_CMP.measuredFloor)}</span> gas per fact. The shipped entry
+    carry ${fmt(SHIPPED_CMP.totalFactsShipped)} facts: ${SHIPPED_CMP.headline.facts} in one
+    transaction at <span class="num">${fmt(SHIPPED_CMP.measuredFloor)}</span> gas per fact in the
+    ENG-4342 cost period, and ${SHIPPED_NOW.headline.facts} at
+    <span class="num">${fmt(SHIPPED_NOW.measuredFloor)}</span> in the current one. The shipped entry
     point is <code>writeFacts</code> on the round-3 store, not the <code>writePriceBatch</code>
     prototype these rows measure, so the two figures are close relatives rather than the same
     call.</p></div>`}
@@ -2261,18 +2683,20 @@ total                                                    = ${noTotal ? "— not 
     fact-layer question — is in the <em>Read side</em> panel at the top, from the same merged
     reports at the same commit.</p>
     <p>That read side was withheld until now, and the reason it was withheld is worth stating
-    rather than deleting: the pass mark was pre-registered on
+    rather than deleting: its pass marks were pre-registered on
     <a href="https://linear.app/fabrica/issue/ENG-3922">ENG-3922</a> on
     ${READ.marks.preRegisteredOn}, <em>before any arm was built or measured</em>, on Fede's bias
-    concern, so that the comparison could not be tuned after the fact. It never was. The bar is
-    exactly the one registered; publication was directed by Tim on
-    ${READ.marks.publicationDirected}.</p>
+    concern, so that the comparison could not be tuned after the fact; publication was directed by
+    Tim on ${READ.marks.publicationDirected}. Absolute mark B is still exactly the one registered.
+    The relative mark is not: on ${READ.marks.toleranceSetOn} it was replaced by a
+    ${READ.marks.tolerance}× cost tolerance (${READ.marks.toleranceSource}), set after every arm
+    was measured, which is why the page calls it a tolerance and not a pre-registered mark.</p>
     <ul class="small">
       <li><span class="src">measured, in Read side above:</span> gas inside <code>price()</code>
         for a three-source read on each arm at <code>refUID</code> walk depths
         ${READ.depths.join(" / ")}, each one against a real Sepolia transaction, plus arm 1's two
-        append-only growth curves — <em>the go/no-go number</em>, and it fails pass mark A on
-        every EAS arm</li>
+        append-only growth curves, set against the ${READ.marks.tolerance}× cost tolerance
+        beside the batched write per fact</li>
       <li><span class="src">measured, in Batching above:</span> <code>multiAttest</code> and
         <code>indexAttestations</code> at 1/10/100, the ownerless pointer write, and
         <code>multiRevoke</code></li>
@@ -2520,6 +2944,12 @@ ${SHIPPED.collection.command}</div>
   // batch total it was derived from). The model-side column below is therefore driven
   // through `model()` with real dials wherever the quantity is one `model()` produces.
   const at = over => { const save = S; S = Object.assign({}, DEFAULTS, over); const m = model(); S = save; return m; };
+  const medianFee = [...DAILY_FEES].sort((x, y) => x - y)[Math.floor(DAILY_FEES.length / 2)];
+  const medianReach = ceilingReach(medianFee, Infinity);
+  // The same worst wait counted a second way: the widest gap between days at or under the median
+  // fee, with the day just before and just after the series counted as under it.
+  const underDays = [-1, ...DAILY_FEES.flatMap((f, i) => f <= medianFee ? [i] : []), DAILY_FEES.length];
+  const medianGap = Math.max(...underDays.slice(1).map((d, i) => d - underDays[i]));
   const checks = [
     ["writePrice, write 1", oneWrite(1, cc), G("writePrice:first")],
     ["writePrice, write 2", oneWrite(2, cc), G("writePrice:second (ring slot cold)")],
@@ -2554,6 +2984,38 @@ ${SHIPPED.collection.command}</div>
      at({tokens: 10, batch: 10, month: 1, reg: true}).regGas, G("registerBatch:10")],
     ["model: registration, 1000 tokens at batch 1000",
      at({tokens: 1000, batch: 1000, month: 1, reg: true}).regGas, G("registerBatch:1000")],
+    // ENG-4344 deliverable 6: a 1-day heartbeat is the steady-state close term at rate 0, for
+    // every arm, and an interval past maxSilence is dark (no cost).
+    ...[SCALE_ARMS.arms[0], ...SCALE_ARMS.easArms].map(a => [`heartbeat: ${a.key}, 1 day = steady close term`,
+      SCALE_ARMS.heartbeat(a, 1, DEFAULTS.maxSilence).gas, SCALE_ARMS.steady(a, 100, 0).closeGas]),
+    ["heartbeat: past maxSilence is dark",
+     Number(SCALE_ARMS.heartbeat(SCALE_ARMS.arms[0], DEFAULTS.maxSilence + 1, DEFAULTS.maxSilence).gas === null), 1],
+    // rv156 hit 1: each modelled arm carries the figures of the period it names, every EAS arm set
+    // beside the current bespoke arm (card, heartbeat, tolerance) is current, and arms[3] shares
+    // the ENG-4342 bespoke arm's period.
+    ["scale: every EAS arm is priced in the cost period of the bespoke arm beside it",
+     Number(SCALE_ARMS.arms.concat(SCALE_ARMS.easArms).every(a => a.kind !== "modelled"
+       || ["perFact", "closeRepeat", "closeFirst"].every(k => a[k] === a.priced[a.period][k]))
+       && SCALE_ARMS.arms[0].period === "current"
+       && [SCALE_ARMS.arms[1], ...SCALE_ARMS.easArms].every(a => a.period === SCALE_ARMS.arms[0].period)
+       && SCALE_ARMS.arms[3].period === SCALE_ARMS.arms[2].period), 1],
+    // ENG-4344 deliverable 7: a monthly cadence at rate 0 writes no price fact, and the round-3
+    // close does not depend on the cadence.
+    ["model: monthly cadence, 0% movers, round 3: price writes",
+     at({cadence: MONTH_DAYS, moved: 0, hbPolicy: "closeEvery"}).priceWrites, 0],
+    ["model: round-3 close, monthly vs daily cadence",
+     at({cadence: MONTH_DAYS, moved: 0, hbPolicy: "closeEvery"}).hbGas, at({cadence: 1, moved: 0, hbPolicy: "closeEvery"}).hbGas],
+    ["ceiling: under the series minimum is never reached",
+     Number(ceilingReach(Math.min(...DAILY_FEES) / 2, 365).neverReached), 1],
+    ["ceiling: at the series maximum is reached with 0 slack",
+     Number(ceilingReach(Math.max(...DAILY_FEES), 0).reached), 1],
+    ["ceiling: at the median, worst wait = widest gap between days at or under it",
+     medianReach.worstWaitDays, medianGap],
+    ["ceiling: at the median, reached at the worst wait, not half a day short of it",
+     Number(ceilingReach(medianFee, medianReach.worstWaitDays).reached)
+       - Number(ceilingReach(medianFee, medianReach.worstWaitDays - 0.5).reached), 1],
+    ["model: an unreached ceiling saves nothing",
+     at({defer: Math.min(...DAILY_FEES) / 2, gas: 1}).deferrableDeferred, at({defer: Math.min(...DAILY_FEES) / 2, gas: 1}).deferrableAtNow],
   ];
   let allPass = true;
   document.getElementById("selfcheck").innerHTML = `
@@ -2617,10 +3079,11 @@ function sync() {
   document.getElementById("d-eth").value = S.eth;
   document.getElementById("d-maxsilence").value = S.maxSilence;
   document.getElementById("d-margin").value = S.margin;
-  // The shipped layer always takes the round-2 close (see model()). Show that, and keep the
-  // reader's choice in S for the other layers.
-  document.getElementById("d-hbpolicy").value = S.layer === "shipped" ? "round2" : S.hbPolicy;
-  document.getElementById("d-hbpolicy").disabled = S.layer === "shipped";
+  // The shipped layer takes the round-2 close unless round 3 is picked (see model()); the
+  // round-1 options do not apply to it. Keep the reader's choice in S for the other layers.
+  const hbSelect = document.getElementById("d-hbpolicy"), shippedLayer = S.layer === "shipped";
+  hbSelect.value = shippedLayer && S.hbPolicy !== "closeEvery" ? "round2" : S.hbPolicy;
+  for (const o of hbSelect.options) o.disabled = shippedLayer && o.value !== "round2" && o.value !== "closeEvery";
   document.getElementById("d-attrs").value = S.attrs;
   document.getElementById("d-moved").value = S.moved;
   document.getElementById("d-urgent").value = S.urgent;
@@ -2641,8 +3104,7 @@ function sync() {
     : n < HISTORY_DEPTH ? `writes 3–${HISTORY_DEPTH}` : `write ${HISTORY_DEPTH + 1}+`;
   const monthsToWrap = w > 0 ? Math.max(1, Math.ceil(HISTORY_DEPTH / w)) : null;
   document.getElementById("regime-hint").innerHTML = S.layer === "shipped"
-    ? `Bespoke — shipped does not walk the ring: every write is charged at the shipped
-       first-write figure (first-write regime; no repeat-write cost measured).`
+    ? `Bespoke — shipped does not walk the ring. Its price ${SHIPPED_NOW.regimeNote}.`
     : w <= 0
     ? `No writes are sent at 0% movers, so no row ever advances through the ring.`
     : `Writes ${fmt(before + 1, 1)}–${fmt(after, 1)} of each row's life, i.e. ${rn(before)} → ${rn(after - 0.001)}.
@@ -2652,10 +3114,14 @@ function sync() {
   document.getElementById("hb-hint").textContent =
     `Cycle close every ${fmt(S.maxSilence * (1 - S.margin / 100), 2)} days — ${S.maxSilence} days ` +
     `of tolerated silence less ${S.margin}%. The gate itself trips at ${S.maxSilence} days.`;
-  document.getElementById("hbpolicy-hint").innerHTML = S.layer === "shipped"
-    ? `Fixed at round 2 for <em>Bespoke — shipped</em>: the round-3 store closes one cycle per
-       writer per day (its receipts: one cycle per day), so a price write never stands in for a
-       close. The other layers use the policy selected here.`
+  document.getElementById("hbpolicy-hint").innerHTML = S.hbPolicy === "closeEvery"
+    ? `Round 3 (ENG-4344): each writer closes every ${fmt(S.maxSilence * (1 - S.margin / 100), 2)}
+       days, write or no write. A writer is live only within maxSilence of its last close, and a
+       fact write does not close a cycle (<code>FabricaImmutableAggregator.sol:434-444</code>).`
+    : S.layer === "shipped"
+    ? `Round 2 for <em>Bespoke — shipped</em>: the round-3 store closes one cycle per writer per
+       day (its receipts: one cycle per day), so a price write never stands in for a close. Pick
+       round 3 to close less often; the round-1 options do not apply to it.`
     : S.hbPolicy === "whenSilent"
       ? `Round 1, as deployed: <code>_writePrice</code> calls <code>_touchHeartbeat</code>, so a
          price write already refreshes the clock and a bare close is only needed when the window
@@ -2675,8 +3141,8 @@ function sync() {
     : S.layer === "shipped"
     ? `The round-3 fact store as shipped: price writes and cycle closes from its Sepolia receipts
        (ENG-4342), with the price writes batched at the batch dial.
-       <strong>First-write regime; no repeat-write cost measured</strong> — a row's later writes
-       are charged at the first-write figure, an upper bound and not a forecast. Attribute writes
+       <strong>Measured repeats cost less than a first write</strong> — ${SHIPPED_NOW.regimeNote}.
+       Attribute writes
        and the urgent write have no shipped receipt and are excluded, not estimated.`
     : `The custom fact store as deployed for round 1, measured on <code>main</code>.`;
   const RW = SHIPPED.rewrite;

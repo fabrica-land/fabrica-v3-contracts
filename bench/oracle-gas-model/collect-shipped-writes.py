@@ -353,21 +353,49 @@ def label_signers(senders):
     return labels
 
 
+ETHERSCAN_PAGE_ROWS = 1000
+# Etherscan's txlist refuses a page whose page x offset passes this.
+ETHERSCAN_MAX_WINDOW = 10000
+
+
 def etherscan_cross_check(api_key, from_block, to_block):
-    """Independently list the store's transactions, failures included, via Etherscan V2."""
-    url = "https://api.etherscan.io/v2/api?" + urllib.parse.urlencode({
-        "chainid": CHAIN_ID, "module": "account", "action": "txlist", "address": STORE,
-        "startblock": from_block, "endblock": to_block, "sort": "asc", "apikey": api_key,
-    })
-    with urllib.request.urlopen(url, timeout=60) as r:
-        payload = json.load(r)
-    if payload.get("status") != "1":
-        return {"ran": True, "ok": False, "message": str(payload.get("message") or payload.get("result"))}
-    rows = payload["result"]
+    """Independently list the store's transactions, failures included, via Etherscan V2.
+
+    txlist returns at most ETHERSCAN_PAGE_ROWS rows per call. An unpaged call cut the list at
+    1000 rows once the store passed 1000 transactions (ENG-4344), so the list is read page by
+    page until a short page. A list too long to page, or a bad status on any page, is ok:false:
+    the set is never truncated in silence. (A total that is an exact multiple of 1000 ends on an
+    empty page, which Etherscan reports as a bad status, so it also fails loudly.)
+    """
+    rows = []
+    page = 0
+    while True:
+        page += 1
+        if page * ETHERSCAN_PAGE_ROWS > ETHERSCAN_MAX_WINDOW:
+            return {"ran": True, "ok": False, "message": (
+                "more than %d transactions: txlist refuses page x offset above %d"
+                % (ETHERSCAN_MAX_WINDOW, ETHERSCAN_MAX_WINDOW))}
+        if page > 1:
+            # Etherscan's rate limit; one fixed pause per page, not a poll.
+            time.sleep(0.25)
+        url = "https://api.etherscan.io/v2/api?" + urllib.parse.urlencode({
+            "chainid": CHAIN_ID, "module": "account", "action": "txlist", "address": STORE,
+            "startblock": from_block, "endblock": to_block, "sort": "asc",
+            "page": page, "offset": ETHERSCAN_PAGE_ROWS, "apikey": api_key,
+        })
+        with urllib.request.urlopen(url, timeout=60) as r:
+            payload = json.load(r)
+        if payload.get("status") != "1":
+            return {"ran": True, "ok": False, "message": "page %d: %s" % (
+                page, payload.get("message") or payload.get("result"))}
+        rows.extend(payload["result"])
+        if len(payload["result"]) < ETHERSCAN_PAGE_ROWS:
+            break
     return {
         "ran": True, "ok": True,
         "endpoint": "https://api.etherscan.io/v2/api module=account action=txlist chainid=%d" % CHAIN_ID,
         "transactions": len(rows),
+        "pages": page,
         "failed": [r["hash"] for r in rows if r.get("isError") == "1"],
         "hashes": sorted(r["hash"].lower() for r in rows),
     }

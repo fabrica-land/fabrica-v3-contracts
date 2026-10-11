@@ -1,0 +1,62 @@
+{
+  "_provenance": [
+    "ENG-4344 (Brioche 699880 Flag 1, GO 699922): the EAS arms priced in the current cost period.",
+    "One third-party attester's multiAttest of 20 on the same EAS contract and schema, once each side",
+    "of block 11857921. calldataGas is 16 per non-zero and 4 per zero input byte. build-model-page.py",
+    "reads this file only; it never reads the chain, so --check stays byte-identical."
+  ],
+  "reads": {
+    "endpoint": "POST https://sepolia.gateway.tenderly.co (read-only JSON-RPC), by eng585-4344-fix",
+    "rpc5": "2026-10-11T03:32:26Z eth_getLogs EAS Attested, any schema, 0xb4f001 to latest (3,427 logs)",
+    "rpc6": "2026-10-11T03:34:10Z eth_getTransactionReceipt post",
+    "rpc7": "2026-10-11T03:34:10Z eth_getTransactionByHash post",
+    "rpc8": "2026-10-11T03:34:53Z eth_getLogs EAS Attested, attester and schema as here, 0xb3c000 to 0xb4f000",
+    "rpc9": "2026-10-11T03:34:59Z eth_getTransactionReceipt pre",
+    "rpc10": "2026-10-11T03:34:59Z eth_getTransactionByHash pre"
+  },
+  "fork": {
+    "rpc11": "2026-10-11T03:40:15Z eth_getBlockByNumber 0xb4d2af: timestamp 1791223224, no blockAccessListHash or slotNumber",
+    "rpc12": "2026-10-11T03:40:15Z eth_getBlockByNumber 0xb4f001: timestamp 1791315012, has blockAccessListHash and slotNumber",
+    "https://raw.githubusercontent.com/ethereum/go-ethereum/master/params/chainspecs/sepolia.json": "line 25: \"amsterdamTime\": 1791294816,",
+    "https://raw.githubusercontent.com/ethereum/go-ethereum/master/params/chainspecs/mainnet.json": "no amsterdamTime (the same grep finds line 26: \"bpo2Time\": 1767747671)",
+    "https://raw.githubusercontent.com/ethereum/EIPs/master/EIPS/eip-7773.md": [
+      "line 3: title: Hardfork Meta - Glamsterdam",
+      "line 35: * [EIP-8037](./eip-8037.md): State Creation Gas Cost Increase",
+      "line 66: | Sepolia      | 353024           | 1791294816 (2026-10-06 13:53:36 UTC) |",
+      "line 68: | Mainnet      |                  |                      |"
+    ],
+    "https://raw.githubusercontent.com/ethereum/go-ethereum/master/params/config.go": "line 45: SepoliaChainConfig = readChainSpec(\"chainspecs/sepolia.json\")"
+  },
+  "eas": "0xc2679fbd37d54388ce493f1db75320d236e1815e",
+  "schema": "0x3aec3135a1dd36700b2c76b699c2169bc5896de0cb1027e3bc8e826ef1bea409",
+  "pre": {
+    "hash": "0x43bb6c21f597a95eba461451a93961bcf3d9d17832cc57c9546136519e70b31d",
+    "block": 11852575,
+    "gasUsed": 9698423,
+    "status": 1,
+    "from": "0xfe468ea151463129fdb48e2f1b89b187b6cbf08d",
+    "to": "0xc2679fbd37d54388ce493f1db75320d236e1815e",
+    "selector": "0x44adc90e",
+    "attestedLogs": 20,
+    "items": 20,
+    "dataWordsPerItem": 16,
+    "calldataBytes": 15556,
+    "calldataZeroBytes": 13257,
+    "calldataGas": 89812
+  },
+  "post": {
+    "hash": "0x086aa79c9881b36922326c51b58a959577f578ce498b5785f7731b038a5b1864",
+    "block": 11888981,
+    "gasUsed": 48836415,
+    "status": 1,
+    "from": "0xfe468ea151463129fdb48e2f1b89b187b6cbf08d",
+    "to": "0xc2679fbd37d54388ce493f1db75320d236e1815e",
+    "selector": "0x44adc90e",
+    "attestedLogs": 20,
+    "items": 20,
+    "dataWordsPerItem": 17,
+    "calldataBytes": 16196,
+    "calldataZeroBytes": 13525,
+    "calldataGas": 96836
+  }
+}
