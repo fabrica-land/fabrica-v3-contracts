@@ -991,18 +991,26 @@ const SHIPPED_NOW = (() => {
     measuredFloor: Math.floor(headline.gasUsed / headline.facts),
     trueFixed: K.txBase + headline.calldata.headGas + F.fixedExecGas,
     trueMarginal: F.marginalExecGas + headline.calldata.bodyGas / headline.facts,
-    costFactor: atN(F, top.facts) / atN(SHIPPED.fit, top.facts),   // the cost change at n
-    crossRatio: repeat.execGas / first.execGas,                    // eng581's x3.5
+    // the cost change at n
+    costFactor: atN(F, top.facts) / atN(SHIPPED.fit, top.facts),
+    // eng581's x3.5
+    crossRatio: repeat.execGas / first.execGas,
     crossCost: atN(F, top.facts) / first.execGas,
     crossRepeat: repeat.execGas / atN(F, top.facts),
-    kindGap: first.execGas / atN(SHIPPED.fit, first.facts),        // fabrica vs price fit, old period
+    // fabrica vs price fit, old period
+    kindGap: first.execGas / atN(SHIPPED.fit, first.facts),
     repeatLo, repeatHi, priceRatio,
     regimeNote: `rewrites are charged at the first-write figure, an upper bound: measured repeats ` +
       `cost ${x(priceRatio)} of it (price kind, n=1) and ${x(repeatLo)}–${x(repeatHi)} ` +
       `(${R.signer} kind, n=${top.facts})`};
 })();
 
-/* The summary card's two arms, and the arithmetic that takes a book size to a month of gas.
+/* rv156 hit 1: the cost period each scale arm is priced in, split at SHIPPED.current.fromBlock. */
+const COST_PERIOD_LABEL = {current: "current cost period", eng4342: "ENG-4342 cost period"};
+// The lookup write each EAS arm closes through (BATCH.eas.arms[].closeLeg), by name.
+const CLOSE_LEG = {index: "Indexer", point: "pointer"};
+
+/* The summary card's arms, and the arithmetic that takes a book size to a month of gas.
    Everything here is composed from measured rows by the formula the card prints. */
 const SCALE_ARMS = (() => {
   const SC = SHIPPED.scale;
@@ -1023,35 +1031,50 @@ const SCALE_ARMS = (() => {
   const EAS_NOW = SHIPPED.current.eas;
   const easRowNow = op => BATCH.ops[op][String(easBatch)].total
                           + easBatch * EAS_NOW.newSlots[op] * EAS_NOW.slotRise;
-  const easScaleArm = (a, key) => ({
-    key, kind: "modelled", armKey: a.key, label: `${a.label} — MODELLED, never shipped`,
-    short: `${a.label} — <em>modelled</em>`,
-    perFact: Math.floor(
-      (BATCH.ops[a.addends[0]][String(easBatch)].total
-       + BATCH.ops[a.addends[1]][String(easBatch)].total) / easBatch),
-    perFactNow: Math.floor((easRowNow(a.addends[0]) + easRowNow(a.addends[1])) / easBatch),
-    closeRepeat: C.attestSecond + C[a.closeLeg + "Repeat"],
-    closeFirst: C.attestFirst + C[a.closeLeg + "First"],
-    batch: easBatch, txPerBatch: a.addends.length, closeTxns: 2,
-  });
+  // rv156 hit 1: the close rows are old-period too, so in the current period a close row also
+  // pays the rise once per new slot it creates (SHIPPED.current.eas.closeNewSlots, build-checked
+  // per row). Each EAS arm is priced in both periods and carries the period of the bespoke arm it
+  // is set beside: beside the current bespoke arm it is current, beside the ENG-4342 arm ENG-4342.
+  const EAS_PRICING = {
+    current: {row: easRowNow, close: r => C[r] + EAS_NOW.closeNewSlots[r] * EAS_NOW.slotRise},
+    eng4342: {row: op => BATCH.ops[op][String(easBatch)].total, close: r => C[r]},
+  };
+  const easScaleArm = (a, key, period) => {
+    const priced = Object.fromEntries(Object.entries(EAS_PRICING).map(([p, f]) => [p, {
+      perFact: Math.floor((f.row(a.addends[0]) + f.row(a.addends[1])) / easBatch),
+      closeRepeat: f.close("attestSecond") + f.close(a.closeLeg + "Repeat"),
+      closeFirst: f.close("attestFirst") + f.close(a.closeLeg + "First"),
+    }]));
+    return {
+      key, kind: "modelled", period, armKey: a.key,
+      label: `${a.label} — MODELLED, never shipped, ${COST_PERIOD_LABEL[period]}`,
+      short: `${a.label} — <em>modelled</em>, ${COST_PERIOD_LABEL[period]}`,
+      ...priced[period], priced,
+      perFactNow: priced.current.perFact, perFactOld: priced.eng4342.perFact,
+      batch: easBatch, txPerBatch: a.addends.length, closeTxns: 2,
+    };
+  };
   // ENG-4344: the headline arm is the current cost period (SHIPPED_NOW). The ENG-4342 period
-  // stays as arms[2], like for like with the EAS rows' gas schedule, so its figures reproduce.
-  // No first close is measured in the current period, so both bespoke arms take the old one.
+  // stays as arms[2], beside an EAS arm on the same old gas schedule (arms[3]), so its figures
+  // reproduce. No first close is measured in the current period, so both bespoke arms take the
+  // old one.
   const arms = [
-    {key: "shipped", kind: "shipped", label: "Bespoke fact store — SHIPPED, current cost period",
+    {key: "shipped", kind: "shipped", period: "current",
+     label: "Bespoke fact store — SHIPPED, current cost period",
      short: "<strong>Bespoke — shipped</strong>, current cost period",
      perFact: SHIPPED_NOW.measuredFloor,
      closeRepeat: SHIPPED.current.closes.repeatGas, closeFirst: SHIPPED.closes.firstGas,
      batch: SHIPPED_NOW.headline.facts, txPerBatch: 1, closeTxns: 1},
-    easScaleArm(easArm, "eas"),
-    {key: "shipped-4342", kind: "shipped",
+    easScaleArm(easArm, "eas", "current"),
+    {key: "shipped-4342", kind: "shipped", period: "eng4342",
      label: "Bespoke fact store — SHIPPED, ENG-4342 cost period",
      short: "<strong>Bespoke — shipped</strong>, ENG-4342 cost period",
      perFact: SHIPPED_CMP.measuredFloor,
      closeRepeat: SHIPPED.closes.repeatGas, closeFirst: SHIPPED.closes.firstGas,
      batch: SHIPPED_CMP.headline.facts, txPerBatch: 1, closeTxns: 1},
+    easScaleArm(easArm, "eas-4342", "eng4342"),
   ];
-  const easArms = BATCH.eas.arms.map(a => a === easArm ? arms[1] : easScaleArm(a, a.key));
+  const easArms = BATCH.eas.arms.map(a => a === easArm ? arms[1] : easScaleArm(a, a.key, "current"));
   /* ENG-4342, after Tim (2026-09-21 13:33Z): "Repeat writes are skipped, bud."
      The keeper writes a price fact on a FIRST write, or when the value has moved at least
      `materialChangeBps` against the value read back from the store. So a month has two
@@ -1117,7 +1140,7 @@ const TOLERANCE_CMP = (() => {
     return {arm, readArm: READ.arms.find(a => a.key === arm.armKey), readGas,
             readRatio: ratio(readGas, storeRead), readVerdict: markTol(readGas),
             writeRatio: ratio(arm.perFactNow, floor), writeVerdict: withinTolerance(arm.perFactNow, floor),
-            mixedRatio: ratio(arm.perFact, floor), historyRatio: ratio(arm.perFact, history)};
+            mixedRatio: ratio(arm.perFactOld, floor), historyRatio: ratio(arm.perFactOld, history)};
   });
   const writeRatios = rows.map(r => r.writeRatio);
   return {
@@ -1143,7 +1166,7 @@ function renderScale() {
     <p class="small">What the fact layer costs at ${tokens.map(t => fmt(t)).join(" / ")} tokens, at
     the cadence and batch size the keeper is <strong>actually running</strong> on Sepolia, priced
     at mainnet gas. The bespoke arm's gas per fact is a chain read; the EAS arm beside it is a
-    Foundry measurement of a path that has never been broadcast.</p>
+    Foundry measurement of a path that has never been broadcast, priced in the same cost period.</p>
     <div class="note bad"><p><strong>A month has two shapes, and averaging them is how this card
     was wrong.</strong> The keeper does not write every token every cycle. It writes a price fact
     on a <em>first</em> write, or when the value has moved at least
@@ -1160,9 +1183,12 @@ function renderScale() {
     ${fmt(SHIPPED.current.fromBlock)}, and this card prices the period after it.</strong> The
     bespoke headline arm is the current cost period: ${fmt(SHIPPED_NOW.measuredFloor)} gas per fact
     at batch ${fmt(H.facts)}; its execution gas at n=${SHIPPED_NOW.top.facts} is
-    ${SHIPPED_NOW.costFactor.toFixed(2)}× the ENG-4342 period's. The third arm keeps the ENG-4342
-    period (${fmt(H0.facts)} facts at ${fmt(SHIPPED_CMP.measuredFloor)}), the gas schedule the EAS
-    Foundry rows run on, so it is the like-for-like row against EAS. Cause: ${SHIPPED.current.cause}
+    ${SHIPPED_NOW.costFactor.toFixed(2)}× the ENG-4342 period's. The EAS arm beside it is priced in
+    the same period: each Foundry row and each close row, plus
+    ${fmt(SHIPPED.current.eas.slotRise)} gas for every new storage slot it creates. The third arm
+    keeps the ENG-4342 period (${fmt(H0.facts)} facts at ${fmt(SHIPPED_CMP.measuredFloor)}), and the
+    fourth sets EAS beside it on the gas schedule its Foundry rows ran on, so those figures
+    reproduce. No arm is set beside an arm of the other period. Cause: ${SHIPPED.current.cause}
     If mainnet never sees the change, the ENG-4342 arm is the mainnet figure.</p>
     <p class="small"><strong>Only gas transfers between chains, not its price.</strong> Sepolia ETH
     has no market value, so the ETH spent there is not a cost. Every USD figure below is measured
@@ -1203,10 +1229,12 @@ function renderScale() {
                 : S.rewriteRate === 100 ? "   (upper bound, not a forecast)" : "   (your assumption)") + `\n` +
     `bespoke, shipped now  = ${fmt(arms[0].perFact)} gas/fact, ` +
       `${fmt(arms[0].closeFirst)} first close (ENG-4342), ${fmt(arms[0].closeRepeat)} repeat close\n` +
-    `EAS, modelled         = ${fmt(arms[1].perFact)} gas/fact, ` +
+    `EAS, modelled now     = ${fmt(arms[1].perFact)} gas/fact, ` +
       `${fmt(arms[1].closeFirst)} first close, ${fmt(arms[1].closeRepeat)} repeat close\n` +
     `bespoke, ENG-4342     = ${fmt(arms[2].perFact)} gas/fact, ` +
-      `${fmt(arms[2].closeFirst)} first close, ${fmt(arms[2].closeRepeat)} repeat close`;
+      `${fmt(arms[2].closeFirst)} first close, ${fmt(arms[2].closeRepeat)} repeat close\n` +
+    `EAS, ENG-4342         = ${fmt(arms[3].perFact)} gas/fact, ` +
+      `${fmt(arms[3].closeFirst)} first close, ${fmt(arms[3].closeRepeat)} repeat close`;
 
   document.getElementById("scale-notes").innerHTML = `
     ${measured && NO_REPEATS ? `<div class="note ok"><p><strong>At the measured rewrite rate the steady-state
@@ -1278,7 +1306,7 @@ function renderScale() {
         <td class="small">CHAIN READ. ${txLink(H0.hash)}, block ${fmt(H0.block)}, ${H0.timeUtc}:
         ${fmt(H0.facts)} facts, ${fmt(H0.gasUsed)} gas,
         <code>floor(${fmt(H0.gasUsed)} ÷ ${H0.facts})</code>. The ENG-4342 headline, kept so its
-        figures still reproduce: the third arm above.</td></tr>
+        figures still reproduce: the third arm above, set beside the fourth (EAS, same period).</td></tr>
       <tr><td>Cycle close, bespoke — first / repeat</td>
         <td class="n">${fmt(arms[0].closeFirst)} / ${fmt(arms[0].closeRepeat)}</td>
         <td class="small">CHAIN READ.
@@ -1307,11 +1335,19 @@ function renderScale() {
         <td class="small">MODELLED. Foundry rows at batch ${fmt(SCALE_ARMS.easBatch)}:
         <code>${BATCH.opLabels[easArm.addends[0]]}</code> +
         <code>${BATCH.opLabels[easArm.addends[1]]}</code>, from
-        <code>${BATCH.source.file}</code> @ <code>${srcCommitShort()}</code>.</td></tr>
+        <code>${BATCH.source.file}</code> @ <code>${srcCommitShort()}</code>, each item plus
+        ${easArm.addends.map(op => SHIPPED.current.eas.newSlots[op]).join(" + ")} new slots ×
+        ${fmt(SHIPPED.current.eas.slotRise)} gas, the current period's rise per new slot. The rows
+        as measured give ${fmt(arms[3].perFact)}: the fourth arm, ENG-4342 period.</td></tr>
       <tr><td>Cycle close, EAS — first / repeat</td>
         <td class="n">${fmt(arms[1].closeFirst)} / ${fmt(arms[1].closeRepeat)}</td>
-        <td class="small">MODELLED. attest + pointer write in each regime
-        (<a href="https://linear.app/fabrica/issue/ENG-3964">ENG-3964</a>).</td></tr>
+        <td class="small">MODELLED. attest + ${CLOSE_LEG[easArm.closeLeg] ?? easArm.closeLeg} write in each regime
+        (<a href="https://linear.app/fabrica/issue/ENG-3964">ENG-3964</a>), each row plus its new
+        slots × ${fmt(SHIPPED.current.eas.slotRise)} gas: the attestation
+        ${SHIPPED.current.eas.closeNewSlots.attestFirst}, the ${CLOSE_LEG[easArm.closeLeg] ?? easArm.closeLeg} write
+        ${SHIPPED.current.eas.closeNewSlots[easArm.closeLeg + "First"]} first and
+        ${SHIPPED.current.eas.closeNewSlots[easArm.closeLeg + "Repeat"]} repeat. The rows as
+        measured give ${fmt(arms[3].closeFirst)} / ${fmt(arms[3].closeRepeat)}: the fourth arm.</td></tr>
       <tr><td>Oracle price sources</td><td class="n">${sources}</td>
         <td class="small">NAMED ASSUMPTION. The aggregator's trusted set holds three price writers
         and the card charges all three. In this window only
@@ -1387,8 +1423,9 @@ function renderHeartbeat() {
     At ${fmt(ms, 2)} days the slack is 0: one late close and the writer goes dark. The 1-day row is the
     steady-state close term above at rewrite rate 0. The store's close gas is its receipts' repeat
     close in the current cost period (${fmt(arms[0].closeRepeat)} gas; ${fmt(SHIPPED.closes.repeatGas)} before
-    block ${fmt(SHIPPED.current.fromBlock)}, the schedule the EAS rows run on); an EAS close is the second attestation plus the arm's lookup leg, two transactions, from
-    Foundry.</p>`;
+    block ${fmt(SHIPPED.current.fromBlock)}); an EAS close is the second attestation plus the arm's lookup leg, two transactions, from
+    Foundry, priced in the same period: each row plus ${fmt(SHIPPED.current.eas.slotRise)} gas per
+    new slot it creates.</p>`;
 }
 
 function renderShipped() {
@@ -1520,7 +1557,7 @@ function renderShipped() {
     remaining ${fmt(C.F.marginalExecGas - SHIPPED.independentFit.marginalExecGas - 20000)} gas is
     opcode-path difference and is not separately measured here.</p></div>`;
 
-  const T = C.terms;
+  const T = C.terms, SUP = SHIPPED.superseded;
   document.getElementById("shipped-recon").innerHTML = `
     <p class="small">Before the first scheduled pass ran,
     <a href="https://github.com/fabrica-land/fabrica-v3-api/pull/1903">fabrica-v3-api#1903</a>
@@ -1575,7 +1612,20 @@ function renderShipped() {
     ${(100 * Math.abs(C.measuredExact - C.atShippedExact) / C.atShippedExact).toFixed(2)}%.</p>
     <p class="small">EIP-7623 does not bind on any of these transactions: the floor for the
     shipped batch is ${fmt(C.headline.calldata.eip7623FloorGas)} gas against
-    ${fmt(C.headline.gasUsed)} actually used.</p></div>`;
+    ${fmt(C.headline.gasUsed)} actually used.</p></div>
+    <div class="scroll"><table>
+      <thead><tr><th>History row (Brioche 700002)</th><th class="n">$ / token / yr</th></tr></thead>
+      <tbody><tr><td><strong>superseded: the shipped keeper closes daily (contracts#62)</strong> —
+        ENG-4342 cost period. ${SUP.tokens} tokens, ${SUP.sources} sources, each written every
+        ${SUP.cadenceDays} days at ${fmt(SUP.perFact)} gas per fact. A source closes only when it
+        is silent (<code>whenSilent</code>, maxSilence ${DEFAULTS.maxSilence} days less
+        ${DEFAULTS.margin}% = ${fmt(SUP.windowDays, 2)} days): ${fmt(SUP.closesPerMonth, 4)} closes
+        a month at ${fmt(SHIPPED.closes.repeatGas)} gas, and each source's first close once at
+        ${fmt(SHIPPED.closes.firstGas)}. That is ${fmt(SUP.yearGas, 0)} gas a year at today's fees.
+        <div class="src">ENG-4342 quoted this figure. The shipped keeper closes every source every
+        day (contracts#62). The shipped layer and the headline charge that daily close, so the same
+        scenario costs more there.</div></td>
+        <td class="n">$${SUP.usdPerTokenYear.toFixed(2)}</td></tr></tbody></table></div>`;
 
   const closeRows = [...SHIPPED.closes.groups.map(g => ({
     what: g.gasUsed === SHIPPED.closes.firstGas
@@ -2484,9 +2534,11 @@ total                                                    = ${noTotal ? "— not 
     fact at n=${SHIPPED_CMP.headline.facts} in the ENG-4342 cost period, the gas schedule the
     Foundry rows run on (${fmt(SHIPPED_NOW.measuredFloor)} at n=${SHIPPED_NOW.headline.facts} since
     block ${fmt(SHIPPED.current.fromBlock)}); this arm's modelled figure at the nearest measured
-    size (${fmt(SCALE_ARMS.easBatch)}) is
-    <span class="num">${fmt(SCALE_ARMS.arms[1].perFact)}</span>, which is
-    ${(SCALE_ARMS.arms[1].perFact / SHIPPED_CMP.measuredFloor).toFixed(2)}× it. Comparing them is
+    size (${fmt(SCALE_ARMS.easBatch)}) on that schedule is
+    <span class="num">${fmt(SCALE_ARMS.arms[3].perFact)}</span>, which is
+    ${(SCALE_ARMS.arms[3].perFact / SHIPPED_CMP.measuredFloor).toFixed(2)}× it (current period:
+    ${fmt(SCALE_ARMS.arms[1].perFact)}, ${(SCALE_ARMS.arms[1].perFact
+      / SHIPPED_NOW.measuredFloor).toFixed(2)}× the ${fmt(SHIPPED_NOW.measuredFloor)}). Comparing them is
     comparing a measurement with a projection, and the page says so every time it does.</p></div>`
     : `<div class="note ok"><p><strong>This arm has shipped.</strong> The Foundry rows above are
     corroborated by real transactions: see <em>Shipped</em> above, where
@@ -2936,6 +2988,15 @@ ${SHIPPED.collection.command}</div>
       SCALE_ARMS.heartbeat(a, 1, DEFAULTS.maxSilence).gas, SCALE_ARMS.steady(a, 100, 0).closeGas]),
     ["heartbeat: past maxSilence is dark",
      Number(SCALE_ARMS.heartbeat(SCALE_ARMS.arms[0], DEFAULTS.maxSilence + 1, DEFAULTS.maxSilence).gas === null), 1],
+    // rv156 hit 1: each modelled arm carries the figures of the period it names, every EAS arm set
+    // beside the current bespoke arm (card, heartbeat, tolerance) is current, and arms[3] shares
+    // the ENG-4342 bespoke arm's period.
+    ["scale: every EAS arm is priced in the cost period of the bespoke arm beside it",
+     Number(SCALE_ARMS.arms.concat(SCALE_ARMS.easArms).every(a => a.kind !== "modelled"
+       || ["perFact", "closeRepeat", "closeFirst"].every(k => a[k] === a.priced[a.period][k]))
+       && SCALE_ARMS.arms[0].period === "current"
+       && [SCALE_ARMS.arms[1], ...SCALE_ARMS.easArms].every(a => a.period === SCALE_ARMS.arms[0].period)
+       && SCALE_ARMS.arms[3].period === SCALE_ARMS.arms[2].period), 1],
     // ENG-4344 deliverable 7: a monthly cadence at rate 0 writes no price fact, and the round-3
     // close does not depend on the cadence.
     ["model: monthly cadence, 0% movers, round 3: price writes",

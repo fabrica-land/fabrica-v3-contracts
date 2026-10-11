@@ -694,6 +694,25 @@ EAS_NEW_SLOTS = {
     # (reports/eng3922-arms.txt:390, :424): one new slot.
     "pointBatch": 1,
 }
+# rv156 hit 1: the close rows (parse_eas_close_write) are old-period too, so a close pays the same
+# rise once per new slot it creates. The close attestation's recipient is writers[0], so 6
+# Attestation slots are non-zero, plus 2 non-zero data words; the root word is zero
+# (test/bench/Eng3922Write.t.sol:255-266). The WITH-root row less the WITHOUT-root row is
+# 232,229 - 212,329 = 19,900 = 22,100 - 2,200: one data word is one new slot
+# (reports/eng3922-arms.txt:482, :488). First and second each write a fresh uid slot, and EAS
+# keeps no per-attester state (test/bench/Eng3922Write.t.sol:155-156), so both create 8.
+EAS_CLOSE_NEW_SLOTS = {
+    "attestFirst": 8,
+    "attestSecond": 8,
+    # 4 index pushes and 1 indexed flag, as EAS_NEW_SLOTS["indexAttestations"].
+    "indexRepeat": 5,
+    # The first entry on a row also takes its 4 array lengths from zero.
+    "indexFirst": 9,
+    # The pointer's first write sets its slot from zero and a repeat overwrites it
+    # (test/bench/Eng3922Write.t.sol:161-162; reports/eng3922-arms.txt:663, :669).
+    "pointFirst": 1,
+    "pointRepeat": 0,
+}
 EAS_ATTESTATION_SLOTS = 5
 # The old cost of one new slot: a cold SLOAD (2,100) and an SSTORE from zero (20,000).
 OLD_NEW_SLOT_GAS = 22_100
@@ -991,6 +1010,12 @@ def assert_eas_close_legs(eas):
             if arm.get("closeLeg", "") + suffix not in eas["close"]:
                 sys.exit("EAS arm %s closes through leg %r, but the close rows are %s"
                          % (arm["key"], arm.get("closeLeg"), ", ".join(sorted(eas["close"]))))
+    # rv156 hit 1: the card prices each close row in the current period by its new-slot count, so
+    # a row with no count would price at NaN and a count with no row would price nothing.
+    if sorted(eas["close"]) != sorted(EAS_CLOSE_NEW_SLOTS):
+        sys.exit("the EAS close rows are %s but EAS_CLOSE_NEW_SLOTS counts %s; each close row needs "
+                 "its new-slot count to be priced in the current cost period"
+                 % (", ".join(sorted(eas["close"])), ", ".join(sorted(EAS_CLOSE_NEW_SLOTS))))
 
 
 def assert_ascending(name, values):
@@ -1071,9 +1096,52 @@ def eas_current_period(path, arms_path, shipped):
                  "%d; they do not measure the change the 3x marker's floor moved by"
                  % (path, rise, EAS_SLOT_RISE_TOLERANCE * 100, fit_rise))
     return {"slotRise": rise, "fitSlotRise": fit_rise, "oldSlotGas": OLD_NEW_SLOT_GAS,
-            "dataWordGas": round(per_word), "newSlots": EAS_NEW_SLOTS, "fork": COST_PERIOD_FORK,
+            "dataWordGas": round(per_word), "newSlots": EAS_NEW_SLOTS,
+            "closeNewSlots": EAS_CLOSE_NEW_SLOTS, "fork": COST_PERIOD_FORK,
             "twins": {s: {k: t[k] for k in ("hash", "block", "gasUsed", "items", "dataWordsPerItem")}
                       for s, t in (("pre", pre), ("post", post))}}
+
+
+# Brioche 700002 (Option B). ENG-4342 quoted $16.82 per token per year for 100 tokens, 2 sources
+# and a 3-day cadence, with a close only when a writer's writes leave a gap. The shipped keeper
+# closes daily (contracts#62), so the shipped layer now charges that close and shows $17.01. The
+# old figure stays as one history row, and the build refuses it unless it still comes to $16.82.
+SUPERSEDED_SCENARIO = {"tokens": 100, "sources": 2, "cadenceDays": 3}
+SUPERSEDED_USD_PER_TOKEN_YEAR = 16.82
+
+
+def superseded_when_silent(shipped, chain, template):
+    """The ENG-4342 period's 3-day figure with whenSilent closes, as model() prices month 1 x 12.
+
+    Per fact is the ENG-4342 headline's measured floor. A writer closes when its writes leave a
+    gap: closes per writer per month = MONTH_DAYS / (maxSilence x (1 - margin/100)) - writes. The
+    first close of each writer pays its premium once. Gas, tip and ETH are the page's defaults."""
+    month = re.findall(r"const MONTH_DAYS = ([0-9.]+);", template)
+    dial = re.findall(r'maxSilence: (\d+), margin: (\d+), hbPolicy: "whenSilent"', template)
+    if len(month) != 1 or len(dial) != 1:
+        sys.exit("page-template.html no longer has one MONTH_DAYS and one DEFAULTS maxSilence, "
+                 "margin and whenSilent policy; the superseded $16.82 row is computed from them")
+    sc, closes, month = SUPERSEDED_SCENARIO, shipped["closes"], float(month[0])
+    head = next(w for w in shipped["writes"] if w["hash"] == shipped["headlineTx"])
+    per_fact = head["gasUsed"] // head["facts"]
+    writes = month / sc["cadenceDays"]
+    window = int(dial[0][0]) * (1 - int(dial[0][1]) / 100)
+    closes_per_month = max(0.0, sc["sources"] * (month / window - writes))
+    first_extra = closes["firstGas"] - (closes["repeatGas"] if closes_per_month > 0 else 0)
+    year_gas = (12 * (sc["tokens"] * sc["sources"] * writes * per_fact
+                      + closes_per_month * closes["repeatGas"]) + sc["sources"] * first_extra)
+    price = (chain["now"]["baseFeeGwei"] + chain["priorityFee"]["medianPriorityFeeGwei"]) * 1e-9
+    usd = year_gas * price * chain["ethUsd"]["price"] / sc["tokens"]
+    if round(usd, 2) != SUPERSEDED_USD_PER_TOKEN_YEAR:
+        sys.exit("the superseded ENG-4342 row comes to $%.4f per token per year, not $%.2f "
+                 "(per fact %d, %.4f closes a month, gas %s + tip %s gwei, ETH $%s); Brioche 700002 "
+                 "keeps it at the quoted figure"
+                 % (usd, SUPERSEDED_USD_PER_TOKEN_YEAR, per_fact, closes_per_month,
+                    chain["now"]["baseFeeGwei"], chain["priorityFee"]["medianPriorityFeeGwei"],
+                    chain["ethUsd"]["price"]))
+    return {"usdPerTokenYear": usd, "quoted": SUPERSEDED_USD_PER_TOKEN_YEAR, "perFact": per_fact,
+            "closesPerMonth": closes_per_month, "yearGas": year_gas, "windowDays": window,
+            "writesPerRowPerMonth": writes, **sc}
 
 
 def parse_shipped(path):
@@ -1605,6 +1673,7 @@ def main():
     assert_daily_series(chain)
     assert_monthly_preset(template)
     assert_eas_close_legs(batch["eas"])
+    shipped["superseded"] = superseded_when_silent(shipped, chain, template)
 
     # The summary card says "three pinned gas scenarios" and renders one column per anchor that is
     # pinned to a named historical block. `now` is re-read on every chain-data refresh and is
