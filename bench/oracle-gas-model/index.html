@@ -2928,10 +2928,10 @@ const DATA = {
   }
  ],
  "meta": {
-  "commit": "755354151e59b38defac597b2e10c20738bc40d3",
-  "commitShort": "7553541",
+  "commit": "c7fc98fd0a201630cc240b2ee3a6a23a346d7d8a",
+  "commitShort": "c7fc98f",
   "historyDepth": 48,
-  "inputDigest": "2fd3e17482b1e070",
+  "inputDigest": "28ad91aafb697c72",
   "reportHeader": "# ENG-3913 \u2014 per-scenario gas bench, literal output\n#\n# repo:    fabrica-v3-contracts\n# base:    origin/main @ 4b9201d17d78c7296545a6bd5ef6ac8da1d5a86e\n# branch:  tozzetto/eng-3913-oracle-gas-model\n# command: forge test --match-path test/Eng3913OracleGasBench.t.sol -vv\n# forge:   forge Version: 1.7.1 (Commit SHA: 4072e48705af9d93e3c0f6e29e93b5e9a40caed8)\n# profile: optimizer=true, optimizer_runs=1, via_ir=false (foundry.toml [profile.default])\n# knobs:   FabricaAttributeOracle.defaultKnobs() \u2014 the config\n#          script/FabricaAttributeOracleDeploy.s.sol deploys with.\n#\n# \u26a0 RUN THIS WITHOUT --gas-report.\n#   Foundry's gas-report instrumentation inflates the gasleft() deltas these benches\n#   read, and the codeless-control subtraction absorbs most but not all of it. The CSV\n#   rows here are valid ONLY from a plain -vv run. Under --gas-report the steady-state\n#   writePrice row reads 72,268 instead of 73,812."
  },
  "read": {
@@ -3339,7 +3339,8 @@ const DATA = {
    "selectorsVerifiedBy": "cast sig / cast keccak, the commands in the SELECTORS table of this script; each is also checked against the chain, since every writeFacts array length must equal its FactWritten log count"
   },
   "current": {
-   "cause": "network repricing of storage, by elimination: the store's code is byte-identical at blocks 11850415 and 11857921 (eth_getCode, 6,393 bytes, sha256 02a6616f\u20268754e at both), and the calldata is 228 bytes per fact on both sides. Which Sepolia change did it, and whether mainnet will see it, is not established.",
+   "cause": "network-wide repricing of new storage slots on Sepolia. Network-wide because the same rise hit a third-party EAS contract (eas-period-twins.json, Brioche 699922). Not the store: its code is byte-identical at blocks 11850415 and 11857921 (eth_getCode, 6,393 bytes, sha256 02a6616f\u20268754e at both), and the calldata is 228 bytes per fact on both sides.",
+   "causeName": "network-wide repricing of new storage slots on Sepolia",
    "closes": {
     "count": 30,
     "execGas": 11199,
@@ -3356,6 +3357,34 @@ const DATA = {
      }
     ],
     "repeatGas": 32783
+   },
+   "eas": {
+    "dataWordGas": 142,
+    "fitSlotRise": 87987,
+    "fork": "Sepolia activated the Glamsterdam hard fork (execution-layer name Amsterdam) at timestamp 1791294816 (2026-10-06 13:53:36 UTC, epoch 353024), between block 11850415 (2026-10-05 18:00:24 UTC) and block 11857921 (2026-10-06 19:30:12 UTC). Its meta EIP, EIP-7773, lists EIP-8037, State Creation Gas Cost Increase. Mainnet has no Glamsterdam activation time in go-ethereum's mainnet chainspec or in EIP-7773's activation table (both read 2026-10-11).",
+    "newSlots": {
+     "indexAttestations": 5,
+     "multiAttest": 11,
+     "pointBatch": 1
+    },
+    "oldSlotGas": 22100,
+    "slotRise": 87923,
+    "twins": {
+     "post": {
+      "block": 11888981,
+      "dataWordsPerItem": 17,
+      "gasUsed": 48836415,
+      "hash": "0x086aa79c9881b36922326c51b58a959577f578ce498b5785f7731b038a5b1864",
+      "items": 20
+     },
+     "pre": {
+      "block": 11852575,
+      "dataWordsPerItem": 16,
+      "gasUsed": 9698423,
+      "hash": "0x43bb6c21f597a95eba461451a93961bcf3d9d17832cc57c9546136519e70b31d",
+      "items": 20
+     }
+    }
    },
    "fit": {
     "fixedExecGas": -3200,
@@ -3432,7 +3461,8 @@ const DATA = {
    "fromBlock": 11857921,
    "fromTime": "2026-10-06T19:30:12Z",
    "headlineTx": "0x580d7dfcf5c09af96c3a38a208877e5a58e7bc1af715efadbc57682f2898f1cb",
-   "lastOldBlock": 11852330
+   "lastOldBlock": 11852330,
+   "measuredFloor": 339264
   },
   "easWritePath": {
    "checkedAt": "fabrica-v3-api src/onchain-oracle-keeper/, HEAD 5a35f674; fabrica-fact-store.abi.ts is the only store ABI and carries no attestation entry point; `git grep -niE 'attest|multiAttest|schemaRegistry|\\bEAS\\b' -- src/onchain-oracle-keeper` returns nothing",
@@ -19938,12 +19968,19 @@ const SCALE_ARMS = (() => {
   // the heartbeat and the cost tolerance can set each beside the shipped store. A close is the
   // second attestation plus the arm's own lookup leg (BATCH.eas.arms[].closeLeg, build-checked).
   const C = BATCH.eas.close;
+  // Brioche 699880 Flag 1: the Foundry rows run on the old gas schedule. In the current period an
+  // item also pays the per-slot rise once for each new storage slot it creates
+  // (SHIPPED.current.eas, measured on EAS's own code and build-checked against the store's fits).
+  const EAS_NOW = SHIPPED.current.eas;
+  const easRowNow = op => BATCH.ops[op][String(easBatch)].total
+                          + easBatch * EAS_NOW.newSlots[op] * EAS_NOW.slotRise;
   const easScaleArm = (a, key) => ({
     key, kind: "modelled", armKey: a.key, label: `${a.label} — MODELLED, never shipped`,
     short: `${a.label} — <em>modelled</em>`,
     perFact: Math.floor(
       (BATCH.ops[a.addends[0]][String(easBatch)].total
        + BATCH.ops[a.addends[1]][String(easBatch)].total) / easBatch),
+    perFactNow: Math.floor((easRowNow(a.addends[0]) + easRowNow(a.addends[1])) / easBatch),
     closeRepeat: C.attestSecond + C[a.closeLeg + "Repeat"],
     closeFirst: C.attestFirst + C[a.closeLeg + "First"],
     batch: easBatch, txPerBatch: a.addends.length, closeTxns: 2,
@@ -20020,19 +20057,22 @@ const SCALE_ARMS = (() => {
 
 /* ENG-4344 deliverable 5: each EAS arm against the cost tolerance, the read and the write apart.
    The read is the arm's depth-0 fork read over arm 3's; the write is its batched per-fact write at
-   the largest measured batch over the shipped store's per-fact floor from its receipts, in the
-   ENG-4342 cost period, the gas schedule the Foundry rows run on. */
+   the largest measured batch, priced in the current cost period, over the shipped store's
+   per-fact floor in that period, which the card prices (Brioche 699880 Flag 1). The Foundry row
+   over the current floor mixed periods (mixedRatio, withdrawn); the ENG-4342 floor stays as history. */
 const TOLERANCE_CMP = (() => {
-  const floor = SHIPPED_CMP.measuredFloor, storeRead = READ.fork.arm3["0"];
+  const floor = SHIPPED.current.measuredFloor, history = SHIPPED_CMP.measuredFloor;
+  const storeRead = READ.fork.arm3["0"];
   const rows = SCALE_ARMS.easArms.map(arm => {
     const readGas = READ.fork[arm.armKey]["0"];
     return {arm, readArm: READ.arms.find(a => a.key === arm.armKey), readGas,
             readRatio: ratio(readGas, storeRead), readVerdict: markTol(readGas),
-            writeRatio: ratio(arm.perFact, floor), writeVerdict: withinTolerance(arm.perFact, floor)};
+            writeRatio: ratio(arm.perFactNow, floor), writeVerdict: withinTolerance(arm.perFactNow, floor),
+            mixedRatio: ratio(arm.perFact, floor), historyRatio: ratio(arm.perFact, history)};
   });
   const writeRatios = rows.map(r => r.writeRatio);
   return {
-    rows, floor,
+    rows, floor, history,
     readOnly: READ_CMP.easArms.filter(a => !rows.some(r => r.arm.armKey === a.key)),
     writeSummary: READ_CMP.tally(rows.map(r => r.writeVerdict), "batched EAS", "FAIL", "pass"),
     writeLo: Math.min(...writeRatios), writeHi: Math.max(...writeRatios),
@@ -20596,31 +20636,59 @@ function renderTolerance() {
   document.getElementById("read-tolerance").innerHTML = `
     <thead><tr><th>EAS arm</th><th class="n">Read gas, depth 0</th><th class="n">× arm 3</th>
       <th class="n">Read ≤ ${tol}×</th>
-      <th class="n">Write gas / fact<div class="src">batch ${fmt(SCALE_ARMS.easBatch)}, Foundry</div></th>
+      <th class="n">Write gas / fact<div class="src">batch ${fmt(SCALE_ARMS.easBatch)}, Foundry,
+        priced in the current period</div></th>
       <th class="n">× shipped store<div class="src">${fmt(T.floor)} gas/fact, batch
-        ${fmt(SHIPPED_CMP.headline.facts)}, receipt</div></th>
-      <th class="n">Write ≤ ${tol}×</th></tr></thead>
+        ${fmt(SHIPPED_NOW.headline.facts)}, receipt, current period</div></th>
+      <th class="n">Write ≤ ${tol}×<div class="src">base moved by ${SHIPPED.current.causeName}</div></th></tr></thead>
     <tbody>${T.rows.map(r => `<tr><td>${r.readArm.label}</td>
       ${cells(r.readGas, r.readRatio, r.readVerdict)}
-      ${cells(r.arm.perFact, r.writeRatio, r.writeVerdict)}</tr>`).join("")}
+      ${cells(r.arm.perFactNow, r.writeRatio, r.writeVerdict)}</tr>`).join("")}
     ${T.readOnly.map(a => `<tr><td>${a.label}</td>
       ${cells(READ.fork[a.key]["0"], ratio(READ.fork[a.key]["0"], storeRead), markTol(READ.fork[a.key]["0"]))}
       <td class="n" colspan="3">no batched write row</td></tr>`).join("")}</tbody>`;
-  document.getElementById("read-tolerance-notes").innerHTML = `
+  document.getElementById("read-tolerance-notes").innerHTML = toleranceNotes(T, tol, storeRead);
+}
+
+/* Brioche 699922: the card states the current-period verdict plainly (rule 1), withdraws the
+   mixed-period figures (rule 2), names the cause (rule 3) and states the fork facts (rule 4). */
+function toleranceNotes(T, tol, storeRead) {
+  const E = SHIPPED.current.eas, pre = E.twins.pre, post = E.twins.post;
+  const fails = T.rows.filter(r => r.writeVerdict === "FAIL").length;
+  const who = fails === 2 && T.rows.length === 2 ? "both EAS write arms exceed"
+    : `${fails} of ${T.rows.length} EAS write arms exceed`;
+  const ratios = key => T.rows.map(r => `${r[key].toFixed(2)}×`).join(" and ");
+  const twin = t => `${txLink(t.hash)} (block ${fmt(t.block)}, ${fmt(t.gasUsed)} gas,
+    ${t.dataWordsPerItem} data words per item)`;
+  return `
+    <p><strong>Current period: ${who} ${tol}× the shipped store
+    (${ratios("writeRatio")}).</strong> The ${ratios("mixedRatio")} shown before set the Foundry
+    rows, which run on the old gas schedule, against the current floor. They mixed periods and are
+    withdrawn.</p>
+    <p class="small"><strong>How the EAS arms are priced in the current period.</strong> Each
+    addend is its Foundry row at batch ${fmt(SCALE_ARMS.easBatch)}, plus ${fmt(E.slotRise)} gas per
+    item for each new storage slot the item creates: ${Object.entries(E.newSlots).map(([op, n]) =>
+      `<code>${op}</code> ${n}`).join(", ")}. The ${fmt(E.slotRise)} is measured on EAS's own code:
+    one third-party attester's <code>multiAttest</code> of ${pre.items} on the same EAS contract and
+    schema, before the change, ${twin(pre)}, and after it, ${twin(post)}. A new slot cost
+    ${fmt(E.oldSlotGas)} gas before the change. The build requires the rise to agree to 1% with the
+    store's own two fits, which put it at ${fmt(E.fitSlotRise)} gas per new slot.</p>
     <p class="small">The tolerance is <strong>${tol}×</strong>: ${READ.marks.toleranceSource}, set on
     ${READ.marks.toleranceSetOn}, after the arms were measured. A cell fails when the EAS figure is
     more than ${tol} times the store figure beside it. The read is the depth-0 fork read over
     arm 3's ${fmt(storeRead)} gas. The write is the arm's batched per-fact write — its two
     transactions at batch ${fmt(SCALE_ARMS.easBatch)}, the largest measured batch and the kindest
     to EAS — over the shipped store's ${fmt(T.floor)} gas per fact from receipt
-    ${txLink(SHIPPED.headlineTx)}. That receipt is in the ENG-4342 cost period, the gas schedule the
-    Foundry rows run on, so the ratio is like for like. Against the current period's
-    ${fmt(SHIPPED_NOW.measuredFloor)} the write ratios are ${T.rows.map(r =>
-      `${r.readArm.short} ${(r.arm.perFact / SHIPPED_NOW.measuredFloor).toFixed(2)}×`).join(", ")},
-    but those cross gas schedules. No EAS batch has shipped, so its side is a Foundry row; the
-    store's side is a chain receipt. ${T.readOnly.map(a => a.short).join(", ")} has a read row only:
-    no batched write was measured for it. The shipped figure falls as its batch grows, so a larger
-    shipped batch would raise every write ratio, not lower it.</p>`;
+    ${txLink(SHIPPED.current.headlineTx)}, the floor of the current cost period, which the card
+    prices. The cost changed at block ${fmt(SHIPPED.current.fromBlock)}. Cause:
+    ${SHIPPED.current.cause} Fork: ${E.fork} No EAS batch has shipped, so its side is a priced
+    Foundry row; the store's side is a chain receipt. ${T.readOnly.map(a => a.short).join(", ")}
+    has a read row only: no batched write was measured for it. The shipped figure falls as its
+    batch grows, so a larger shipped batch would raise every write ratio, not lower it.</p>
+    <p class="small"><strong>History, ENG-4342 cost period.</strong> Against that period's
+    ${fmt(T.history)} gas per fact from receipt ${txLink(SHIPPED.headlineTx)}, the gas schedule the
+    Foundry rows run on, the write ratios were ${T.rows.map(r =>
+      `${r.readArm.short} ${r.historyRatio.toFixed(2)}×`).join(", ")}.</p>`;
 }
 
 function renderReadSide() {

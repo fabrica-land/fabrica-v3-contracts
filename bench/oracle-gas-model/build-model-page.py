@@ -128,6 +128,9 @@ INPUTS = [
     # tracks a re-collection, and because the summary card at the top of the page is quoted
     # entirely from it.
     "shipped-writes.json",
+    # ENG-4344 (Brioche 699880 Flag 1): one EAS multiAttest each side of the cost split, read from
+    # the chain once. The current-period EAS price on the card is derived from it.
+    "eas-period-twins.json",
 ]
 
 # ENG-3938: the batch-size dial drives the write-side per-item cost at these sizes. writePriceBatch
@@ -661,11 +664,43 @@ SHIPPED_PROJECTION = {
 # one so its figures still reproduce. The cause is a finding from chain reads this build cannot
 # repeat, so it is carried as a named source; the calldata half of it IS re-checked below.
 COST_PERIOD_SPLIT_BLOCK = 11_857_921
+# The cause's name stands next to the 3x marker, whose base is the current period's floor
+# (Brioche 699880 Flag 1); the whole of COST_PERIOD_CAUSE says how it was found.
+COST_PERIOD_CAUSE_NAME = "network-wide repricing of new storage slots on Sepolia"
 COST_PERIOD_CAUSE = (
-    "network repricing of storage, by elimination: the store's code is byte-identical at blocks "
-    "11850415 and 11857921 (eth_getCode, 6,393 bytes, sha256 02a6616f…8754e at both), and the "
-    "calldata is 228 bytes per fact on both sides. Which Sepolia change did it, and whether "
-    "mainnet will see it, is not established.")
+    COST_PERIOD_CAUSE_NAME + ". Network-wide because the same rise hit a third-party EAS "
+    "contract (eas-period-twins.json, Brioche 699922). Not the store: its code is byte-identical "
+    "at blocks 11850415 and 11857921 (eth_getCode, 6,393 bytes, sha256 02a6616f…8754e at both), "
+    "and the calldata is 228 bytes per fact on both sides.")
+# Brioche 699922 rule 4, facts only: the sources and the line that answers are in
+# eas-period-twins.json under "fork". Whether mainnet sees the same change is Tim's call.
+COST_PERIOD_FORK = (
+    "Sepolia activated the Glamsterdam hard fork (execution-layer name Amsterdam) at timestamp "
+    "1791294816 (2026-10-06 13:53:36 UTC, epoch 353024), between block 11850415 (2026-10-05 "
+    "18:00:24 UTC) and block 11857921 (2026-10-06 19:30:12 UTC). Its meta EIP, EIP-7773, lists "
+    "EIP-8037, State Creation Gas Cost Increase. Mainnet has no Glamsterdam activation time in "
+    "go-ethereum's mainnet chainspec or in EIP-7773's activation table (both read 2026-10-11).")
+# Brioche 699880 Flag 1: the cause is a network repricing, so the EAS arms are priced in the
+# current period before the 3x compare. The Foundry rows are old-period; each item pays the rise
+# of one new storage slot (eas_current_period) once per slot it creates. Counted from the layout:
+# EAS (lib/) and the arm sources (test/bench) are outside this bench and the build does not read them.
+EAS_NEW_SLOTS = {
+    # 5 non-zero Attestation slots (refUID and recipient are zero) and the 6 data words of the
+    # 192-byte price schema. eas_current_period also reads 5 + data words off the twins.
+    "multiAttest": 11,
+    # 4 index pushes and 1 indexed flag. The least sure count; it moves arm 1 only.
+    "indexAttestations": 5,
+    # The row's FIRST - REPEAT is 26,731 - 9,614 = 17,117 = 1 x (22,100 - 5,000)
+    # (reports/eng3922-arms.txt:390, :424): one new slot.
+    "pointBatch": 1,
+}
+EAS_ATTESTATION_SLOTS = 5
+# The old cost of one new slot: a cold SLOAD (2,100) and an SSTORE from zero (20,000).
+OLD_NEW_SLOT_GAS = 22_100
+# A first write sets three new slots (REPEAT_STORAGE_REASON), so the store's two fits put the
+# per-slot rise at (current marginal - old marginal) / 3. The twins must agree with it to 1%.
+STORE_NEW_SLOTS_PER_FACT = 3
+EAS_SLOT_RISE_TOLERANCE = 0.01
 # Deliverable 3: one 25-fact first write before the split and one 25-fact repeat after it, same
 # writer and kind. Their ratio (x3.5) is what eng581 reported as "a repeat costs more"; it is the
 # cost change, not the repeat, and the page shows it as such.
@@ -784,8 +819,15 @@ def _current_period(txns, price_first, const, path):
         sys.exit("%s: no batch size is written in both cost periods with the same calldata; the "
                  "page's 'calldata did not change' clause has no evidence" % path)
     top = max(t["facts"] for t in rows)
-    # The headline is a fitted row, so the fit already reproduces its receipt to the gas.
     head = min((t for t in rows if t["facts"] == top), key=lambda t: t["block"])
+    # Redundant while the headline is a fitted row (Brioche 699880 Flag 2): it states the receipt
+    # match whatever the headline is picked from.
+    cd = head["calldata"]
+    whole = (const["txBase"] + cd["headGas"] + fit["fixedExecGas"]
+             + fit["marginalExecGas"] * head["facts"] + cd["bodyGas"])
+    if whole != head["gasUsed"]:
+        sys.exit("%s: the current-period fit gives %d gas at n=%d but %s used %d"
+                 % (path, whole, head["facts"], head["hash"], head["gasUsed"]))
     closers = {t["signer"] for t in old if t["op"] == "closeCycle" and t["keeperSigner"]}
     closes = [t for t in new if t["op"] == "closeCycle" and t["keeperSigner"]]
     if not closes or any(t["signer"] not in closers for t in closes):
@@ -797,8 +839,9 @@ def _current_period(txns, price_first, const, path):
                  % (path, len(execs), ", ".join(str(e) for e in execs)))
     groups = _gas_groups(closes)
     return {"fromBlock": split, "lastOldBlock": max(t["block"] for t in old),
-            "cause": COST_PERIOD_CAUSE,
+            "cause": COST_PERIOD_CAUSE, "causeName": COST_PERIOD_CAUSE_NAME,
             "fromTime": min(t["timeUtc"] for t in new), "fit": fit, "headlineTx": head["hash"],
+            "measuredFloor": head["gasUsed"] // head["facts"],
             "closes": {"repeatGas": groups[0]["gasUsed"], "execGas": execs[0], "count": len(closes),
                        "groups": groups}}
 
@@ -854,6 +897,9 @@ def _repeat_figures(keeper_writes, by_hash, price_kind, fits, path):
     if not price:
         sys.exit("%s: the window has no price-kind repeat; deliverable 3 shows the price kind "
                  "first (Brioche 699512 Q1)" % path)
+    if repeat["facts"] not in batches:
+        sys.exit("%s: no current-period repeat batch at REPEAT_CROSSING's size (n=%d); deliverable "
+                 "3 has no measured repeat to show" % (path, repeat["facts"]))
     groups = [{"facts": n, "count": len(rows),
                "execGas": sorted({r["execGas"] for r in rows}),
                "min": min(rows, key=lambda r: (r["execGas"], r["block"]))["hash"],
@@ -961,6 +1007,73 @@ def assert_ascending(name, values):
                  "endpoints of a walk" % (name, ", ".join(str(v) for v in values)))
     if len(set(values)) != len(values):
         sys.exit("%s contains a duplicate (%s)" % (name, ", ".join(str(v) for v in values)))
+
+
+def assert_tolerance_base(template, current):
+    """Brioche 699880 Flag 1: the 3x write marker's base is the current period's per-fact floor,
+    read from what _current_period returns. The ENG-4342 floor stays beside it as history only.
+    A literal, or the ENG-4342 floor put back, would hold the marker on a figure the card no
+    longer prices."""
+    m = re.search(r"const TOLERANCE_CMP = \(\(\) => \{\s*const floor = ([\w.]+),", template)
+    base = m.group(1) if m else "not found"
+    if base != "SHIPPED.current.measuredFloor" or not current["measuredFloor"]:
+        sys.exit("page-template.html: the 3x marker's base is %s, not the current-period floor "
+                 "SHIPPED.current.measuredFloor (Brioche 699880 Flag 1)" % base)
+    # While the cause is a network repricing, the Foundry EAS rows are old-period prices, and a
+    # compare of them with the current floor mixes periods (the withdrawn 1.33x and 0.84x).
+    m = re.search(r"writeRatio: ratio\(([\w.]+), floor\)", template)
+    side = m.group(1) if m else "not found"
+    if COST_PERIOD_CAUSE_NAME.startswith("network") and side != "arm.perFactNow":
+        sys.exit("page-template.html: the 3x write compare reads %s, not the current-period EAS "
+                 "price arm.perFactNow; the cause is a network repricing, so the EAS arms must be "
+                 "priced in the current period (Brioche 699880 Flag 1)" % side)
+
+
+def eas_current_period(path, arms_path, shipped):
+    """Brioche 699880 Flag 1: the rise in the cost of one new storage slot, on EAS's own code.
+
+    The twins are one attester's multiAttest of 20 on one EAS contract and schema, once each side
+    of the split. Each item creates 5 + (data words) new slots, and a data word also costs gas
+    that is not a slot (per_word, from the pre twin against the Foundry row of 6 words). Per item:
+        post - pre = new_post x (OLD_NEW_SLOT_GAS + rise) - new_pre x OLD_NEW_SLOT_GAS
+                     + per_word x (words_post - words_pre)
+    The rise must agree with the store's own two fits to 1%: the floor the card's 3x marker
+    stands on moved by the same change, or the twins do not measure it."""
+    twins, const = json.loads(path.read_text()), shipped["gasConstants"]
+    pre, post = twins["pre"], twins["post"]
+    if not pre["block"] < COST_PERIOD_SPLIT_BLOCK <= post["block"]:
+        sys.exit("%s: the twins at blocks %d and %d do not straddle the cost split at block %d"
+                 % (path, pre["block"], post["block"], COST_PERIOD_SPLIT_BLOCK))
+    per_item, words = {}, {}
+    for side, t in (("pre", pre), ("post", post)):
+        same = (t["from"], t["to"], t["selector"]) == (pre["from"], twins["eas"], "0x44adc90e")
+        cd = (const["calldataNonZeroByte"] * (t["calldataBytes"] - t["calldataZeroBytes"])
+              + const["calldataZeroByte"] * t["calldataZeroBytes"])
+        if not same or t["status"] != 1 or t["attestedLogs"] != t["items"] or cd != t["calldataGas"]:
+            sys.exit("%s: the %s twin %s is not a successful multiAttest of %d by the pre twin's "
+                     "attester to EAS with calldata %d gas" % (path, side, t["hash"], t["items"], cd))
+        per_item[side] = (t["gasUsed"] - const["txBase"] - cd) / t["items"]
+        words[side] = t["dataWordsPerItem"]
+    m = re.search(r"EAS multiAttest n=100 -- execution gas: (\d+)", arms_path.read_text())
+    if not m:
+        sys.exit("%s: no 'EAS multiAttest n=100 -- execution gas' row" % arms_path)
+    foundry_rest = int(m.group(1)) / 100 - EAS_NEW_SLOTS["multiAttest"] * OLD_NEW_SLOT_GAS
+    foundry_words = EAS_NEW_SLOTS["multiAttest"] - EAS_ATTESTATION_SLOTS
+    new_pre, new_post = (EAS_ATTESTATION_SLOTS + words[s] for s in ("pre", "post"))
+    per_word = ((per_item["pre"] - new_pre * OLD_NEW_SLOT_GAS - foundry_rest)
+                / (words["pre"] - foundry_words))
+    rise = round((per_item["post"] - per_item["pre"] - (new_post - new_pre) * OLD_NEW_SLOT_GAS
+                  - per_word * (words["post"] - words["pre"])) / new_post)
+    fit_rise = round((shipped["current"]["fit"]["marginalExecGas"]
+                      - shipped["fit"]["marginalExecGas"]) / STORE_NEW_SLOTS_PER_FACT)
+    if abs(rise - fit_rise) > EAS_SLOT_RISE_TOLERANCE * fit_rise:
+        sys.exit("%s: the twins put the per-slot rise at %d gas, not within %g%% of the store fits' "
+                 "%d; they do not measure the change the 3x marker's floor moved by"
+                 % (path, rise, EAS_SLOT_RISE_TOLERANCE * 100, fit_rise))
+    return {"slotRise": rise, "fitSlotRise": fit_rise, "oldSlotGas": OLD_NEW_SLOT_GAS,
+            "dataWordGas": round(per_word), "newSlots": EAS_NEW_SLOTS, "fork": COST_PERIOD_FORK,
+            "twins": {s: {k: t[k] for k in ("hash", "block", "gasUsed", "items", "dataWordsPerItem")}
+                      for s, t in (("pre", pre), ("post", post))}}
 
 
 def parse_shipped(path):
@@ -1460,6 +1573,8 @@ def main():
     # cannot be mistaken for a broken report, and so the build fails on the shipped input with
     # its own message.
     shipped = parse_shipped(HERE / "shipped-writes.json")
+    shipped["current"]["eas"] = eas_current_period(HERE / "eas-period-twins.json", arms_report,
+                                                   shipped)
     # The read-side panel takes the first and last entry of each of these as the endpoints of a
     # walk, so their order is load-bearing and nothing but this check enforces it.
     assert_ascending("READ_DEPTHS", READ_DEPTHS)
@@ -1486,6 +1601,7 @@ def main():
     # so that no list here has to be kept in agreement with a list there.
     template = (HERE / "page-template.html").read_text(encoding="utf-8")
     assert_tolerance_and_heartbeat(template, read["marks"])
+    assert_tolerance_base(template, shipped["current"])
     assert_daily_series(chain)
     assert_monthly_preset(template)
     assert_eas_close_legs(batch["eas"])

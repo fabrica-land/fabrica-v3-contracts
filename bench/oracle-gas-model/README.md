@@ -131,15 +131,36 @@ Sepolia. First-write price batches fit **-3,200 + 336,637 x n** (11 batches, thr
 the ENG-4342 period's execution at n = 25. A `setLock` that sets a fresh word moved from 46,655 to
 128,675 gas, and the repeat cycle close from 31,583 to 32,783. The store's code is byte-identical on
 both sides of the split (`eth_getCode` at blocks 11,850,415 and 11,857,921: 6,393 bytes, the same
-sha256), and the calldata is 228 bytes per fact on both sides. So the page names the cause
-**network repricing of storage, by elimination**. Which Sepolia change did it, and whether mainnet
-will see it, is not established.
+sha256), and the calldata is 228 bytes per fact on both sides. The same rise hit a third-party EAS
+contract (`eas-period-twins.json`), so the page names the cause **a network-wide repricing of new
+storage slots on Sepolia** (Brioche ruling 699922).
+
+Fork facts (`COST_PERIOD_FORK`; sources and lines in `eas-period-twins.json` under `fork`): Sepolia
+activated the Glamsterdam hard fork (execution-layer name Amsterdam) at timestamp 1791294816
+(2026-10-06 13:53:36 UTC), between blocks 11,850,415 and 11,857,921. Its meta EIP, EIP-7773, lists
+EIP-8037, State Creation Gas Cost Increase. Mainnet has no Glamsterdam activation time in
+go-ethereum's mainnet chainspec or in EIP-7773's activation table. The page states these facts
+only; what they mean for mainnet is not assessed here.
 
 The build fits each period on its own (`COST_PERIOD_SPLIT_BLOCK`), and the page keeps both. The
 summary card's headline arm prices the current period: 339,264 gas per fact at batch 25. A third
 arm keeps the ENG-4342 period, the gas schedule the EAS Foundry rows run on, so it is the
-like-for-like row against EAS. The reconciliation above and the cost-tolerance ratios stay on the
-ENG-4342 period, so their figures reproduce unchanged.
+like-for-like row against EAS. The reconciliation above stays on the ENG-4342 period, so its
+figures reproduce unchanged. The 3x cost-tolerance write marker's base is the current period's
+floor (Brioche ruling 699880, Flag 1); the card names the cause beside it and keeps the ENG-4342
+ratios as a history line.
+
+Because the cause is a network repricing, the card prices the EAS arms in the current period
+before the 3x compare. `eas-period-twins.json` holds one third-party attester's `multiAttest` of
+20, on the same EAS contract and schema, once each side of the split. From the pair,
+`eas_current_period` measures the rise in the cost of one new storage slot on EAS's own code:
+87,923 gas. The build fails unless it is within 1% of the store's own two fits, which give 87,987
+(the marginal rose 263,960 gas over 3 new slots per fact). Each EAS addend is its Foundry row plus
+that rise once per new slot an item creates (`EAS_NEW_SLOTS`: `multiAttest` 11, `indexAttestations`
+5, `pointBatch` 1). Both write arms then exceed 3x: arm 1 5.48x and arm 2 3.95x. The 1.33x and
+0.84x shown before set old-period Foundry rows against the current floor; they mixed periods and
+are withdrawn. The build also fails if the 3x write compare reads the unpriced Foundry figure
+while the cause is a network repricing.
 
 ## Repeat writes
 
