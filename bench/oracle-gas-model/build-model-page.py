@@ -1106,16 +1106,21 @@ def eas_current_period(path, arms_path, shipped):
 # and a 3-day cadence, with a close only when a writer's writes leave a gap. The shipped keeper
 # closes daily (contracts#62), so the shipped layer now charges that close and shows $17.01. The
 # old figure stays as one history row, and the build refuses it unless it still comes to $16.82.
-SUPERSEDED_SCENARIO = {"tokens": 100, "sources": 2, "cadenceDays": 3}
+# Its gas, tip and ETH price are pinned to chain-data.json as generated 2026-09-03T19:04:24Z (block
+# 25898748), the values that give $16.82. A refresh moves `now` and the ETH price, and the
+# history row must not move with them.
+SUPERSEDED_SCENARIO = {"tokens": 100, "sources": 2, "cadenceDays": 3, "baseFeeGwei": 0.167515274,
+                       "tipGwei": 0.1966327725, "ethUsd": 2506.16956849}
 SUPERSEDED_USD_PER_TOKEN_YEAR = 16.82
 
 
-def superseded_when_silent(shipped, chain, template):
+def superseded_when_silent(shipped, template):
     """The ENG-4342 period's 3-day figure with whenSilent closes, as model() prices month 1 x 12.
 
     Per fact is the ENG-4342 headline's measured floor. A writer closes when its writes leave a
     gap: closes per writer per month = MONTH_DAYS / (maxSilence x (1 - margin/100)) - writes. The
-    first close of each writer pays its premium once. Gas, tip and ETH are the page's defaults."""
+    first close of each writer pays its premium once. Gas, tip and ETH are SUPERSEDED_SCENARIO's
+    pinned values, not chain-data.json's, so a chain-data refresh does not move the row."""
     month = re.findall(r"const MONTH_DAYS = ([0-9.]+);", template)
     dial = re.findall(r'maxSilence: (\d+), margin: (\d+), hbPolicy: "whenSilent"', template)
     if len(month) != 1 or len(dial) != 1:
@@ -1130,15 +1135,14 @@ def superseded_when_silent(shipped, chain, template):
     first_extra = closes["firstGas"] - (closes["repeatGas"] if closes_per_month > 0 else 0)
     year_gas = (12 * (sc["tokens"] * sc["sources"] * writes * per_fact
                       + closes_per_month * closes["repeatGas"]) + sc["sources"] * first_extra)
-    price = (chain["now"]["baseFeeGwei"] + chain["priorityFee"]["medianPriorityFeeGwei"]) * 1e-9
-    usd = year_gas * price * chain["ethUsd"]["price"] / sc["tokens"]
+    price = (sc["baseFeeGwei"] + sc["tipGwei"]) * 1e-9
+    usd = year_gas * price * sc["ethUsd"] / sc["tokens"]
     if round(usd, 2) != SUPERSEDED_USD_PER_TOKEN_YEAR:
         sys.exit("the superseded ENG-4342 row comes to $%.4f per token per year, not $%.2f "
                  "(per fact %d, %.4f closes a month, gas %s + tip %s gwei, ETH $%s); Brioche 700002 "
                  "keeps it at the quoted figure"
                  % (usd, SUPERSEDED_USD_PER_TOKEN_YEAR, per_fact, closes_per_month,
-                    chain["now"]["baseFeeGwei"], chain["priorityFee"]["medianPriorityFeeGwei"],
-                    chain["ethUsd"]["price"]))
+                    sc["baseFeeGwei"], sc["tipGwei"], sc["ethUsd"]))
     return {"usdPerTokenYear": usd, "quoted": SUPERSEDED_USD_PER_TOKEN_YEAR, "perFact": per_fact,
             "closesPerMonth": closes_per_month, "yearGas": year_gas, "windowDays": window,
             "writesPerRowPerMonth": writes, **sc}
@@ -1673,7 +1677,7 @@ def main():
     assert_daily_series(chain)
     assert_monthly_preset(template)
     assert_eas_close_legs(batch["eas"])
-    shipped["superseded"] = superseded_when_silent(shipped, chain, template)
+    shipped["superseded"] = superseded_when_silent(shipped, template)
 
     # The summary card says "three pinned gas scenarios" and renders one column per anchor that is
     # pinned to a named historical block. `now` is re-read on every chain-data refresh and is

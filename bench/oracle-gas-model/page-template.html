@@ -1621,7 +1621,9 @@ function renderShipped() {
         is silent (<code>whenSilent</code>, maxSilence ${DEFAULTS.maxSilence} days less
         ${DEFAULTS.margin}% = ${fmt(SUP.windowDays, 2)} days): ${fmt(SUP.closesPerMonth, 4)} closes
         a month at ${fmt(SHIPPED.closes.repeatGas)} gas, and each source's first close once at
-        ${fmt(SHIPPED.closes.firstGas)}. That is ${fmt(SUP.yearGas, 0)} gas a year at today's fees.
+        ${fmt(SHIPPED.closes.firstGas)}. That is ${fmt(SUP.yearGas, 0)} gas a year at pinned fees,
+        not today's: gas ${gwei(SUP.baseFeeGwei)} gwei + tip ${gwei(SUP.tipGwei)} gwei, ETH
+        ${usd(SUP.ethUsd)}. A chain-data refresh and the fee dials do not move this row.
         <div class="src">ENG-4342 quoted this figure. The shipped keeper closes every source every
         day (contracts#62). The shipped layer and the headline charge that daily close, so the same
         scenario costs more there.</div></td>

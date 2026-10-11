@@ -2928,10 +2928,10 @@ const DATA = {
   }
  ],
  "meta": {
-  "commit": "32706d4e972b6bc268def2804403fcd1d2c1b326",
-  "commitShort": "32706d4",
+  "commit": "501876544dc2f6c431b4268c9a44c9c340c48b26",
+  "commitShort": "5018765",
   "historyDepth": 48,
-  "inputDigest": "2fab5b77d0f8a63f",
+  "inputDigest": "a21e2efdcaf36e7b",
   "reportHeader": "# ENG-3913 \u2014 per-scenario gas bench, literal output\n#\n# repo:    fabrica-v3-contracts\n# base:    origin/main @ 4b9201d17d78c7296545a6bd5ef6ac8da1d5a86e\n# branch:  tozzetto/eng-3913-oracle-gas-model\n# command: forge test --match-path test/Eng3913OracleGasBench.t.sol -vv\n# forge:   forge Version: 1.7.1 (Commit SHA: 4072e48705af9d93e3c0f6e29e93b5e9a40caed8)\n# profile: optimizer=true, optimizer_runs=1, via_ir=false (foundry.toml [profile.default])\n# knobs:   FabricaAttributeOracle.defaultKnobs() \u2014 the config\n#          script/FabricaAttributeOracleDeploy.s.sol deploys with.\n#\n# \u26a0 RUN THIS WITHOUT --gas-report.\n#   Foundry's gas-report instrumentation inflates the gasleft() deltas these benches\n#   read, and the codeless-control subtraction absorbs most but not all of it. The CSV\n#   rows here are valid ONLY from a plain -vv run. Under --gas-report the steady-state\n#   writePrice row reads 72,268 instead of 73,812."
  },
  "read": {
@@ -9448,11 +9448,14 @@ const DATA = {
   "store": "0x97fC2C3A41d4DB570363C5e3425C3676E4B81c5D",
   "storeSource": "deployment-artifacts/ENG-4203-round3-fact-store.md",
   "superseded": {
+   "baseFeeGwei": 0.167515274,
    "cadenceDays": 3,
    "closesPerMonth": 5.072812499999994,
+   "ethUsd": 2506.16956849,
    "perFact": 75597,
    "quoted": 16.82,
    "sources": 2,
+   "tipGwei": 0.1966327725,
    "tokens": 100,
    "usdPerTokenYear": 16.81684299161506,
    "windowDays": 2.4000000000000004,
@@ -20592,7 +20595,9 @@ function renderShipped() {
         is silent (<code>whenSilent</code>, maxSilence ${DEFAULTS.maxSilence} days less
         ${DEFAULTS.margin}% = ${fmt(SUP.windowDays, 2)} days): ${fmt(SUP.closesPerMonth, 4)} closes
         a month at ${fmt(SHIPPED.closes.repeatGas)} gas, and each source's first close once at
-        ${fmt(SHIPPED.closes.firstGas)}. That is ${fmt(SUP.yearGas, 0)} gas a year at today's fees.
+        ${fmt(SHIPPED.closes.firstGas)}. That is ${fmt(SUP.yearGas, 0)} gas a year at pinned fees,
+        not today's: gas ${gwei(SUP.baseFeeGwei)} gwei + tip ${gwei(SUP.tipGwei)} gwei, ETH
+        ${usd(SUP.ethUsd)}. A chain-data refresh and the fee dials do not move this row.
         <div class="src">ENG-4342 quoted this figure. The shipped keeper closes every source every
         day (contracts#62). The shipped layer and the headline charge that daily close, so the same
         scenario costs more there.</div></td>

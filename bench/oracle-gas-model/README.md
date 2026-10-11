@@ -154,12 +154,15 @@ Because the cause is a network repricing, the card prices the EAS arms in the cu
 before the 3x compare. `eas-period-twins.json` holds one third-party attester's `multiAttest` of
 20, on the same EAS contract and schema, once each side of the split. From the pair,
 `eas_current_period` measures the rise in the cost of one new storage slot on EAS's own code:
-87,923 gas. The build fails unless it is within 1% of the store's own two fits, which give 87,987
-(the marginal rose 263,960 gas over 3 new slots per fact). Each EAS addend is its Foundry row plus
-that rise once per new slot an item creates (`EAS_NEW_SLOTS`: `multiAttest` 11, `indexAttestations`
-5, `pointBatch` 1). Both write arms then exceed 3x: arm 1 5.48x and arm 2 3.95x. The 1.33x and
-0.84x shown before set old-period Foundry rows against the current floor; they mixed periods and
-are withdrawn. The build also fails if the 3x write compare reads the unpriced Foundry figure
+solved from the post twin's per-item gas less the pre twin's, with each side's new slots and data
+words counted. The build fails unless that rise is within 1% of the rise the store's own two fits
+give (the rise in their marginal, over the new slots per fact). Each EAS addend is its Foundry row
+plus that rise once per new slot an item creates (`EAS_NEW_SLOTS`: `multiAttest` 11,
+`indexAttestations` 5, `pointBatch` 1). The card then sets each write arm's ratio against the 3x
+tolerance. The *Read side* panel shows the rise, the fit rise and each ratio from every build, and
+this file does not copy them. The ratios shown before set old-period Foundry rows against the
+current floor; they mixed periods and are withdrawn. The build also fails if the 3x write compare
+reads the unpriced Foundry figure
 while the cause is a network repricing.
 
 ## Repeat writes
