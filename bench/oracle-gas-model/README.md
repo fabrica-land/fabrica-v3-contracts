@@ -89,10 +89,15 @@ account list carries it.
 
 `build-model-page.py` refuses to build if the collection cannot answer for itself — no Etherscan
 cross-check, a cross-check that disagrees with the log-derived set, or any reverted transaction in
-the window is a hard failure, not a footnote. It also refuses if the measured batches stop being
-exactly linear in the fact count (see below), if the projection it reconciles against cannot be
-reproduced from the baseline transaction, if a cycle close shows more than the two regimes the page
-names, or if `chain-data.json` stops carrying exactly three pinned gas anchors.
+the window is a hard failure, not a footnote. The cross-check reads Etherscan's account list in
+pages of 1,000 rows, because one unpaged request stops at 1,000 rows and a longer window would look
+complete when it is not; past 10,000 rows it reports failure rather than truncating. At block
+11,888,211 it read 2 pages, 1,282 transactions: the log-derived set plus the deployment. The build
+also refuses if the measured batches of either cost period stop being exactly linear in the fact
+count (see below), if the projection it reconciles against cannot be reproduced from the baseline
+transaction, if a cycle close in the ENG-4342 period shows more than the two regimes the page names
+or the current period more than one execution figure, or if `chain-data.json` stops carrying
+exactly three pinned gas anchors.
 
 ## The reconciliation, and why it closes exactly
 
@@ -102,8 +107,9 @@ Whole-transaction gas for a batched write decomposes as
 gas(n) = 21,000 intrinsic + head calldata + body calldata(n) + fixed exec + marginal exec x n
 ```
 
-and on the keeper's first-write price batches the last two terms are **2,800 + 72,677 x n**, exact
-to the gas at n = 2, 2, 21 and 24 across two writers. The same fixed term, 2,800, falls out of the
+and on the keeper's first-write price batches in the ENG-4342 cost period (to block 11,852,330) the
+last two terms are **2,800 + 72,677 x n**, exact to the gas across 29 batches from n = 1 to 25 and
+two writers. The same fixed term, 2,800, falls out of the
 ENG-4203 deployment-verification batches at n = 1, 10, 12, 50 and 100 with two other writers and a
 different fact shape — which is what makes it a property of the transaction rather than of this
 keeper's data. The build solves it from the extreme batch sizes and then checks every row; a
@@ -117,6 +123,40 @@ Notably there is no warm/cold storage term: execution per fact is identical at 7
 2-fact transaction the projection was derived from and in the 24-fact batch that shipped, so the
 whole warm/cold effect of batching is the constant 2,800 per transaction. The lock writes of the
 same pass are separate transactions and contribute nothing.
+
+## Two cost periods
+
+From block 11,857,921 (2026-10-06T19:30:12Z) the same writers, kinds and calldata cost more on
+Sepolia. First-write price batches fit **-3,200 + 336,637 x n** (11 batches, three writers), 4.62x
+the ENG-4342 period's execution at n = 25. A `setLock` that sets a fresh word moved from 46,655 to
+128,675 gas, and the repeat cycle close from 31,583 to 32,783. The store's code is byte-identical on
+both sides of the split (`eth_getCode` at blocks 11,850,415 and 11,857,921: 6,393 bytes, the same
+sha256), and the calldata is 228 bytes per fact on both sides. So the page names the cause
+**network repricing of storage, by elimination**. Which Sepolia change did it, and whether mainnet
+will see it, is not established.
+
+The build fits each period on its own (`COST_PERIOD_SPLIT_BLOCK`), and the page keeps both. The
+summary card's headline arm prices the current period: 339,264 gas per fact at batch 25. A third
+arm keeps the ENG-4342 period, the gas schedule the EAS Foundry rows run on, so it is the
+like-for-like row against EAS. The reconciliation above and the cost-tolerance ratios stay on the
+ENG-4342 period, so their figures reproduce unchanged.
+
+## Repeat writes
+
+Within one period a repeat costs less than a first write. The fabrica kind (`0xa3dc8e95…`) sent
+111 pure-repeat batches, all in the current period. At n = 25, 7 batches cost 6,424,891-6,634,891
+execution gas, x0.76-x0.79 the current fit (midpoint x0.78). At n = 1, 98 batches cost
+166,321-264,241. The one price-kind repeat (n = 1, inside a 17-fact batch, ENG-4342 period,
+`0x55504fe1…`) costs x0.96 of a first fact. The storage reason is in `FabricaFactStore.sol`. A
+first write sets the three-slot `Fact` (:51-58, written at :368-373). A repeat rewrites those slots
+and creates one or two new ones: the history-ring entry (:364-365) and, on the first supersession,
+the history count (:366). A repeat creates fewer new slots than a first write.
+
+The x3.5 that the first look at the data reported crosses the split: repeat `0x5f4aa130…`
+(2026-10-07, 6,424,891 execution gas) against first `0xd064d51b…` (2026-10-05, 1,815,450), both
+n = 25 with 5,700 calldata bytes. It factors as x4.63 for the cost change times x0.76 for the
+repeat. The build pins that pair (`REPEAT_CROSSING`) and refuses if it stops being one writer's
+same-size, same-kind, same-calldata first and repeat on either side of the split.
 
 ## Regenerating everything
 
@@ -259,16 +299,18 @@ Two things about how it is carried:
    Foundry suites that both measure the depth-0 read (`Eng3922Read` and `Eng3922Coverage`'s
    `coverage=none` control) agree on all five arms.
 
-**The pass mark was pre-registered on ENG-3922 on 2026-09-03, before any arm was built or measured**,
-on Fede's bias concern, and was never moved. Mark A is the all-EAS three-source `price()` within
-1.5x the custom store's at the same walk depth; mark B is 350,000 gas absolute at the operating
-point.
+**Pass mark B was pre-registered on ENG-3922 on 2026-09-03, before any arm was built or measured**,
+on Fede's bias concern, and was never moved: 350,000 gas absolute at the operating point. The
+relative mark registered beside it is replaced by the **cost tolerance** of ENG-4344 deliverable 5
+(Product Director ruling, 2026-10-11): each EAS arm within 3x the custom store, the depth-0 read
+and the batched per-fact write judged apart. The tolerance was set after the arms were measured,
+and the page says so; the pre-registered relative mark stays in this file's git history.
 
-It was never formally acknowledged either: it was held unpublished pending that acknowledgement,
-and Tim directed publication on 2026-09-04 16:18Z — *"I want to share the full model when all the
-numbers we asked for are populated"* — which supersedes the hold **without touching the bar**. Both
-facts are on the page and in the results document, because a verdict published under a
-pre-registered mark is only worth what its provenance is.
+The pre-registered mark was never formally acknowledged either: it was held unpublished pending
+that acknowledgement, and Tim directed publication on 2026-09-04 16:18Z — *"I want to share the
+full model when all the numbers we asked for are populated"* — which supersedes the hold **without
+touching the bar**. Both facts are on the page and in the results document, because a verdict
+published under a pre-registered mark is only worth what its provenance is.
 
 **The verdict itself is deliberately not written down here.** The page tallies both marks from the
 measured rows on every build, so restating the outcome in this file would be a copy that can go

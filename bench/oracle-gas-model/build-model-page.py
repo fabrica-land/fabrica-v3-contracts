@@ -279,12 +279,19 @@ CLOSE_ROW_DEPTHS = [1, 3, 7]
 # ever stops measuring that depth the build must fail rather than render NaN.
 PROBED_CLOSE_ROW_DEPTH = 3
 
-# The pass marks, pre-registered on ENG-3922 on 2026-09-03 BEFORE any arm was measured, on Fede's
-# bias concern, and never moved. They are constants here, not derived, because that is the entire
-# point of pre-registering them: the bar is an INPUT to this comparison and never an output of it.
-# Publication of the comparison was directed by Tim on 2026-09-04 16:18Z. C (the write-side weekly
-# budget) is ENG-3922's own scorecard and is not re-rendered here; this page carries A and B.
-MARK_A_CEILING = 1.5
+# The bars. Both are constants here, not derived: a bar is an INPUT to this comparison and never
+# an output of it. Pass mark B was pre-registered on ENG-3922 on 2026-09-03 BEFORE any arm was
+# measured, on Fede's bias concern, and has never moved. Publication of the comparison was directed
+# by Tim on 2026-09-04 16:18Z. C (the write-side weekly budget) is ENG-3922's own scorecard and is
+# not re-rendered here.
+#
+# ENG-4344 deliverable 5: the relative bar is a cost tolerance, applied to each EAS arm separately
+# for reads and for writes. The Product Director ruled on 2026-10-11 that it REPLACES the ENG-3922
+# relative mark rather than standing beside it, so the earlier ceiling lives in git history only.
+# Unlike B it was set AFTER every arm was measured, and the page says so beside every verdict.
+COST_TOLERANCE_X = 3.0
+COST_TOLERANCE_SOURCE = "ENG-4344 deliverable 5, Product Director ruling of 2026-10-11 (Wire 699512)"
+COST_TOLERANCE_SET_ON = "2026-10-11"
 MARK_B_ABSOLUTE = 350_000
 MARK_PRE_REGISTERED_ON = "2026-09-03"
 MARK_PUBLICATION_DIRECTED = "2026-09-04 16:18Z"
@@ -546,8 +553,8 @@ def parse_baseline_read(path):
     """The DEPLOYED aggregator reading the live round-1 fact store, at each walk depth.
 
     This is the anchor a reader recognises -- what a `price()` costs against the contracts that are
-    on Sepolia today -- and it is deliberately NOT the denominator of pass mark A. A also has to
-    hold everything but the fact layer constant, which only the calibration arm does.
+    on Sepolia today -- and it is deliberately NOT a denominator of the cost tolerance, which has
+    to hold everything but the fact layer constant; this deployed read does not.
     """
     text = path.read_text(encoding="utf-8")
     # The source count is READ out of each row rather than pinned in the pattern, because every
@@ -642,7 +649,37 @@ SHIPPED_PROJECTION = {
     # The 24-fact batch of the first scheduled pass: the largest batch the keeper has sent, and
     # the row the summary card and the reconciliation are both quoted from.
     "headlineTx": "0xfe757d9c6ba9f7d8fa4a638a181983ecbd739b6d9ef3b8535e6d291fdec79a66",
+    # The end of the window ENG-4342 reconciled against. The headline was the largest keeper
+    # batch up to here; later windows carry 25-fact batches, so "largest" is scoped to it.
+    "reconciledToBlock": 11_748_000,
 }
+# ENG-4344 (Brioche, ADDENDUM-1 Q2): two cost periods. The same store, writer, kind and batch size
+# cost about 4.6 times the execution gas per fact from this block on. The last batch at the old
+# cost is in block 11850415, the last close at the old cost in block 11852330, and nothing reached
+# the store between that close and this block. Each period gets its own first-write
+# fit: the card is priced from the current one, and the ENG-4342 reconciliation stays on the old
+# one so its figures still reproduce. The cause is a finding from chain reads this build cannot
+# repeat, so it is carried as a named source; the calldata half of it IS re-checked below.
+COST_PERIOD_SPLIT_BLOCK = 11_857_921
+COST_PERIOD_CAUSE = (
+    "network repricing of storage, by elimination: the store's code is byte-identical at blocks "
+    "11850415 and 11857921 (eth_getCode, 6,393 bytes, sha256 02a6616f…8754e at both), and the "
+    "calldata is 228 bytes per fact on both sides. Which Sepolia change did it, and whether "
+    "mainnet will see it, is not established.")
+# Deliverable 3: one 25-fact first write before the split and one 25-fact repeat after it, same
+# writer and kind. Their ratio (x3.5) is what eng581 reported as "a repeat costs more"; it is the
+# cost change, not the repeat, and the page shows it as such.
+REPEAT_CROSSING = {
+    "firstTx": "0xd064d51b7094ba4ad03c2b28ba4100b3029e892f9a25b34304b18c8110d63e22",
+    "repeatTx": "0x5f4aa130304e6b88f0477d39ac2abe4b8d37c5c5be2035c42bbdd8853615454c",
+}
+# FabricaFactStore.sol (contracts main), the storage a write touches.
+REPEAT_STORAGE_REASON = (
+    "A first write sets the three-slot Fact (FabricaFactStore.sol:51-58, written at :368-373), "
+    "all three new slots (two when data is zero). A repeat rewrites those three slots and, on "
+    "the first supersession, creates two new ones: the history-ring entry (:364-365) and the "
+    "history count (:366). Later supersessions create one new slot (the ring entry) until the "
+    "48-deep ring wraps. A repeat creates fewer new slots than a first write, so it costs less.")
 # The book sizes the summary card prices, from ENG-3913's original brief ("a quote at those three
 # scales"), and the two shipped inputs the card holds fixed. Both are asserted against the chain.
 SHIPPED_SCALE_TOKENS = [100, 1_000, 100_000]
@@ -654,7 +691,14 @@ SHIPPED_THRESHOLD_BPS = 100
 # The price fact kind, `keccak256("price")`, taken from the kinds actually observed rather than
 # hard-coded: the reconciliation compares price batches with price batches, and a token-wide
 # score or attribute batch writes a different number of storage words per fact.
-SHIPPED_PRICE_KIND_SOURCE = "the kind written by every keeper price batch in the window"
+SHIPPED_PRICE_KIND_SOURCE = ("the one kind the configured price writers (keeperConfig.priceWriters) "
+                             "write in the window")
+# ENG-4344 deliverable 6: the heartbeat table prices keeping an UNCHANGED price live, so no token
+# is rewritten and the token count only names the scale row it sits beside; the card quotes 100.
+# The first fixed interval is the shipped one-close-per-day cadence, which is what makes the
+# table's 1-day row the steady-state close term of the cost-at-scale card (asserted in main).
+HEARTBEAT_TOKENS = 100
+HEARTBEAT_FIXED_INTERVALS_DAYS = [1, 2]
 
 
 def _shipped_fit(rows, path, what):
@@ -690,6 +734,217 @@ def _shipped_fit(rows, path, what):
         checked.append({"hash": row["hash"], "facts": row["facts"], "execGas": row["execGas"],
                         "fittedGas": fitted})
     return {"fixedExecGas": fixed, "marginalExecGas": marginal, "rows": checked}
+
+
+def _gas_groups(rows):
+    """Group near-identical transactions by gasUsed, with a count and one example hash each."""
+    out = {}
+    for row in rows:
+        slot = out.setdefault(row["gasUsed"], {"gasUsed": row["gasUsed"], "count": 0,
+                                               "exampleHash": row["hash"]})
+        slot["count"] += 1
+    return sorted(out.values(), key=lambda g: -g["count"])
+
+
+def _price_kind(keeper_writes, price_writers, path):
+    """The one fact kind the configured price writers write.
+
+    ENG-4344: this was the kind with the most keeper facts, which held while the price writers
+    wrote most of the keeper's facts. From 2026-10-07 the fabrica writer's rewrites of its own
+    kind (0xa3dc8e…) outnumber the price writers' facts and the most-facts rule picked that kind.
+    The price writers are named by keeperConfig, so the kind is read from their batches.
+    """
+    kinds = {kind for t in keeper_writes if t["op"] == "writeFacts"
+             and t["signer"] in price_writers for kind in t["kinds"]}
+    if len(kinds) != 1:
+        sys.exit("%s: the price writers (%s) write %d fact kinds (%s); the page fits one price "
+                 "kind" % (path, ", ".join(price_writers), len(kinds), ", ".join(sorted(kinds))))
+    return kinds.pop()
+
+
+def _current_period(txns, price_first, const, path):
+    """ENG-4344: the cost period from COST_PERIOD_SPLIT_BLOCK on, which the card prices.
+
+    It gets its own first-write fit, its own largest batch as the headline (checked against the
+    receipt like the reconciled one), and its own close cost. Every keeper writer made its first
+    close before the split, so a close here is a repeat close and one execution cost is asserted.
+    The calldata half of COST_PERIOD_CAUSE is checked: a batch size written in both periods
+    carries the same calldata bytes in both.
+    """
+    split = COST_PERIOD_SPLIT_BLOCK
+    old = [t for t in txns if t["block"] < split]
+    new = [t for t in txns if t["block"] >= split]
+    rows = [t for t in price_first if t["block"] >= split]
+    if not old or not new:
+        sys.exit("%s: block %d does not split the window into two cost periods" % (path, split))
+    fit = _shipped_fit(rows, path, "the keeper's first-write price batches from block %d" % split)
+    old_bytes = {t["facts"]: t["calldata"]["bytes"] for t in price_first if t["block"] < split}
+    shared = [t for t in rows if t["facts"] in old_bytes]
+    if not shared or any(t["calldata"]["bytes"] != old_bytes[t["facts"]] for t in shared):
+        sys.exit("%s: no batch size is written in both cost periods with the same calldata; the "
+                 "page's 'calldata did not change' clause has no evidence" % path)
+    top = max(t["facts"] for t in rows)
+    # The headline is a fitted row, so the fit already reproduces its receipt to the gas.
+    head = min((t for t in rows if t["facts"] == top), key=lambda t: t["block"])
+    closers = {t["signer"] for t in old if t["op"] == "closeCycle" and t["keeperSigner"]}
+    closes = [t for t in new if t["op"] == "closeCycle" and t["keeperSigner"]]
+    if not closes or any(t["signer"] not in closers for t in closes):
+        sys.exit("%s: a keeper writer's first close falls in the current cost period; the card "
+                 "prices that period with repeat closes only" % path)
+    execs = sorted({t["gasUsed"] - const["txBase"] - t["calldata"]["gas"] for t in closes})
+    if len(execs) != 1:
+        sys.exit("%s: current-period closes show %d execution costs (%s); the card prices one"
+                 % (path, len(execs), ", ".join(str(e) for e in execs)))
+    groups = _gas_groups(closes)
+    return {"fromBlock": split, "lastOldBlock": max(t["block"] for t in old),
+            "cause": COST_PERIOD_CAUSE,
+            "fromTime": min(t["timeUtc"] for t in new), "fit": fit, "headlineTx": head["hash"],
+            "closes": {"repeatGas": groups[0]["gasUsed"], "execGas": execs[0], "count": len(closes),
+                       "groups": groups}}
+
+
+def _assert_repeat_crossing(by_hash, path):
+    """REPEAT_CROSSING must be what the card says: the same batch, first then repeat, across the
+    cost change. Same writer, kind, fact count and calldata bytes; a pure first write before the
+    split and a pure repeat after it. Anything else and the x3.5 is not the cost change."""
+    first = by_hash.get(REPEAT_CROSSING["firstTx"])
+    repeat = by_hash.get(REPEAT_CROSSING["repeatTx"])
+    if first is None or repeat is None:
+        sys.exit("%s: a REPEAT_CROSSING transaction is not in the collected window" % path)
+    same = all(first[k] == repeat[k] for k in ("op", "signer", "kinds", "facts"))
+    if not (same and first["op"] == "writeFacts" and first["keeperSigner"]
+            and first["calldata"]["bytes"] == repeat["calldata"]["bytes"]):
+        sys.exit("%s: REPEAT_CROSSING is not one writer's same-size, same-kind, same-calldata "
+                 "batch written twice" % path)
+    if not (first["repeatWrites"] == 0 and repeat["firstWrites"] == 0
+            and first["block"] < COST_PERIOD_SPLIT_BLOCK <= repeat["block"]):
+        sys.exit("%s: REPEAT_CROSSING must be a pure first write before block %d and a pure "
+                 "repeat from it" % (path, COST_PERIOD_SPLIT_BLOCK))
+    return first, repeat
+
+
+def _repeat_figures(keeper_writes, by_hash, price_kind, fits, path):
+    """ENG-4344 deliverable 3: the measured repeat writes, each with its kind, n and receipts.
+
+    Per Brioche 699512 Q1, the price kind first. Its only repeat sits inside a mixed batch, so
+    its own cost is the batch's execution gas less the fixed term and the first writes, from the
+    fit of the period it was written in. Beside it the repeat kind of REPEAT_CROSSING: its pure
+    repeat batches in the current period by fact count, which the card sets against the current
+    price first-write fit at the same n (same store layout and calldata bytes, another kind).
+    `fits` is (old, current).
+    """
+    first, repeat = _assert_repeat_crossing(by_hash, path)
+    price = []
+    for t in keeper_writes:
+        if t["op"] != "writeFacts" or t["kinds"] != [price_kind] or not t["repeatWrites"]:
+            continue
+        fit = fits[t["block"] >= COST_PERIOD_SPLIT_BLOCK]
+        rest = t["execGas"] - fit["fixedExecGas"] - fit["marginalExecGas"] * t["firstWrites"]
+        price.append({"hash": t["hash"], "signer": t["signer"], "timeUtc": t["timeUtc"],
+                      "facts": t["facts"], "firstWrites": t["firstWrites"],
+                      "repeatWrites": t["repeatWrites"], "gasUsed": t["gasUsed"],
+                      "execGas": t["execGas"], "current": t["block"] >= COST_PERIOD_SPLIT_BLOCK,
+                      "repeatExecGas": rest, "firstFactExecGas": fit["marginalExecGas"]})
+    batches = {}
+    for t in keeper_writes:
+        if (t["op"] == "writeFacts" and t["signer"] == repeat["signer"]
+                and t["kinds"] == repeat["kinds"] and t["firstWrites"] == 0
+                and t["block"] >= COST_PERIOD_SPLIT_BLOCK):
+            batches.setdefault(t["facts"], []).append(t)
+    if not price:
+        sys.exit("%s: the window has no price-kind repeat; deliverable 3 shows the price kind "
+                 "first (Brioche 699512 Q1)" % path)
+    groups = [{"facts": n, "count": len(rows),
+               "execGas": sorted({r["execGas"] for r in rows}),
+               "min": min(rows, key=lambda r: (r["execGas"], r["block"]))["hash"],
+               "max": max(rows, key=lambda r: (r["execGas"], -r["block"]))["hash"],
+               "firstFitExecGas": fits[1]["fixedExecGas"] + fits[1]["marginalExecGas"] * n}
+              for n, rows in sorted(batches.items())]
+    if (any(g["execGas"][-1] >= g["firstFitExecGas"] for g in groups)
+            or any(p["repeatExecGas"] >= p["repeatWrites"] * p["firstFactExecGas"] for p in price)):
+        sys.exit("%s: a measured repeat costs at least a first write at its n; the card says a "
+                 "repeat costs less (REPEAT_STORAGE_REASON)" % path)
+    return {"price": price, "kind": repeat["kinds"][0], "signer": repeat["signer"],
+            "groups": groups, "firstTx": first["hash"], "repeatTx": repeat["hash"],
+            "storageReason": REPEAT_STORAGE_REASON}
+
+
+def assert_tolerance_and_heartbeat(template, marks):
+    """Refuse a build whose ENG-4344 tolerance or heartbeat terms have nothing true behind them.
+
+    The tolerance is a cost multiple over the custom store, so it must exceed 1 and must carry the
+    ruling that set it. The template reads READ.marks.<key> by name; a key it reads that the
+    payload does not carry would render "undefined×" beside a verdict, so each is resolved here.
+    The heartbeat's 1-day row equals the steady-state close term only while one cycle is one day.
+    """
+    if not COST_TOLERANCE_X > 1:
+        sys.exit("COST_TOLERANCE_X is %s; a tolerance at or below 1x is not a cost multiple over "
+                 "the custom store" % COST_TOLERANCE_X)
+    if not COST_TOLERANCE_SOURCE.strip() or not re.fullmatch(r"\d{4}-\d{2}-\d{2}",
+                                                             COST_TOLERANCE_SET_ON):
+        sys.exit("COST_TOLERANCE_X has no ruling source or no ISO set-on date; the page states "
+                 "who set the tolerance and when beside every verdict")
+    for key in sorted(set(re.findall(r"READ\.marks\.(\w+)", template))):
+        if key not in marks:
+            sys.exit("page-template.html reads READ.marks.%s, which the payload does not carry "
+                     "(keys: %s)" % (key, ", ".join(sorted(marks))))
+    if HEARTBEAT_TOKENS not in SHIPPED_SCALE_TOKENS:
+        sys.exit("HEARTBEAT_TOKENS %d is not a scale row (%s); the heartbeat table sits beside one"
+                 % (HEARTBEAT_TOKENS, ", ".join(str(t) for t in SHIPPED_SCALE_TOKENS)))
+    assert_ascending("HEARTBEAT_FIXED_INTERVALS_DAYS", HEARTBEAT_FIXED_INTERVALS_DAYS)
+    if HEARTBEAT_FIXED_INTERVALS_DAYS[0] * SHIPPED_CYCLES_PER_DAY != 1:
+        sys.exit("the heartbeat table's first interval is %s days but the keeper closes %s time(s) "
+                 "a day; its first row no longer equals the steady-state close term"
+                 % (HEARTBEAT_FIXED_INTERVALS_DAYS[0], SHIPPED_CYCLES_PER_DAY))
+
+
+def assert_daily_series(chain):
+    """Refuse a daily base-fee series the gas-price ceiling cannot read as a run of days.
+
+    The ceiling dial counts the days at or under the ceiling and the longest run of days above
+    it. A short series, a non-numeric fee or an out-of-order day would give a wrong run length
+    with no error, so each is a build failure.
+    """
+    year = chain["dailyYear"]
+    series = year["series"]
+    if len(series) != year["samples"]:
+        sys.exit("chain-data.json dailyYear holds %d samples but says %d; the ceiling dial counts "
+                 "days from this series" % (len(series), year["samples"]))
+    for i, s in enumerate(series):
+        fee = s.get("baseFeeGwei")
+        if isinstance(fee, bool) or not isinstance(fee, (int, float)) or not fee > 0:
+            sys.exit("chain-data.json dailyYear.series[%d] has baseFeeGwei %r, not a positive "
+                     "number" % (i, fee))
+        if i and not s["timeUtc"] < series[i - 1]["timeUtc"]:
+            sys.exit("chain-data.json dailyYear.series[%d] (%s) is not older than the sample "
+                     "before it; the longest run above the ceiling needs consecutive days"
+                     % (i, s["timeUtc"]))
+
+
+def assert_monthly_preset(template):
+    """Refuse a "monthly" cadence preset that does not put exactly one write in the page's month.
+
+    The page's month is MONTH_DAYS long. A preset of a rounded 30 days would put 1.015 writes in
+    every month and the heartbeat-only month it is meant to show would carry a stray write.
+    """
+    month = re.findall(r"const MONTH_DAYS = ([0-9.]+);", template)
+    presets = re.findall(r'<button data-v="([0-9.]+)">monthly</button>', template)
+    if len(month) != 1 or presets != month:
+        sys.exit("page-template.html has monthly cadence preset(s) %s but MONTH_DAYS %s; the "
+                 "preset must be exactly one month" % (presets or "none", month or "none"))
+
+
+def assert_eas_close_legs(eas):
+    """Refuse an EAS arm whose cycle close names a lookup leg with no measured close row.
+
+    The page prices each EAS arm's close as attestSecond plus close[closeLeg + "Repeat"] (and the
+    first close the same way). A leg with no row would price the heartbeat at NaN with no error.
+    """
+    for arm in eas["arms"]:
+        for suffix in ("First", "Repeat"):
+            if arm.get("closeLeg", "") + suffix not in eas["close"]:
+                sys.exit("EAS arm %s closes through leg %r, but the close rows are %s"
+                         % (arm["key"], arm.get("closeLeg"), ", ".join(sorted(eas["close"]))))
 
 
 def assert_ascending(name, values):
@@ -775,11 +1030,7 @@ def parse_shipped(path):
     # The price kind is whatever the keeper's price batches actually carry. A token-wide batch
     # (score, attributes) writes a different number of words per fact and must not be fitted
     # together with price batches, so the split is by measured kind, not by assumption.
-    kind_counts = {}
-    for t in keeper_writes:
-        for kind in t["kinds"]:
-            kind_counts[kind] = kind_counts.get(kind, 0) + t["facts"]
-    price_kind = max(kind_counts, key=kind_counts.get)
+    price_kind = _price_kind(keeper_writes, data["keeperConfig"]["priceWriters"], path)
 
     def single_kind(t, kind):
         return t["kinds"] == [kind]
@@ -790,12 +1041,22 @@ def parse_shipped(path):
     # right reason and hide it behind a wrong one.
     price_first = [t for t in keeper_writes if t["op"] == "writeFacts"
                    and single_kind(t, price_kind) and t["repeatWrites"] == 0]
-    fit = _shipped_fit(price_first, path, "the keeper's first-write price batches")
+    # ENG-4344: this fit is the OLD cost period, which the ENG-4342 reconciliation is quoted from.
+    # The current period is fitted on its own in _current_period.
+    fit = _shipped_fit([t for t in price_first if t["block"] < COST_PERIOD_SPLIT_BLOCK], path,
+                       "the keeper's first-write price batches before block %d"
+                       % COST_PERIOD_SPLIT_BLOCK)
     # The ENG-4203 deployment verification wrote the same entry point with a different fact shape
     # and a different sender. Its fixed term must come out identical — that is what makes the
     # fixed term a property of the transaction rather than of this keeper's data.
+    #
+    # ENG-4344: this was every non-keeper single-kind first write, which held while ENG-4203's two
+    # writers were the only non-keeper senders. From 2026-09-26 a third non-keeper writer
+    # (0xa8becfdf…) writes a different kind, 0x7d04b2…, so the set is now the PRICE kind in the
+    # old cost period: ENG-4203's batches are price facts written on 2026-09-14.
     other_first = [t for t in writes if t["op"] == "writeFacts"
-                   and not t["keeperSigner"] and t["repeatWrites"] == 0 and len(t["kinds"]) == 1]
+                   and not t["keeperSigner"] and t["repeatWrites"] == 0
+                   and single_kind(t, price_kind) and t["block"] < COST_PERIOD_SPLIT_BLOCK]
     independent = _shipped_fit(other_first, path, "the ENG-4203 verification batches")
     if independent["fixedExecGas"] != fit["fixedExecGas"]:
         sys.exit("%s: the fixed execution term is %d on the keeper's batches but %d on the "
@@ -812,10 +1073,15 @@ def parse_shipped(path):
                      % (path, label))
         if row["op"] != "writeFacts":
             sys.exit("%s: the %s is a %s, not a writeFacts batch" % (path, label, row["op"]))
-    if headline["facts"] != max(t["facts"] for t in keeper_writes):
-        sys.exit("%s: the headline transaction carries %d facts but the largest keeper batch in "
-                 "the window carries %d; the summary card must quote the largest shipped batch"
-                 % (path, headline["facts"], max(t["facts"] for t in keeper_writes)))
+    # ENG-4344: scoped to the window ENG-4342 reconciled. Later windows carry 25-fact batches,
+    # and the card now quotes the current period's largest batch (_current_period).
+    reconciled = [t["facts"] for t in keeper_writes
+                  if t["block"] <= SHIPPED_PROJECTION["reconciledToBlock"]]
+    if headline["facts"] != max(reconciled):
+        sys.exit("%s: the headline transaction carries %d facts but the largest keeper batch to "
+                 "block %d carries %d; the reconciliation must quote the largest batch it saw"
+                 % (path, headline["facts"], SHIPPED_PROJECTION["reconciledToBlock"],
+                    max(reconciled)))
     # ENG-4344: "Bespoke — shipped" prices a batch of n as trueFixed + trueMarginal * n, where
     # the page builds both terms from this fit and the headline's calldata split. At n = the
     # headline's facts that must BE the headline receipt. The chain of checks above implies it
@@ -827,6 +1093,9 @@ def parse_shipped(path):
         sys.exit("%s: the shipped running-cost fit gives %d gas at n=%d but the headline receipt "
                  "%s used %d; the bespoke-shipped option would price a batch the chain did not"
                  % (path, true_whole, headline["facts"], headline["hash"], headline["gasUsed"]))
+    # ENG-4344: the card prices the current cost period; deliverable 3's repeats sit in it.
+    current = _current_period(txns, price_first, const, path)
+    repeat = _repeat_figures(keeper_writes, by_hash, price_kind, (fit, current["fit"]), path)
 
     # Re-derive the projection from the baseline transaction exactly as ENG-4204 derived it, and
     # refuse to carry a quoted figure this repo cannot reproduce.
@@ -851,7 +1120,12 @@ def parse_shipped(path):
     # Cycle closes: two regimes, and the page names them. The first close a writer makes on a
     # store bootstraps cold words; every later one does not. If the window ever shows more than
     # two distinct close costs the page's two-regime sentence is wrong.
-    closes = [t for t in txns if t["op"] == "closeCycle" and t["keeperSigner"]]
+    #
+    # ENG-4344: in the old cost period. The current period prices its repeat close on its own
+    # (_current_period), and its two gasUsed figures are one execution cost: one cycle number
+    # (20736 = 0x5100) carries a zero byte and so 12 gas less calldata.
+    all_closes = [t for t in txns if t["op"] == "closeCycle" and t["keeperSigner"]]
+    closes = [t for t in all_closes if t["block"] < COST_PERIOD_SPLIT_BLOCK]
     close_gas = sorted({t["gasUsed"] for t in closes})
     if len(close_gas) != 2:
         sys.exit("%s: cycle closes show %d distinct gas figures (%s); the page states two regimes"
@@ -865,11 +1139,12 @@ def parse_shipped(path):
 
     # Cadence: the cycle number the closes carry, and how many days they span. The summary card
     # multiplies by cycles per month, so the claim that a cycle is a day is checked, not assumed.
-    cycles = sorted({t["cycle"] for t in closes})
+    # ENG-4344: over both cost periods; a cycle is a day whatever it costs.
+    cycles = sorted({t["cycle"] for t in all_closes})
     if cycles != list(range(cycles[0], cycles[-1] + 1)):
         sys.exit("%s: the closed cycles %s are not consecutive; the page's one-cycle-per-day "
                  "reading does not hold" % (path, cycles))
-    days = {t["timeUtc"][:10] for t in closes}
+    days = {t["timeUtc"][:10] for t in all_closes}
     if len(days) != len(cycles):
         sys.exit("%s: %d closed cycles across %d calendar days; a cycle is not a day in this "
                  "window" % (path, len(cycles), len(days)))
@@ -965,14 +1240,6 @@ def parse_shipped(path):
 
     # Locks, grouped. Sixty near-identical rows do not belong on a page; their gas distribution
     # does, with one example hash each so any of them can be re-read from the chain.
-    def group(rows):
-        out = {}
-        for row in rows:
-            slot = out.setdefault(row["gasUsed"], {"gasUsed": row["gasUsed"], "count": 0,
-                                                   "exampleHash": row["hash"]})
-            slot["count"] += 1
-        return sorted(out.values(), key=lambda g: -g["count"])
-
     locks = [t for t in txns if t["op"] == "setLock" and t["keeperSigner"]]
     # Grouped once and reused below, rather than regrouped inside the payload literal.
     #
@@ -983,7 +1250,12 @@ def parse_shipped(path):
     # are a property of the CONTRACT (a writer's first close allocates cold words) and so are
     # asserted above. The page derives its sentence from this list's length instead; what
     # would be a defect is an unguarded index, not an unexpected count.
-    lock_groups = group(locks)
+    # Grouped per cost period: from COST_PERIOD_SPLIT_BLOCK a fresh word costs more, so the
+    # dearest figure moves (46,655 -> 128,675) and a group must not mix the two schedules.
+    lock_groups = ([dict(g, current=False) for g in _gas_groups(
+                       [t for t in locks if t["block"] < COST_PERIOD_SPLIT_BLOCK])]
+                   + [dict(g, current=True) for g in _gas_groups(
+                       [t for t in locks if t["block"] >= COST_PERIOD_SPLIT_BLOCK])])
     return {
         "store": data["store"],
         "storeSource": data["storeSource"],
@@ -1008,12 +1280,15 @@ def parse_shipped(path):
         "projection": proj,
         "baselineTx": baseline["hash"],
         "headlineTx": headline["hash"],
+        "current": current,
+        "repeat": repeat,
         "closes": {"repeatGas": close_repeat, "firstGas": close_first,
-                   "groups": group(closes), "cycles": cycles, "days": sorted(days)},
+                   "groups": _gas_groups(closes), "cycles": cycles, "days": sorted(days)},
         "locks": {"groups": lock_groups, "count": len(locks)},
         "rewrite": rewrite,
         "scale": {"tokens": SHIPPED_SCALE_TOKENS, "priceSources": SHIPPED_PRICE_SOURCES,
-                  "cyclesPerDay": SHIPPED_CYCLES_PER_DAY},
+                  "cyclesPerDay": SHIPPED_CYCLES_PER_DAY, "heartbeatTokens": HEARTBEAT_TOKENS,
+                  "heartbeatIntervalsDays": HEARTBEAT_FIXED_INTERVALS_DAYS},
     }
 
 
@@ -1119,11 +1394,11 @@ def main():
                 {"key": "arm1", "label": "all-EAS Indexer",
                  "note": "multiAttest creates the record; indexAttestation is a separate write, and "
                          "the Indexer is not deployed on Ethereum mainnet.",
-                 "addends": ["multiAttest", "indexAttestations"]},
+                 "addends": ["multiAttest", "indexAttestations"], "closeLeg": "index"},
                 {"key": "arm2", "label": "EAS + pointer",
                  "note": "an ownerless pointer contract of our own supplies the (writer, token, "
                          "kind) lookup the mainnet-absent Indexer would.",
-                 "addends": ["multiAttest", "pointBatch"]},
+                 "addends": ["multiAttest", "pointBatch"], "closeLeg": "point"},
             ],
             # multiRevoke is the revoke cost, shown as context; it is not part of the write.
             "related": ["multiRevoke"],
@@ -1163,7 +1438,9 @@ def main():
         "deployed": parse_baseline_read(HERE / "reports" / "eng3922-baseline.txt"),
         "sepolia": parse_sepolia_probes(HERE / "reports" / "eng3922-sepolia-evidence.md", fork_rows),
         "marks": {
-            "aCeiling": MARK_A_CEILING,
+            "tolerance": COST_TOLERANCE_X,
+            "toleranceSource": COST_TOLERANCE_SOURCE,
+            "toleranceSetOn": COST_TOLERANCE_SET_ON,
             "bAbsolute": MARK_B_ABSOLUTE,
             "preRegisteredOn": MARK_PRE_REGISTERED_ON,
             "publicationDirected": MARK_PUBLICATION_DIRECTED,
@@ -1208,6 +1485,10 @@ def main():
     # the gas-anchor labels and the EAS arm key the page looks up by name -- from its text,
     # so that no list here has to be kept in agreement with a list there.
     template = (HERE / "page-template.html").read_text(encoding="utf-8")
+    assert_tolerance_and_heartbeat(template, read["marks"])
+    assert_daily_series(chain)
+    assert_monthly_preset(template)
+    assert_eas_close_legs(batch["eas"])
 
     # The summary card says "three pinned gas scenarios" and renders one column per anchor that is
     # pinned to a named historical block. `now` is re-read on every chain-data refresh and is
