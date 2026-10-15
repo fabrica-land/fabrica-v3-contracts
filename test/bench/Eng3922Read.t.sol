@@ -5,7 +5,7 @@ import {Eng3922HarnessBase} from "./Eng3922HarnessBase.sol";
 import {BenchAggregatorBase} from "./BenchAggregatorBase.sol";
 
 /// @notice ENG-3922 — the go/no-go: gas inside `price()` for a three-source read, per arm.
-/// @dev One measurement per test function, seeding done in `setUp`, per the CLAUDE.md gas guard.
+/// @dev One measurement per test function, seeding done in `setUp`, per the AGENTS.md gas guard.
 ///      One contract per seasoning walk depth so the five arms read identical data at that depth;
 ///      the depth each arm actually walked is reported alongside the gas rather than assumed from
 ///      the fixture.

@@ -256,7 +256,7 @@ deploy evidence.
 
 This states the discipline for THIS deploy. It does not change the repo's CI gating, which is shared
 with the ENG-3523 step and is ENG-4052's to settle, and it does not restate the repo's shipping
-playbook (`CLAUDE.md`, step 3 fork-test before step 4 Sepolia ship), which already puts fork-testing
+playbook (`AGENTS.md`, step 3 fork-test before step 4 Sepolia ship), which already puts fork-testing
 ahead of the deploy.
 
 ## Deployed addresses

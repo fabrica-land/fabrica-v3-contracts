@@ -9,7 +9,7 @@ import {FabricaToken} from "../src/FabricaToken.sol";
 /// REAL proxy (`0x5cbeb7A0…3Ea95`) and the REAL deployed implementation (`0xF8b3…730b`),
 /// impersonating the Safe. Proves the V4 -> V5 -> V6 ceremony lands the new impl, migrates the
 /// owner, bumps the version to 6, and leaves the burn-remint guard active — WITHOUT executing
-/// anything on-chain. CLAUDE.md "Shipping a live contract change" step 6.
+/// anything on-chain. AGENTS.md "Shipping a live contract change" step 6.
 ///
 /// Run: forge test --match-contract FabricaTokenMainnetSafeUpgradeTest --fork-url $MAINNET_RPC_URL -vvv
 contract FabricaTokenMainnetSafeUpgradeTest is Test {

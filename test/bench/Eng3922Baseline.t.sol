@@ -16,7 +16,7 @@ import {FabricaAttributeOracle} from "../../src/FabricaAttributeOracle.sol";
 ///      question. This deploys a fresh instance of the SAME deployed aggregator source, configured
 ///      for three oracle sources and the 24h seasoning window from the 2 September call.
 ///
-///      Structured per the gas-measurement guard in CLAUDE.md: ONE scenario per test function,
+///      Structured per the gas-measurement guard in AGENTS.md: ONE scenario per test function,
 ///      shared priming in `setUp`, `vm.cool` immediately before the measured call, and no loop
 ///      emitting rows. Write-side numbers are quoted as whole-transaction gas (21,000 intrinsic +
 ///      EIP-2028 calldata + execution) because they are costs; the read is quoted as execution gas

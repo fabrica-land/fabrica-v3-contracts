@@ -29,7 +29,7 @@ import {OwnerlessFactStore} from "./OwnerlessFactStore.sol";
 ///      (indexAttestations 38,077,042 = 63.5%, pointBatch 6,119,762 = 10.2%), so both EAS arms'
 ///      ceiling is the attest leg. A projection from the n=100 per-item figure gave 231 and was one
 ///      out, which is why the pair is measured.
-/// @dev Whole-transaction gas (21,000 intrinsic + EIP-2028 calldata + execution) per the CLAUDE.md
+/// @dev Whole-transaction gas (21,000 intrinsic + EIP-2028 calldata + execution) per the AGENTS.md
 ///      guard, because every number here is a cost. `vm.cool` immediately before each measured
 ///      call. Batch figures also report per-item.
 ///
