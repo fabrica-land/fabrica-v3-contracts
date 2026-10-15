@@ -13,7 +13,7 @@ loads nothing from the network.
 Tim, 2026-09-03: a claude.ai artifact's share link pins one version and cannot show the
 latest. The page is committed HTML so the link is the repo and the latest version is
 whatever `main` says. It sits under `bench/` rather than `docs/` because `docs/` is
-gitignored in this repo (see the repo `CLAUDE.md`), so a page under `docs/` would not be
+gitignored in this repo (see the repo `AGENTS.md`), so a page under `docs/` would not be
 committed at all.
 
 ## Layout

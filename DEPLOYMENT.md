@@ -191,7 +191,7 @@ introducing a new network.
 
 Scripts live in `script/` and are split **one per logical operation**, so
 each can be run with a different private key (per the role-separation
-pattern documented in [`CLAUDE.md`](./CLAUDE.md)):
+pattern documented in [`AGENTS.md`](./AGENTS.md)):
 
 | Script suffix | Operation | Wallet that should run it |
 |---------------|-----------|---------------------------|

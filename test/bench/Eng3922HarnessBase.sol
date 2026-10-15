@@ -430,7 +430,7 @@ abstract contract Eng3922HarnessBase is Test {
     // -------------------------------------------------------------------------
 
     /// @notice Gas inside one single-token, quantity-1 `price()` call, from cold storage.
-    /// @dev Per the CLAUDE.md gas guard, exactly ONE of these runs per test function, and the
+    /// @dev Per the AGENTS.md gas guard, exactly ONE of these runs per test function, and the
     ///      cooling is applied immediately before the measured call. `price()` is quoted as
     ///      execution gas because a pool calls it inside its own transaction and it is never sent
     ///      as one; that is the ticket's "gas inside `price()`".
@@ -489,7 +489,7 @@ abstract contract Eng3922HarnessBase is Test {
     }
 
     /// @notice Emit a write cost as execution, intrinsic-plus-calldata, and the whole-transaction
-    ///         total, per the CLAUDE.md guard's "whole-transaction gas when the number is a cost".
+    ///         total, per the AGENTS.md guard's "whole-transaction gas when the number is a cost".
     function _emitCost(string memory label, uint256 execution, bytes memory callData, uint256 items) internal {
         uint256 intrinsic = _intrinsicGas(callData);
         uint256 whole = execution + intrinsic;

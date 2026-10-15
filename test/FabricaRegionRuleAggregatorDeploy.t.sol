@@ -6,7 +6,7 @@ import {FabricaRegionRuleAggregator} from "../src/FabricaRegionRuleAggregator.so
 import {FabricaRegionRuleAggregatorDeployScript} from "../script/FabricaRegionRuleAggregatorDeploy.s.sol";
 
 /// @notice Fork tests for the ENG-4397 region aggregator deploy script, mirroring the pattern
-///         CLAUDE.md's "Shipping a live contract change" playbook asks for: a real Sepolia fork,
+///         AGENTS.md's "Shipping a live contract change" playbook asks for: a real Sepolia fork,
 ///         pinned to a recent block, skipped (not failed) when no RPC is configured.
 contract FabricaRegionRuleAggregatorDeployTest is Test {
     FabricaRegionRuleAggregatorDeployScript internal script;

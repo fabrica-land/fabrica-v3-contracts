@@ -67,7 +67,7 @@ forge script script/FabricaMarketplaceZone.s.sol \
 ### Help
 
 Read the [Foundry book](https://book.getfoundry.sh/) for command help. Do not run
-Foundry `--help` commands inside this repository. See `CLAUDE.md` for the safe
+Foundry `--help` commands inside this repository. See `AGENTS.md` for the safe
 help procedure.
 
 ### Deploying
