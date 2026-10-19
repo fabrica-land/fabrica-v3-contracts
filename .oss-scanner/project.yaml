@@ -1,5 +1,7 @@
 # Repository to scan on its main branch.
 repo: https://github.com/fabrica-land/fabrica-v3-contracts#main
+dockerfile: .oss-scanner/Dockerfile
+threat_model: .oss-scanner/threat_model.md
 
 # Tim should confirm this contact before upstream enrollment.
 primary_contact: tim@fabrica.land
