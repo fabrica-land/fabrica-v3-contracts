@@ -1,0 +1,6 @@
+# Repository to scan on its main branch.
+repo: https://github.com/fabrica-land/fabrica-v3-contracts#main
+
+# Tim should confirm this contact before upstream enrollment.
+primary_contact: tim@fabrica.land
+homepage: https://fabrica.land
