@@ -6,6 +6,10 @@ auto_detect_solc = true
 optimizer = true
 optimizer_runs = 1
 via_ir = false
+# ENG-5167: pinned to the Foundry v1.5.1 defaults. Foundry 1.8.x changed them to osaka and isolate = true.
+# isolate = true runs each call as its own transaction and breaks the cold/warm gas tests.
+evm_version = "prague"
+isolate = false
 
 [rpc_endpoints]
 mainnet = "${MAINNET_RPC_URL}"
