@@ -29,10 +29,13 @@ jobs:
         with:
           version: nightly-9089a6bfdca158b2ef268b3d60923bf1e0879fed
 
+      # The default `run` shell is `bash -e` without pipefail, so `forge --version | grep` would
+      # pass on a failing forge that still printed the pin. The assignment carries forge's status.
       - name: Show Forge version
         run: |
-          forge --version
-          forge --version | grep -F 9089a6bfdca158b2ef268b3d60923bf1e0879fed
+          version="$(forge --version)"
+          printf '%s\n' "$version"
+          printf '%s\n' "$version" | grep -F 9089a6bfdca158b2ef268b3d60923bf1e0879fed
 
       - name: Run Forge fmt
         run: |
