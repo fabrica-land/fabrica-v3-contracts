@@ -17,6 +17,26 @@ jobs:
     name: Foundry project
     runs-on: ubuntu-latest
     steps:
+      - name: ENG-5167 CA trust fix (remove emSign ECC Root CA - G3)
+        shell: bash
+        run: |
+          set +e -uo pipefail
+          B=/etc/ssl/certs/ca-certificates.crt
+          G3=86a1ecba089c4a8d3bbe2734c612ba341d813e043cf9e8a862cd5c57a36bbe6b
+          X1=96bcec06264976f37460779acf28c5a7cfe8a3c0aae11a8ffcee05c0bddf08c6
+          fps() { awk '/-----BEGIN CERTIFICATE-----/{c="openssl x509 -noout -fingerprint -sha256"} c{print | c} /-----END CERTIFICATE-----/{close(c); c=""}' "$B" | sed 's/^.*=//; s/://g' | tr 'A-F' 'a-f'; }
+          if [ "$(fps | grep -c -x "$G3")" != 0 ]; then
+            echo "ENG5167 G3 present: upgrading ca-certificates"
+            sudo apt-get update -qq && sudo apt-get install -y -qq --only-upgrade ca-certificates
+          fi
+          dpkg-query -W ca-certificates
+          FP=$(fps)
+          N=$(printf '%s\n' "$FP" | grep -c .)
+          PEM=$(grep -c 'BEGIN CERTIFICATE' "$B")
+          G3N=$(printf '%s\n' "$FP" | grep -c -x "$G3")
+          X1N=$(printf '%s\n' "$FP" | grep -c -x "$X1")
+          echo "ENG5167 certs=${N} pem_blocks=${PEM} g3_sha256_count=${G3N} isrg_x1_sha256_count=${X1N}"
+          if [ "$G3N" = 0 ] && [ "$X1N" -ge 1 ] && [ "$N" = "$PEM" ]; then echo "ENG5167 MET"; else echo "ENG5167 NOT-MET"; exit 1; fi
       - uses: actions/checkout@v4
         with:
           submodules: recursive
@@ -102,6 +122,26 @@ jobs:
     needs: [check]
     if: ${{ always() && failure() && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') }}
     steps:
+      - name: ENG-5167 CA trust fix (remove emSign ECC Root CA - G3)
+        shell: bash
+        run: |
+          set +e -uo pipefail
+          B=/etc/ssl/certs/ca-certificates.crt
+          G3=86a1ecba089c4a8d3bbe2734c612ba341d813e043cf9e8a862cd5c57a36bbe6b
+          X1=96bcec06264976f37460779acf28c5a7cfe8a3c0aae11a8ffcee05c0bddf08c6
+          fps() { awk '/-----BEGIN CERTIFICATE-----/{c="openssl x509 -noout -fingerprint -sha256"} c{print | c} /-----END CERTIFICATE-----/{close(c); c=""}' "$B" | sed 's/^.*=//; s/://g' | tr 'A-F' 'a-f'; }
+          if [ "$(fps | grep -c -x "$G3")" != 0 ]; then
+            echo "ENG5167 G3 present: upgrading ca-certificates"
+            sudo apt-get update -qq && sudo apt-get install -y -qq --only-upgrade ca-certificates
+          fi
+          dpkg-query -W ca-certificates
+          FP=$(fps)
+          N=$(printf '%s\n' "$FP" | grep -c .)
+          PEM=$(grep -c 'BEGIN CERTIFICATE' "$B")
+          G3N=$(printf '%s\n' "$FP" | grep -c -x "$G3")
+          X1N=$(printf '%s\n' "$FP" | grep -c -x "$X1")
+          echo "ENG5167 certs=${N} pem_blocks=${PEM} g3_sha256_count=${G3N} isrg_x1_sha256_count=${X1N}"
+          if [ "$G3N" = 0 ] && [ "$X1N" -ge 1 ] && [ "$N" = "$PEM" ]; then echo "ENG5167 MET"; else echo "ENG5167 NOT-MET"; exit 1; fi
       - name: Determine status
         id: status
         run: |
