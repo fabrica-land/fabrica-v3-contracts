@@ -21,14 +21,21 @@ jobs:
         with:
           submodules: recursive
 
+      # ENG-5167: nightly, not a stable release. No stable Foundry drops emSign ECC Root CA - G3
+      # (webpki-roots < 1.0.10). foundryup installs `nightly-<sha>` as that exact release tag,
+      # and the version step fails if it resolves anything else. Keep in sync with .oss-scanner/Dockerfile.
       - name: Install Foundry
         uses: foundry-rs/foundry-toolchain@v1
         with:
-          version: v1.5.1
+          version: nightly-9089a6bfdca158b2ef268b3d60923bf1e0879fed
 
+      # The default `run` shell is `bash -e` without pipefail, so `forge --version | grep` would
+      # pass on a failing forge that still printed the pin. The assignment carries forge's status.
       - name: Show Forge version
         run: |
-          forge --version
+          version="$(forge --version)"
+          printf '%s\n' "$version"
+          printf '%s\n' "$version" | grep -F 9089a6bfdca158b2ef268b3d60923bf1e0879fed
 
       - name: Run Forge fmt
         run: |
