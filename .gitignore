@@ -15,3 +15,12 @@ docs/
 
 # Per-worktree tooling state written by worktree-init.sh; belongs in no branch
 .worktree-init.state
+
+# ENG-5623: no backup copies or local secret files at any depth. Git history and sops are the backup.
+**/*.bak*
+**/*.before*
+**/*.override
+**/.env*
+!**/.env.example
+!**/.env.local.example
+**/local.json*
