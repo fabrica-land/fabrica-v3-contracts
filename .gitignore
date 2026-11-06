@@ -24,3 +24,7 @@ docs/
 !**/.env.example
 !**/.env.local.example
 **/local.json*
+
+*.orig
+*~
+*.pre-*
