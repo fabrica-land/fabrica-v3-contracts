@@ -28,3 +28,10 @@ docs/
 *.orig
 *~
 *.pre-*
+
+# ENG-5546 AC15: exclude evidence, logs and config copies.
+.knowledge/
+fv-evidence/
+WORK_LOGS/
+wrap-ups/
+.scratch/
